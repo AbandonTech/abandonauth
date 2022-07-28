@@ -9,6 +9,11 @@ python = "^3.10"
 fastapi = "^0.79.0"
 uvicorn = "^0.18.2"
 toml = "^0.10.2"
+redis = {version = ">=4.2.0rc1", extras = ["hiredis"]}
+python-jose = "^3.3.0"
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+python-dotenv = "^0.20.0"
+classy-config = "^0.3.2"
 
 [tool.poetry.dev-dependencies]
 flake8 = "^4.0.1"

@@ -11,4 +11,8 @@ import uvicorn
 def main() -> None:
     """Run server with hot reloading."""
     uvicorn.run(
-        "abandonauth.main:api", host="127.0.0.1", port=8000, reload=True)
+        "abandonauth.main:app",
+        host="127.0.0.1",
+        port=8000,
+        env_file=".env",
+        reload=True)

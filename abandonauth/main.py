@@ -1,12 +1,15 @@
+import classy_config
+
+classy_config.register_config(".env")
+
 from fastapi import FastAPI
 
-api = FastAPI(
+from .routes import routers
+
+app = FastAPI(
     title="AbandonAuth",
     version="0.0.1"
 )
 
-
-@api.get("/", response_model=dict[str, str])
-async def index() -> dict[str, str]:
-    """Test endpoint."""
-    return {"Hello": "World"}
+for router in routers:
+    app.include_router(router)

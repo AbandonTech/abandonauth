@@ -9,6 +9,7 @@ Authentic Auth Service.
 - [Python >=3.10](https://www.python.org/downloads/)
 - [Poetry](https://python-poetry.org/docs/#installation)
 - [Optional] [Docker](https://docs.docker.com/engine/install/)
+- [Optional] [DockerCompose](https://docs.docker.com/compose/install/compose-plugin/)
 
 ### Running
 
@@ -22,3 +23,6 @@ Install pre-commit to make sure you never fail linting in CI
 ```shell
 poetry run pre-commit install
 ```
+### DockerCompose
+
+The `docker-compose.yml` can be used to create the required services for this app.
