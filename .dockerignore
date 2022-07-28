@@ -1,0 +1,6 @@
+*
+
+# Ignore all and make exceptions
+!abandonauth
+!poetry.lock
+!pyproject.toml
