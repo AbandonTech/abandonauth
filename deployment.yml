@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: abandontech
+  name: abandonauth
+  labels:
+    app: abandonauth
+spec:
+  replicas: 1
+  template:
+    metadata:
+      name: abandonauth
+      labels:
+        app: abandonauth
+    spec:
+      containers:
+        - name: abandonauth
+          image: registry.abandontech.cloud/abandontech/abandonauth
+          imagePullPolicy: Always
+      restartPolicy: Always
+  selector:
+    matchLabels:
+      app: abandonauth
