@@ -1,11 +1,10 @@
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 
-from abandonauth.constants import version
 
 api = FastAPI(
     title="AbandonAuth",
-    version=version
+    version="0.0.1"
 )
 
 

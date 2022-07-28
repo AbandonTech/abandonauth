@@ -1,6 +1,6 @@
 FROM python:3.10-slim
 
-WORKDIR /workspace
+WORKDIR /app
 
 RUN apt update -y \
     && apt install -y curl
