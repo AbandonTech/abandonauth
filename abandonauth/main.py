@@ -1,6 +1,4 @@
 from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
-
 
 api = FastAPI(
     title="AbandonAuth",
@@ -8,6 +6,7 @@ api = FastAPI(
 )
 
 
-@api.get("/")
-async def index():
-    return RedirectResponse("/docs")
+@api.get("/", response_model=dict[str, str])
+async def index() -> dict[str, str]:
+    """Test endpoint."""
+    return {"Hello": "World"}

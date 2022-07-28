@@ -2,7 +2,7 @@ name: Deploy
 
 on:
   workflow_run:
-    workflows: ["Build Image"]
+    workflows: ["Lint & Build Image"]
     branches: [main]
     types:
       - completed
@@ -10,6 +10,9 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: Production
+      url: https://api.abandontech.cloud/auth
 
     steps:
       - name: Checkout repository
