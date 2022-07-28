@@ -23,3 +23,12 @@ jobs:
           KUBE_TOKEN: ${{ secrets.KUBE_TOKEN }}
         with:
           args: apply -f deployment.yml
+
+      - name: Force redeploy
+        uses: actions-hub/kubectl@v1.24.0
+        env:
+          KUBE_HOST: ${{ secrets.KUBE_HOST }}
+          KUBE_CERTIFICATE: ${{ secrets.KUBE_CERTIFICATE }}
+          KUBE_TOKEN: ${{ secrets.KUBE_TOKEN }}
+        with:
+          args: rollout --namespace=abandontech restart deploy abandonauth
