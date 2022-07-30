@@ -1,1 +1,1 @@
-from .jwt_bearer import JWTBearer
+from .jwt import JWTBearer, generate_jwt

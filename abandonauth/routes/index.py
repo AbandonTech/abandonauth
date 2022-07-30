@@ -1,7 +1,9 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import RedirectResponse, Response
+from prisma.models import User
 
-from ..dependencies.email import SmtpClient
+from ..dependencies.auth import JWTBearer
+from ..models import UserDto
 
 router = APIRouter()
 
@@ -12,18 +14,13 @@ async def index() -> Response:
     return RedirectResponse("/docs")
 
 
-@router.post("/", summary="Begin the registration process")
-async def register(email: str) -> None:
-    """Create a new AbandonTech account.
+@router.get("/me", response_model=UserDto)
+async def current_user_information(
+    user_id: int = Depends(JWTBearer())
+) -> UserDto:
+    """Get information about the user from a jwt token."""
+    user = await User.prisma().find_unique({
+        "id": user_id
+    })
 
-    Username is case-insensitive and **unique**.
-    """
-
-    email_client = SmtpClient()
-
-    message = (
-        "Here is your registration token: 12345\n"
-        "You have 15 minutes to create your account using it."
-    )
-
-    email_client.send("Registration Token", message, email)
+    return UserDto(id=user.id, username=user.username)

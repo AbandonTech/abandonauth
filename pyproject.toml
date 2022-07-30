@@ -2,18 +2,19 @@
 name = "abandonauth"
 version = "0.1.0"
 description = ""
-authors = ["GDWR <gregory.dwr@gmail.com>"]
+authors = ["GDWR <gdwr@abandontech.cloud>"]
 
 [tool.poetry.dependencies]
 python = "^3.10"
 fastapi = "^0.79.0"
 uvicorn = "^0.18.2"
 toml = "^0.10.2"
-redis = {version = ">=4.2.0rc1", extras = ["hiredis"]}
 python-jose = "^3.3.0"
-passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+passlib = { extras = ["bcrypt"], version = "^1.7.4" }
 python-dotenv = "^0.20.0"
 classy-config = "^0.3.2"
+requests = "^2.28.1"
+prisma = "^0.6.6"
 
 [tool.poetry.dev-dependencies]
 flake8 = "^4.0.1"
