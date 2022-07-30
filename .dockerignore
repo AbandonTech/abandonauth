@@ -2,5 +2,6 @@
 
 # Ignore all and make exceptions
 !abandonauth
+!prisma
 !poetry.lock
 !pyproject.toml

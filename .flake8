@@ -2,13 +2,17 @@
 docstring-convention=all
 import-order-style=pycharm
 
-# exclude=
+exclude=
+    __init__.py
 
 
 ignore=
 
     # Docstrings
-    C0114, D100, D107, D203, D212, D213
+    C0114, D100, D104, D107, D203, D212, D213
 
     # Annotations
     ANN101, ANN002, ANN003
+
+    # FastAPI loves function calls in params
+    B008

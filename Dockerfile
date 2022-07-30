@@ -12,12 +12,14 @@ RUN curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/get-
 ADD poetry.lock pyproject.toml ./
 RUN $HOME/.poetry/bin/poetry install --no-root
 
-ADD abandonauth ./
-RUN $HOME/.poetry/bin/poetry install
+ADD abandonauth ./abandonauth
+ADD prisma ./prisma
+RUN $HOME/.poetry/bin/poetry install && \
+    $HOME/.poetry/bin/poetry run prisma generate
 
 # Set the version inside the container, defaults to development
 ARG BUILD_VERSION="local"
 ENV VERSION=$BUILD_VERSION
 
 ENTRYPOINT ["uvicorn"]
-CMD ["main:api", "--proxy-headers", "--host", "0.0.0.0", "--port", "80"]
+CMD ["abandonauth.app:app", "--proxy-headers", "--host", "0.0.0.0", "--port", "80"]

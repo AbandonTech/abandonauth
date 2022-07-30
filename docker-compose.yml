@@ -1,0 +1,31 @@
+version: "3"
+
+services:
+
+  abandonauth:
+    build: .
+    profiles:
+      - test
+    depends_on:
+      - database
+    env_file:
+      - .env
+    ports:
+      - "8000:80"
+
+  database:
+    image: "postgres:14"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 2s
+      timeout: 1s
+      retries: 5
+    ports:
+      - "5432:5432"
+    environment:
+      - "POSTGRES_HOST_AUTH_METHOD=trust"
+
+volumes:
+  postgres_data:

@@ -7,6 +7,7 @@ metadata:
     app: abandonauth
 spec:
   replicas: 1
+  revisionHistoryLimit: 0
   template:
     metadata:
       name: abandonauth
@@ -17,41 +18,15 @@ spec:
         - name: abandonauth
           image: "registry.abandontech.cloud/abandontech/abandonauth:development"
           imagePullPolicy: Always
-          args: ["main:api", "--proxy-headers", "--host", "0.0.0.0", "--port", "80", "--root-path", "/dev/auth"]
+          args: [ "abandonauth.app:app", "--proxy-headers", "--host", "0.0.0.0", "--port", "80", "--root-path", "/dev/auth" ]
           ports:
             - containerPort: 80
+          envFrom:
+            - configMapRef:
+                name: abandonauth-config
+            - configMapRef:
+                name: database-config
       restartPolicy: Always
   selector:
     matchLabels:
       app: abandonauth
----
-apiVersion: v1
-kind: Service
-metadata:
-  namespace: abandontech-dev
-  name: abandonauth
-spec:
-  ports:
-  - port: 80
-  selector:
-    app: abandonauth
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  namespace: abandontech-dev
-  name: abandonauth
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
-spec:
-  rules:
-  - host: api.abandontech.cloud
-    http:
-      paths:
-      - path: /dev/auth(/|$)(.*)
-        pathType: Prefix
-        backend:
-          service:
-            name: abandonauth
-            port:
-              number: 80
