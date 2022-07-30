@@ -1,8 +1,10 @@
+import os
+
 from fastapi import FastAPI
 
 api = FastAPI(
     title="AbandonAuth",
-    version="0.0.1"
+    version=os.environ.get("VERSION", "local-dev")
 )
 
 

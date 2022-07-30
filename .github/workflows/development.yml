@@ -1,0 +1,67 @@
+name: Build and Deploy Development
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+
+  build-development:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Add SHORT_SHA env property with commit short sha
+        run: echo "SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`" >> $GITHUB_ENV
+
+      - name: Get short commit sha
+        id: vars
+        run: echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
+
+      - name: Build and push image
+        id: build_and_push_docker_image
+        uses: docker/build-push-action@v2
+        with:
+          context: ./
+          file: ./Dockerfile
+          build-args: BUILD_VERSION=${{ steps.vars.outputs.sha_short }}-dev
+          push: true
+          tags: |
+            registry.abandontech.cloud/abandontech/abandonauth:${{ steps.vars.outputs.sha_short }}
+            registry.abandontech.cloud/abandontech/abandonauth:development
+
+      - name: Image digest
+        run: |
+          echo ${{ steps.build_and_push_docker_image.outputs.digest }}
+
+  deploy-development:
+    runs-on: ubuntu-latest
+    needs: [build-development]
+    environment:
+      name: Development
+      url: https://api.abandontech.cloud/dev/auth
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Deploy manifest
+        uses: actions-hub/kubectl@v1.24.0
+        env:
+          KUBE_HOST: ${{ secrets.KUBE_HOST }}
+          KUBE_CERTIFICATE: ${{ secrets.KUBE_CERTIFICATE }}
+          KUBE_TOKEN: ${{ secrets.KUBE_TOKEN }}
+        with:
+          args: apply -f deployment/development-deployment.yml
+
+      - name: Force redeploy
+        uses: actions-hub/kubectl@v1.24.0
+        env:
+          KUBE_HOST: ${{ secrets.KUBE_HOST }}
+          KUBE_CERTIFICATE: ${{ secrets.KUBE_CERTIFICATE }}
+          KUBE_TOKEN: ${{ secrets.KUBE_TOKEN }}
+        with:
+          args: rollout --namespace=abandontech-dev restart deploy abandonauth
