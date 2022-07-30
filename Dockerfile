@@ -21,5 +21,4 @@ RUN $HOME/.poetry/bin/poetry install && \
 ARG BUILD_VERSION="local"
 ENV VERSION=$BUILD_VERSION
 
-ENTRYPOINT ["uvicorn"]
-CMD ["abandonauth.app:app", "--proxy-headers", "--host", "0.0.0.0", "--port", "80"]
+CMD ["uvicorn", "abandonauth.app:app", "--proxy-headers", "--host", "0.0.0.0", "--port", "80"]

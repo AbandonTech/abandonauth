@@ -18,7 +18,7 @@ spec:
         - name: abandonauth
           image: "registry.abandontech.cloud/abandontech/abandonauth:development"
           imagePullPolicy: Always
-          args: [ "abandonauth.app:app", "--proxy-headers", "--host", "0.0.0.0", "--port", "80", "--root-path", "/dev/auth" ]
+          args: ["sh", "-c", "/root/.poetry/bin/poetry run prisma db push --accept-data-loss && uvicorn abandonauth.app:app --proxy-headers --host 0.0.0.0 --port 80 --root-path /dev/auth" ]
           ports:
             - containerPort: 80
           envFrom:

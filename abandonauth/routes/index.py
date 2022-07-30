@@ -1,17 +1,10 @@
 from fastapi import APIRouter, Depends
-from fastapi.responses import RedirectResponse, Response
 from prisma.models import User
 
 from ..dependencies.auth import JWTBearer
 from ..models import UserDto
 
 router = APIRouter()
-
-
-@router.get("/", include_in_schema=False)
-async def index() -> Response:
-    """Redirect to docs."""
-    return RedirectResponse("/docs")
 
 
 @router.get("/me", response_model=UserDto)
