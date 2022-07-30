@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  namespace: abandontech
+  namespace: abandontech-dev
   name: abandonauth
   labels:
     app: abandonauth
@@ -15,9 +15,9 @@ spec:
     spec:
       containers:
         - name: abandonauth
-          image: registry.abandontech.cloud/abandontech/abandonauth
+          image: "registry.abandontech.cloud/abandontech/abandonauth:development"
           imagePullPolicy: Always
-          args: ["main:api", "--proxy-headers", "--host", "0.0.0.0", "--port", "80", "--root-path", "/auth"]
+          args: ["main:api", "--proxy-headers", "--host", "0.0.0.0", "--port", "80", "--root-path", "/dev/auth"]
           ports:
             - containerPort: 80
       restartPolicy: Always
@@ -28,7 +28,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  namespace: abandontech
+  namespace: abandontech-dev
   name: abandonauth
 spec:
   ports:
@@ -39,7 +39,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  namespace: abandontech
+  namespace: abandontech-dev
   name: abandonauth
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /$2
@@ -48,7 +48,7 @@ spec:
   - host: api.abandontech.cloud
     http:
       paths:
-      - path: /auth(/|$)(.*)
+      - path: /dev/auth(/|$)(.*)
         pathType: Prefix
         backend:
           service:

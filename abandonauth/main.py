@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 from prisma import Prisma
 
@@ -5,7 +7,7 @@ from .routes import routers
 
 app = FastAPI(
     title="AbandonAuth",
-    version="0.0.1",
+    version=os.environ.get("VERSION", "local-dev")
 )
 
 for router in routers:
