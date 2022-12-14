@@ -42,7 +42,7 @@ jobs:
     needs: [build-development]
     environment:
       name: Development
-      url: https://api.abandontech.cloud/dev/auth
+      url: https://auth-dev.abandontech.cloud
 
     steps:
       - name: Checkout repository
