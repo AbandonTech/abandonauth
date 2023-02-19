@@ -39,7 +39,7 @@ jobs:
     needs: [ build-production ]
     environment:
       name: Production
-      url: https://api.abandontech.cloud/auth
+      url: https://auth.abandontech.cloud
 
     steps:
       - name: Checkout repository
