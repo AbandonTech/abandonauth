@@ -1,24 +1,27 @@
 FROM python:3.10-slim
 
-WORKDIR /app
-
-
 RUN apt update -y \
     && apt install -y curl
 
-RUN curl -sSL https://install.python-poetry.org | python - \
-    && $HOME/.local/bin/poetry config virtualenvs.create false
+ENV POETRY_HOME="/opt/poetry" \
+    POETRY_VERSION=1.2.2
+
+ENV PATH="$POETRY_HOME/bin:$PATH"
+
+RUN curl -sSL https://install.python-poetry.org | python3 -
 
 ADD poetry.lock pyproject.toml ./
-RUN $HOME/.local/bin/poetry install --no-root
+RUN poetry config virtualenvs.create false && poetry install
 
 ADD abandonauth ./abandonauth
 ADD prisma ./prisma
-RUN $HOME/.local/bin/poetry install && \
-    $HOME/.local/bin/poetry run prisma generate
+RUN prisma generate
 
 # Set the version inside the container, defaults to development
 ARG BUILD_VERSION="local"
 ENV VERSION=$BUILD_VERSION
 
-CMD ["uvicorn", "abandonauth.app:app", "--proxy-headers", "--host", "0.0.0.0", "--port", "80"]
+EXPOSE 8000
+
+ENTRYPOINT ["/bin/bash", "-c"]
+CMD ["poetry run prisma db push --schema prisma/schema.prisma && poetry run uvicorn abandonauth.app:app --host 0.0.0.0 --port 8000 $uvicorn_extras"]
