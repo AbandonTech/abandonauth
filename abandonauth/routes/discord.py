@@ -27,8 +27,8 @@ async def login_with_discord(code: str, redirect_url: str) -> JwtDto:
         "redirect_uri": redirect_url
     }
 
-    async with httpx.AsyncClient(headers={
-        "Content-Type": "application/x-www-form-urlencoded"}) as client:
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    async with httpx.AsyncClient(headers=headers) as client:
         response = await client.post(f"{API_ENDPOINT}/oauth2/token", data=data)
         response.raise_for_status()
 
