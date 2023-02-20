@@ -7,15 +7,4 @@ fastreactapp/api.
 
 import uvicorn
 
-
-def main() -> None:
-    """Run server with hot reloading."""
-    uvicorn.run(
-        "abandonauth.app:app",
-        host="127.0.0.1",
-        port=8000,
-        env_file=".env",
-        reload=True)
-
-
-main()
+uvicorn.run("run:app", host="0.0.0.0", port=8000, reload=True)  # noqa: S104, E501 Possible binding to all interfaces.

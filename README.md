@@ -5,7 +5,6 @@ Authentic Auth Service... Provides identification of a user from multiple extern
 Currently supported;
 - Discord
 
-
 ## Development Setup
 
 ### Pre-requisites
@@ -13,35 +12,40 @@ Currently supported;
 - [Poetry](https://python-poetry.org/docs/#installation)
 - [Docker](https://docs.docker.com/engine/install/) w/ [DockerCompose](https://docs.docker.com/compose/install/)
 
-### Pre-commit
+## First Time Install
+
+Create your `.env` file in the root project directory, you can copy `.env.sample` as the base for this.
+
+`docker compose up --build`
+
+The first build will result in an error that the Prisma client has not been generated yet. In order to fix this,
+exec into your docker container and in the directory containing the `/prisma` directory (the root directory), run the
+command `prisma generate`. You will need to restart the container, and you should be able to access the test route at
+`localhost:8000/`.
+
+A sample User schema has been created to allow the prisma client to generate upon project creation. This should be
+modified or deleted to fit your app's needs prior to creating any migrations.
+
+## Migrations
+This project is using [prisma](https://www.prisma.io/) as the ORM
+
+### Pushing migrations to the database
+The migrations can be pushed to the running postgresql container using the
+[schema](./prisma/schema.prisma) and migrations found in `./prisma/migrations`.
+
+```shell
+prisma db push --schema prisma/schema.prisma
+```
+
+### Creating migrations
+Migrations can be created by using this command, while the database is running.
+
+```shell
+prisma migrate dev --schema prisma/schema.prisma --name "what this change does"
+```
+
+## Pre-commit
 Install pre-commit to make sure you never fail linting in CI
 ```shell
 poetry run pre-commit install
-```
-
-### Running (local)
-
-If you wish to run outside of docker, you will need to ensure a Postgres instance
-is available for connection. You can use docker for this aspect.
-
-```shell
-# Install only deps
-poetry install --no-root
-
-# We need a database to use. I recommend using docker compose to do this.
-# This will create a postgresql instance running on :5432
-docker compose up database --detach
-
-# Run development server on http://127.0.0.1:8000
-poetry run dev
-```
-
-### Running (in docker)
-
-```shell
-# Run the docker compose services
-docker compose up --build
-
-# By default the webserver is configured to reload on change. If you make significant
-# changes to repository structure or dependencies, please stop and restart the containers
 ```

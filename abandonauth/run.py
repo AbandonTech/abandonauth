@@ -1,9 +1,8 @@
 import os
 
+from abandonauth.routes import routers
 from fastapi import FastAPI
 from prisma import Prisma
-
-from .routes import routers
 
 app = FastAPI(
     title="AbandonAuth",

@@ -1,10 +1,16 @@
+from abandonauth.dependencies.auth import JWTBearer
+from abandonauth.models import UserDto
 from fastapi import APIRouter, Depends
+from fastapi.responses import RedirectResponse
 from prisma.models import User
 
-from ..dependencies.auth import JWTBearer
-from ..models import UserDto
-
 router = APIRouter()
+
+
+@router.get("/", summary="Redirect to docs", include_in_schema=False)
+async def index() -> RedirectResponse:
+    """Redirect to docs when going to root."""
+    return RedirectResponse("/docs")
 
 
 @router.get("/me", response_model=UserDto)

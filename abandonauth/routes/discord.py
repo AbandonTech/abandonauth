@@ -1,10 +1,10 @@
 import httpx
+from abandonauth.dependencies.auth import generate_jwt
+from abandonauth.models import JwtDto
 from classy_config import ConfigValue
 from fastapi import APIRouter, HTTPException
 from prisma.models import User
 
-from ..dependencies.auth import generate_jwt
-from ..models import JwtDto
 
 router = APIRouter(
     prefix="/discord",

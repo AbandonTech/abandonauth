@@ -13,15 +13,18 @@ RUN curl -sSL https://install.python-poetry.org | python3 -
 ADD poetry.lock pyproject.toml ./
 RUN poetry config virtualenvs.create false && poetry install
 
-ADD abandonauth ./abandonauth
-ADD prisma ./prisma
+WORKDIR /workspace
+
+ADD ./abandonauth ./abandonauth
+ADD ./prisma ./prisma
 RUN prisma generate
 
 # Set the version inside the container, defaults to development
 ARG BUILD_VERSION="local"
 ENV VERSION=$BUILD_VERSION
 
+
 EXPOSE 8000
 
 ENTRYPOINT ["/bin/bash", "-c"]
-CMD ["poetry run prisma db push --schema prisma/schema.prisma && poetry run uvicorn abandonauth.app:app --host 0.0.0.0 --port 8000 $uvicorn_extras"]
+CMD ["poetry run prisma db push --schema prisma/schema.prisma && poetry run uvicorn abandonauth:app --host 0.0.0.0 --port 8000 $uvicorn_extras"]
