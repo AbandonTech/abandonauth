@@ -1,0 +1,21 @@
+name: Linting
+
+on:
+  workflow_call
+
+jobs:
+  lint:
+    name: Runs pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install Python Dependencies
+        uses: HassanAbouelela/actions/setup-python@setup-python_v1.4.0
+        with:
+          python_version: "3.11"
+          install_args: "--with=dev"
+
+      - name: Run pre-commit hooks
+        run: pre-commit run --all-files
