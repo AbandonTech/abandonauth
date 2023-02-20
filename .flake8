@@ -24,7 +24,7 @@ ignore=
     I202, I201, I100
     # Function calls in argument defaults
     B008
+
 per-file-ignores=
-    abandonauth/__init__.py:F401,E402
-    abandonauth/__main__.py:S104
-    **/__init__.py:F401
+    abandonauth/models/__init__.py:F401
+    abandonauth/routers/__init__.py:F401

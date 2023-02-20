@@ -1,10 +1,11 @@
-from abandonauth.dependencies.auth import generate_jwt
 import httpx
-from abandonauth.models import JwtDto
-from classy_config import ConfigValue
 from fastapi import APIRouter, HTTPException
 from prisma.models import User
+from starlette.status import HTTP_400_BAD_REQUEST
 
+from abandonauth.dependencies.auth.jwt import generate_jwt
+from abandonauth.models import JwtDto
+from abandonauth.settings import settings
 
 router = APIRouter(
     prefix="/discord",
@@ -12,16 +13,14 @@ router = APIRouter(
 )
 
 API_ENDPOINT = "https://discord.com/api/v10"
-CLIENT_ID = ConfigValue("DISCORD_CLIENT_ID", str)
-CLIENT_SECRET = ConfigValue("DISCORD_CLIENT_SECRET", str)
 
 
 @router.get("", response_model=JwtDto)
 async def login_with_discord(code: str, redirect_url: str) -> JwtDto:
     """Log a user in using Discord's OAuth2 as validation."""
     data = {
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
+        "client_id": settings.DISCORD_CLIENT_ID,
+        "client_secret": settings.DISCORD_CLIENT_SECRET.get_secret_value(),
         "grant_type": "authorization_code",
         "code": code,
         "redirect_uri": redirect_url
@@ -51,7 +50,8 @@ async def login_with_discord(code: str, redirect_url: str) -> JwtDto:
 
     if user is None:
         raise HTTPException(
-            status_code=400,
-            detail="Discord account is not tied to any accounts.")
+            status_code=HTTP_400_BAD_REQUEST,
+            detail="Discord account is not tied to any accounts."
+        )
 
     return JwtDto(token=generate_jwt(user.id))

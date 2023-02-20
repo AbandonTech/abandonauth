@@ -1,5 +1,1 @@
-import classy_config
-
-classy_config.register_config(".env")
-
-from abandonauth.run import app
+from abandonauth.main import app  # noqa: F401 Unused import

@@ -1,27 +1,23 @@
 from datetime import datetime, timedelta, timezone
 
-from classy_config import ConfigValue
 from fastapi import HTTPException, Request
 from fastapi.security import HTTPBearer
 from jose import JWTError, jwt
+from starlette.status import HTTP_403_FORBIDDEN, HTTP_400_BAD_REQUEST
+
+from abandonauth.settings import settings
 
 
-def generate_jwt(
-    user_id: int,
-    *,
-    expires_in: int = ConfigValue("JWT_EXPIRES_IN", int),
-    secret: str = ConfigValue("JWT_SECRET", str),
-    hash_algorithm: str = ConfigValue("JWT_HASHING_ALGO", str),
-) -> str:
+def generate_jwt(user_id: int) -> str:
     """Create a JWT token using the given user ID."""
-    expiration = datetime.now(timezone.utc) + timedelta(expires_in)
+    expiration = datetime.now(timezone.utc) + timedelta(seconds=settings.JWT_EXPIRES_IN_SECONDS)
     token = jwt.encode(
         claims={
             "user_id": user_id,
             "exp": expiration,
         },
-        key=secret,
-        algorithm=hash_algorithm
+        key=settings.JWT_SECRET.get_secret_value(),
+        algorithm=settings.JWT_HASHING_ALGO
     )
     return token
 
@@ -29,14 +25,9 @@ def generate_jwt(
 class JWTBearer(HTTPBearer):
     """Dependency for routes to enforce JWT auth."""
 
-    def __init__(
-        self,
-        secret: str = ConfigValue("JWT_SECRET", str),
-        **kwargs
-    ) -> None:
+    def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        self._secret = secret
         self.token_data: dict | None = None
 
     async def __call__(self, request: Request) -> int:
@@ -48,14 +39,26 @@ class JWTBearer(HTTPBearer):
         If the token has expired, a 400 will be raised
         """
         credentials = await super().__call__(request)
+        if credentials is None:
+            raise HTTPException(
+                status_code=HTTP_403_FORBIDDEN,
+                detail="Invalid authentication credentials",
+            )
+
         credentials_string = credentials.credentials
 
         try:
-            self.token_data = jwt.decode(credentials_string, self._secret)
+            self.token_data = jwt.decode(credentials_string, settings.JWT_SECRET.get_secret_value())
         except JWTError:
-            raise HTTPException(status_code=403, detail="Invalid token format")
+            raise HTTPException(
+                status_code=HTTP_403_FORBIDDEN,
+                detail="Invalid token format"
+            )
 
         if self.token_data["exp"] < datetime.utcnow().timestamp():
-            raise HTTPException(status_code=400, detail="Token has expired")
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail="Token has expired"
+            )
 
         return self.token_data["user_id"]
