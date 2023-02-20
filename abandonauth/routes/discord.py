@@ -1,5 +1,5 @@
-import httpx
 from abandonauth.dependencies.auth import generate_jwt
+import httpx
 from abandonauth.models import JwtDto
 from classy_config import ConfigValue
 from fastapi import APIRouter, HTTPException

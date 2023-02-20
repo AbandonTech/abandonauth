@@ -40,7 +40,8 @@ class JWTBearer(HTTPBearer):
         self.token_data: dict | None = None
 
     async def __call__(self, request: Request) -> int:
-        """Retrieve user from a jwt token provided in headers.
+        """
+        Retrieve user from a jwt token provided in headers.
 
         If no token is present, a 403 will be raised
         If the token is invalid, a 403 will be raised
