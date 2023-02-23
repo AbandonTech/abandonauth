@@ -11,10 +11,9 @@ class Settings(BaseSettings):
     JWT_HASHING_ALGO: str
     JWT_EXPIRES_IN_SECONDS: int
 
-    BASE_URL: str
     DISCORD_CLIENT_ID: str
     DISCORD_CLIENT_SECRET: pydantic.SecretStr
-    DISCORD_CALLBACK_BASE: str
+    DISCORD_CALLBACK: str
 
     class Config:
         frozen = True

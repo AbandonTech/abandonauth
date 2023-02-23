@@ -5,6 +5,8 @@ Authentic Auth Service... Provides identification of a user from multiple extern
 Currently supported;
 - Discord
 
+![Authflow](./docs/authflow.png)
+
 ## First Time Install
 
 Create your `.env` file in the root project directory, you can copy `.env.sample` as the base for this.
@@ -37,3 +39,4 @@ Install pre-commit to make sure you never fail linting in CI
 ```shell
 poetry run pre-commit install
 ```
+![img.png](img.png)
