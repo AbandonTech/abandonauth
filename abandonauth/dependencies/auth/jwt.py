@@ -8,7 +8,7 @@ from starlette.status import HTTP_403_FORBIDDEN, HTTP_400_BAD_REQUEST
 from abandonauth.settings import settings
 
 
-def generate_jwt(user_id: int) -> str:
+def generate_jwt(user_id: str) -> str:
     """Create a JWT token using the given user ID."""
     expiration = datetime.now(timezone.utc) + timedelta(seconds=settings.JWT_EXPIRES_IN_SECONDS)
     token = jwt.encode(
@@ -30,7 +30,7 @@ class JWTBearer(HTTPBearer):
 
         self.token_data: dict | None = None
 
-    async def __call__(self, request: Request) -> int:
+    async def __call__(self, request: Request) -> str:
         """
         Retrieve user from a jwt token provided in headers.
 

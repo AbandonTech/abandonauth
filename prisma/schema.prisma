@@ -9,7 +9,7 @@ generator client {
 }
 
 model User {
-  id              Int             @id @default(autoincrement())
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   username        String          @unique
   discord_account DiscordAccount?
 }
@@ -17,5 +17,5 @@ model User {
 model DiscordAccount {
   id      BigInt @id
   user    User   @relation(fields: [user_id], references: [id])
-  user_id Int    @unique
+  user_id String @unique @db.Uuid
 }

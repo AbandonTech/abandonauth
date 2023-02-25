@@ -16,7 +16,7 @@ async def index() -> RedirectResponse:
 
 
 @router.get("/me", response_model=UserDto)
-async def current_user_information(user_id: int = Depends(JWTBearer())) -> UserDto:
+async def current_user_information(user_id: str = Depends(JWTBearer())) -> UserDto:
     """Get information about the user from a jwt token."""
     user = await User.prisma().find_unique({
         "id": user_id
