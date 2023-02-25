@@ -19,7 +19,7 @@ python-jose = "^3.3.0"
 [tool.poetry.group.dev.dependencies]
 flake8 = "^6.0.0"
 pre-commit = "^3.1.0"
-pyright = "^1.1.294"
+pyright = "^1.1.295"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
