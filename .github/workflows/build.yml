@@ -15,7 +15,7 @@ on:
         default: false
 
 jobs:
-  lint:
+  build:
     name: Build docker image
     runs-on: ubuntu-latest
     steps:
@@ -39,12 +39,11 @@ jobs:
           echo "::set-output name=tag::$tag"
 
       - name: Build and push
-        if: ${{ inputs.push }}
         uses: docker/build-push-action@v3
         with:
           context: .
           file: ./Dockerfile
-          push: true
+          push: ${{ inputs.push }}
           tags: |
             ghcr.io/abandontech/abandonauth:${{ steps.sha_tag.outputs.tag }}
             ${{ inputs.latest && 'ghcr.io/abandontech/abandonauth:latest' || '' }}
