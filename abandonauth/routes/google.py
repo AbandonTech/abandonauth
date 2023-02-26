@@ -12,8 +12,6 @@ router = APIRouter(
     tags=["Google"]
 )
 
-GITHUB_API_BASE = "https://github.com/login/oauth"
-
 
 @router.get("", response_model=JwtDto)
 async def login_with_google(code: str, state: str) -> RedirectResponse:
