@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     DISCORD_CLIENT_SECRET: pydantic.SecretStr
     DISCORD_CALLBACK: str
 
+    GITHUB_CLIENT_ID: str
+    GITHUB_CLIENT_SECRET: pydantic.SecretStr
+    GITHUB_CALLBACK: str
+
     class Config:
         frozen = True
         env_file = '.env'

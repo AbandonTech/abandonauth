@@ -12,10 +12,17 @@ model User {
   id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   username        String          @unique
   discord_account DiscordAccount?
+  github_account  GitHubAccount?
 }
 
 model DiscordAccount {
   id      BigInt @id
+  user    User   @relation(fields: [user_id], references: [id])
+  user_id String @unique @db.Uuid
+}
+
+model GitHubAccount {
+  id      Int    @id
   user    User   @relation(fields: [user_id], references: [id])
   user_id String @unique @db.Uuid
 }
