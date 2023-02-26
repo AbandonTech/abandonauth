@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     GITHUB_CLIENT_SECRET: pydantic.SecretStr
     GITHUB_CALLBACK: str
 
+    GOOGLE_CLIENT_ID: str
+    GOOGLE_CLIENT_SECRET: pydantic.SecretStr
+    GOOGLE_CALLBACK: str
+
     class Config:
         frozen = True
         env_file = '.env'
