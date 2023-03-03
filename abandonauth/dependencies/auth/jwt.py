@@ -56,7 +56,7 @@ class JWTBearer(HTTPBearer):
         credentials_string = credentials.credentials
 
         if credentials_string not in valid_token_cache:
-            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED, detail="Token is no longer valid.")
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED, detail=f"Token is not valid.")
 
         try:
             self.token_data = jwt.decode(credentials_string, settings.JWT_SECRET.get_secret_value())
