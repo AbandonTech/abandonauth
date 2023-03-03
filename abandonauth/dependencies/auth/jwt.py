@@ -31,8 +31,6 @@ def generate_temp_jwt(user_id: str) -> str:
 class JWTBearer(HTTPBearer):
     """Dependency for routes to enforce JWT auth."""
 
-    valid_tokens: dict = {}
-
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
