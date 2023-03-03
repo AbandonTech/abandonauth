@@ -3,12 +3,15 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, Request
 from fastapi.security import HTTPBearer
 from jose import JWTError, jwt
-from starlette.status import HTTP_403_FORBIDDEN, HTTP_400_BAD_REQUEST
+from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
 from abandonauth.settings import settings
 
+# Cache of all valid issued tokens. Tokens should be removed after their first use
+valid_token_cache = {}
 
-def generate_jwt(user_id: str) -> str:
+
+def generate_temp_jwt(user_id: str) -> str:
     """Create a JWT token using the given user ID."""
     expiration = datetime.now(timezone.utc) + timedelta(seconds=settings.JWT_EXPIRES_IN_SECONDS)
     token = jwt.encode(
@@ -19,11 +22,16 @@ def generate_jwt(user_id: str) -> str:
         key=settings.JWT_SECRET.get_secret_value(),
         algorithm=settings.JWT_HASHING_ALGO
     )
+
+    valid_token_cache[token] = None
+
     return token
 
 
 class JWTBearer(HTTPBearer):
     """Dependency for routes to enforce JWT auth."""
+
+    valid_tokens: dict = {}
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -46,6 +54,9 @@ class JWTBearer(HTTPBearer):
             )
 
         credentials_string = credentials.credentials
+
+        if credentials_string not in valid_token_cache:
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED, detail="Token is no longer valid.")
 
         try:
             self.token_data = jwt.decode(credentials_string, settings.JWT_SECRET.get_secret_value())
