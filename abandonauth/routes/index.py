@@ -36,7 +36,7 @@ async def burn_jwt(token: JwtDto):
     Attempts to delete the given token. Returns 200 response regardless of if the token existed.
     """
     try:
-        del valid_token_cache[token.token]
+        valid_token_cache.remove(token.token)
     except KeyError:
         pass
 
