@@ -8,7 +8,7 @@ from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED, HTTP_4
 from abandonauth.settings import settings
 
 # Cache of all valid issued tokens. Tokens should be removed after their first use
-valid_token_cache = {}
+valid_token_cache = set()
 
 
 def generate_temp_jwt(user_id: str) -> str:
@@ -23,7 +23,7 @@ def generate_temp_jwt(user_id: str) -> str:
         algorithm=settings.JWT_HASHING_ALGO
     )
 
-    valid_token_cache[token] = None
+    valid_token_cache.add(token)
 
     return token
 
