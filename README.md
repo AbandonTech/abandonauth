@@ -4,12 +4,15 @@ Authentic Auth Service... Provides identification of a user from multiple extern
 
 Currently supported;
 - Discord
+- GitHub
 
-![Authflow](./docs/authflow.png)
+![Authflow](./docs/imgs/authflow.png)
 
 ## First Time Install
 
 Create your `.env` file in the root project directory, you can copy `.env.sample` as the base for this.
+
+Read how to setup [Discord OAuth2 here.](./docs/DISCORD-OAUTH2.md)
 
 `docker compose up --build`
 
@@ -39,4 +42,3 @@ Install pre-commit to make sure you never fail linting in CI
 ```shell
 poetry run pre-commit install
 ```
-![img.png](img.png)
