@@ -1,6 +1,6 @@
 import os
 
-from abandonauth.routes import routers
+from abandonauth.routers import routers
 from fastapi import FastAPI
 from prisma import Prisma
 
