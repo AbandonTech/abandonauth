@@ -9,7 +9,7 @@ authors = [
 
 [tool.poetry.dependencies]
 python = "^3.10"
-fastapi = "^0.92.0"
+fastapi = "^0.93.0"
 httpx = "^0.23.3"
 uvicorn = "^0.20.0"
 prisma = "^0.8.2"
