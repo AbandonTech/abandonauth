@@ -1,10 +1,9 @@
 import httpx
 from abandonauth.dependencies.auth.jwt import generate_temp_jwt
-from abandonauth.models import JwtDto
+from abandonauth.models import DiscordLoginDto, JwtDto
 from abandonauth.settings import settings
 from fastapi import APIRouter
 from prisma.models import User
-from starlette.responses import RedirectResponse
 
 router = APIRouter(
     prefix="/discord",
@@ -14,8 +13,8 @@ router = APIRouter(
 DISCORD_API_BASE = "https://discord.com/api/v10"
 
 
-@router.get("", response_model=JwtDto)
-async def login_with_discord(code: str, state: str) -> RedirectResponse:
+@router.post("", response_model=JwtDto)
+async def login_with_discord(login_data: DiscordLoginDto) -> JwtDto:
     """Log a user in using Discord's OAuth2 as validation."""
 
     # Gather access token
@@ -23,13 +22,17 @@ async def login_with_discord(code: str, state: str) -> RedirectResponse:
         "client_id": settings.DISCORD_CLIENT_ID,
         "client_secret": settings.DISCORD_CLIENT_SECRET.get_secret_value(),
         "grant_type": "authorization_code",
-        "code": code,
+        "code": login_data.code,
         "redirect_uri": settings.DISCORD_CALLBACK
     }
 
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
     async with httpx.AsyncClient(headers=headers) as client:
         response = await client.post(f"{DISCORD_API_BASE}/oauth2/token", data=data)
+        print("#" * 20)
+        print(response.json())
+        print(data)
+        print("#" * 20)
         response.raise_for_status()
 
         token = response.json()["access_token"]
@@ -62,4 +65,4 @@ async def login_with_discord(code: str, state: str) -> RedirectResponse:
             }
         })
 
-    return RedirectResponse(f"{state}?authentication={generate_temp_jwt(user.id)}")
+    return JwtDto(token=generate_temp_jwt(user.id))
