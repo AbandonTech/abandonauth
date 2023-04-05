@@ -23,16 +23,12 @@ async def login_with_discord(login_data: DiscordLoginDto) -> JwtDto:
         "client_secret": settings.DISCORD_CLIENT_SECRET.get_secret_value(),
         "grant_type": "authorization_code",
         "code": login_data.code,
-        "redirect_uri": settings.DISCORD_CALLBACK
+        "redirect_uri": login_data.redirect_uri
     }
 
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
     async with httpx.AsyncClient(headers=headers) as client:
         response = await client.post(f"{DISCORD_API_BASE}/oauth2/token", data=data)
-        print("#" * 20)
-        print(response.json())
-        print(data)
-        print("#" * 20)
         response.raise_for_status()
 
         token = response.json()["access_token"]
