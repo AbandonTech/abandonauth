@@ -501,14 +501,14 @@ files = [
 
 [[package]]
 name = "pyright"
-version = "1.1.297"
+version = "1.1.310"
 description = "Command line wrapper for pyright"
 category = "dev"
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "pyright-1.1.297-py3-none-any.whl", hash = "sha256:3fd6528280eb649f8b64b7ece55299f01e340d29f4cf257da876957e3ee24062"},
-    {file = "pyright-1.1.297.tar.gz", hash = "sha256:89082de2fbd240fa75767b57824f4d8516f2fb9005047265a67b895547c6272f"},
+    {file = "pyright-1.1.310-py3-none-any.whl", hash = "sha256:55995ac76bf56cb7a44193b7b1ffafc573abab1f1dbc9f62d327f2a1768b3bda"},
+    {file = "pyright-1.1.310.tar.gz", hash = "sha256:9e95335a678db2717eaa0c867d61f9399e916289f4a9f47d993e0df74e7d7391"},
 ]
 
 [package.dependencies]
@@ -764,4 +764,4 @@ test = ["covdefaults (>=2.2.2)", "coverage (>=7.1)", "coverage-enable-subprocess
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "6748e5f12d4e7440b728eb6dcd9319f40f1438814feab49d040e1185630706ac"
+content-hash = "5bcd2137558f11e5944e1bd9b81630465ecb9d55f2a57de10e707c04a2a7806c"
