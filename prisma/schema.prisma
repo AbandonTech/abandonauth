@@ -18,9 +18,10 @@ model User {
 }
 
 model DeveloperApplication {
-  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  owner    User   @relation(fields: [owner_id], references: [id])
-  owner_id String @unique @db.Uuid
+  id            String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  owner         User   @relation(fields: [owner_id], references: [id])
+  owner_id      String @unique @db.Uuid
+  refresh_token String
 }
 
 model DiscordAccount {
