@@ -14,6 +14,13 @@ model User {
   discord_account DiscordAccount?
   github_account  GitHubAccount?
   google_account  GoogleAccount?
+  developer_accounts DeveloperAccount[]
+}
+
+model DeveloperAccount {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  owner    User   @relation(fields: [owner_id], references: [id])
+  owner_id String @unique @db.Uuid
 }
 
 model DiscordAccount {
