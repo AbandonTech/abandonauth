@@ -9,7 +9,8 @@ class Settings(BaseSettings):
 
     JWT_SECRET: pydantic.SecretStr
     JWT_HASHING_ALGO: str
-    JWT_EXPIRES_IN_SECONDS: int
+    JWT_EXPIRES_IN_SECONDS_LONG_LIVED: int
+    JWT_EXPIRES_IN_SECONDS_SHORT_LIVED: int
 
     DISCORD_CLIENT_ID: str
     DISCORD_CLIENT_SECRET: pydantic.SecretStr

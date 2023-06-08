@@ -11,9 +11,14 @@ from abandonauth.settings import settings
 valid_token_cache = set()
 
 
-def generate_temp_jwt(user_id: str) -> str:
-    """Create a JWT token using the given user ID."""
-    expiration = datetime.now(timezone.utc) + timedelta(seconds=settings.JWT_EXPIRES_IN_SECONDS)
+def _generate_jwt(user_id: str, long_lived: bool = False) -> str:
+    if long_lived:
+        exp_seconds = settings.JWT_EXPIRES_IN_SECONDS_LONG_LIVED
+    else:
+        exp_seconds = settings.JWT_EXPIRES_IN_SECONDS_SHORT_LIVED
+
+    expiration = datetime.now(timezone.utc) + timedelta(seconds=exp_seconds)
+
     token = jwt.encode(
         claims={
             "user_id": user_id,
@@ -26,6 +31,15 @@ def generate_temp_jwt(user_id: str) -> str:
     valid_token_cache.add(token)
 
     return token
+
+
+def generate_long_lived_jwt(user_id: str) -> str:
+    return _generate_jwt(user_id, long_lived=True)
+
+
+def generate_temp_jwt(user_id: str) -> str:
+    """Create a JWT token using the given user ID."""
+    return _generate_jwt(user_id, long_lived=False)
 
 
 class JWTBearer(HTTPBearer):
