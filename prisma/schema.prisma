@@ -19,25 +19,25 @@ model User {
 
 model DeveloperApplication {
   id            String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  owner         User   @relation(fields: [owner_id], references: [id])
-  owner_id      String @unique @db.Uuid
+  owner         User   @relation(fields: [owner_id], references: [id], onDelete: Cascade)
+  owner_id      String @db.Uuid
   refresh_token String
 }
 
 model DiscordAccount {
   id      BigInt @id
-  user    User   @relation(fields: [user_id], references: [id])
+  user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
   user_id String @unique @db.Uuid
 }
 
 model GitHubAccount {
   id      Int    @id
-  user    User   @relation(fields: [user_id], references: [id])
+  user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
   user_id String @unique @db.Uuid
 }
 
 model GoogleAccount {
   id      String @id
-  user    User   @relation(fields: [user_id], references: [id])
+  user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
   user_id String @unique @db.Uuid
 }
