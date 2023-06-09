@@ -3,7 +3,7 @@ from fastapi.responses import RedirectResponse
 from prisma.models import User
 from starlette.status import HTTP_404_NOT_FOUND
 
-from abandonauth.dependencies.auth.jwt import valid_token_cache, JWTBearer
+from abandonauth.dependencies.auth.jwt import valid_token_cache, generate_long_lived_jwt, JWTBearer
 from abandonauth.models import JwtDto, UserDto
 
 router = APIRouter()

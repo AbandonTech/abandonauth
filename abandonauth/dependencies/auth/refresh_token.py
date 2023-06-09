@@ -13,4 +13,4 @@ def get_refresh_token_hash(token):
 
 
 def generate_refresh_token():
-    return pwd.genword(entropy=64, charset="ascii_72")
+    return pwd.genword(entropy=122, charset="ascii_72")

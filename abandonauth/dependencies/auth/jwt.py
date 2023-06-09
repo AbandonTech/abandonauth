@@ -33,12 +33,13 @@ def _generate_jwt(user_id: str, long_lived: bool = False) -> str:
         claims={
             "user_id": user_id,
             "exp": expiration,
+            "lifespan": "long" if long_lived else "short"
         },
         key=settings.JWT_SECRET.get_secret_value(),
         algorithm=settings.JWT_HASHING_ALGO
     )
-
-    valid_token_cache.add(token)
+    if not long_lived:
+        valid_token_cache.add(token)
 
     return token
 
@@ -47,7 +48,7 @@ def generate_long_lived_jwt(user_id: str) -> str:
     return _generate_jwt(user_id, long_lived=True)
 
 
-def generate_temp_jwt(user_id: str) -> str:
+def generate_short_lived_jwt(user_id: str) -> str:
     """Create a JWT token using the given user ID."""
     return _generate_jwt(user_id, long_lived=False)
 
@@ -77,9 +78,6 @@ class JWTBearer(HTTPBearer):
 
         credentials_string = credentials.credentials
 
-        if credentials_string not in valid_token_cache:
-            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED, detail="Token is not valid.")
-
         try:
             self.token_data = jwt.decode(credentials_string, settings.JWT_SECRET.get_secret_value())
         except JWTError:
@@ -93,5 +91,8 @@ class JWTBearer(HTTPBearer):
                 status_code=HTTP_400_BAD_REQUEST,
                 detail="Token has expired"
             )
+
+        if self.token_data["lifespan"] == "short" and credentials_string not in valid_token_cache:
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED, detail="Token is not valid.")
 
         return self.token_data["user_id"]

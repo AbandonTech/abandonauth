@@ -1,8 +1,18 @@
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, HTTPException
+from starlette.status import HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
 
-from abandonauth.dependencies.auth.jwt import JWTBearer, generate_long_lived_jwt
-from abandonauth.dependencies.auth.refresh_token import generate_refresh_token, get_refresh_token_hash, verify_refresh_token
-from abandonauth.models import CreateDeveloperApplicationDto, DeveloperApplicationDto, JwtDto
+from abandonauth.dependencies.auth.jwt import JWTBearer, generate_short_lived_jwt
+from abandonauth.dependencies.auth.refresh_token import (
+    generate_refresh_token,
+    get_refresh_token_hash,
+    verify_refresh_token
+)
+from abandonauth.models import (
+    CreateDeveloperApplicationDto,
+    DeveloperApplicationDto,
+    JwtDto,
+    LoginDeveloperApplicationDto
+)
 from prisma.models import DeveloperApplication
 
 router = APIRouter(
@@ -39,28 +49,62 @@ async def create_developer_application(user_id: str = Depends(JWTBearer())) -> C
     response_description="A short-lived JWT to authenticate a developer application",
     response_model=JwtDto
 )
-async def login_developer_application(authentication: str | None = Header(default=None)) -> JwtDto:
+async def login_developer_application(login_data: LoginDeveloperApplicationDto) -> JwtDto:
     """Authenticate a developer application given a long-term refresh token or raise a **401** response.
     
-    Returns a short-lived access token for the developer application.
+    Returns a short-lived exchange token for the developer application.
     """
-    ...
+    dev_app = await DeveloperApplication.prisma().find_unique(
+        {
+            "id": login_data.id
+        }
+    )
+
+    if not dev_app or not verify_refresh_token(login_data.refresh_token, dev_app.refresh_token):
+        raise HTTPException(
+            status_code=HTTP_403_FORBIDDEN,
+            detail="Invalid username or refresh token",
+        )
+
+    return JwtDto(token=generate_short_lived_jwt(dev_app.id))
 
 
 @router.delete(
     "/{application_id}",
-    response_model=DeveloperApplicationDto,
     summary="Delete the developer application with the given id",
-    response_description="The deleted application data"
+    response_description="The deleted application data",
+    response_model=DeveloperApplicationDto
 )
-async def delete_org_server(application_id: int, user_id: str = Depends(JWTBearer())) -> DeveloperApplicationDto:
-    ...
+async def delete_org_server(application_id: str, user_id: str = Depends(JWTBearer())) -> DeveloperApplicationDto:
+    dev_app = await DeveloperApplication.prisma().find_unique({
+        "id": application_id
+    })
+
+    if dev_app and user_id == dev_app.owner_id:
+        deleted = await DeveloperApplication.prisma().delete({
+            "id": dev_app.id
+        })
+
+        return DeveloperApplicationDto(id=deleted.id, owner_id=deleted.owner_id)
+
+    raise HTTPException(status_code=HTTP_404_NOT_FOUND)
 
 
 @router.get(
     "/me",
+    summary="Verify and retrieve information for a developer application",
     response_description="General information about the authenticated developer application",
     response_model=DeveloperApplicationDto
 )
-async def current_developer_application_information(application_id: str = Depends(JWTBearer())) -> DeveloperApplicationDto:
-    ...
+async def current_developer_application_information(
+        application_id: str = Depends(JWTBearer())
+) -> DeveloperApplicationDto:
+    """Get information about the developer application from a jwt."""
+    dev_app = await DeveloperApplication.prisma().find_unique({
+        "id": application_id
+    })
+
+    if dev_app is None:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND)
+
+    return DeveloperApplicationDto(id=dev_app.id, owner_id=dev_app.owner_id)
