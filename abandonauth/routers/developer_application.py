@@ -51,7 +51,7 @@ async def create_developer_application(user_id: str = Depends(JWTBearer())) -> C
 )
 async def login_developer_application(login_data: LoginDeveloperApplicationDto) -> JwtDto:
     """Authenticate a developer application given a long-term refresh token or raise a **401** response.
-    
+
     Returns a short-lived exchange token for the developer application.
     """
     dev_app = await DeveloperApplication.prisma().find_unique(
@@ -100,7 +100,10 @@ async def delete_developer_application(
     response_description="The newly generated refresh token for the application.",
     response_model=CreateDeveloperApplicationDto
 )
-async def change_application_refresh_token(application_id: str, user_id: str = Depends(JWTBearer())) -> CreateDeveloperApplicationDto:
+async def change_application_refresh_token(
+        application_id: str,
+        user_id: str = Depends(JWTBearer())
+) -> CreateDeveloperApplicationDto:
     """Generates and sets a new refresh token for the given developer application.
 
     This action is not reversible and destroys the existing refresh token for the application.
