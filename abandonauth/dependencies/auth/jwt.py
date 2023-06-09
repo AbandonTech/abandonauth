@@ -92,6 +92,9 @@ class JWTBearer(HTTPBearer):
                 detail="Token has expired"
             )
 
+        # If token is short-lived/exchange token check if it currently exists in the token cache
+        # This means short-lived tokens will only work with a single worker
+        # This is a hack and a future version will resolve this https://github.com/AbandonTech/abandonauth/issues/12
         if self.token_data["lifespan"] == "short" and credentials_string not in valid_token_cache:
             raise HTTPException(status_code=HTTP_401_UNAUTHORIZED, detail="Token is not valid.")
 

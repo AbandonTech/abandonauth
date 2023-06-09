@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from starlette.status import HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
+from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_404_NOT_FOUND
 
 from abandonauth.dependencies.auth.jwt import JWTBearer, generate_short_lived_jwt
 from abandonauth.dependencies.auth.refresh_token import (
@@ -62,7 +62,7 @@ async def login_developer_application(login_data: LoginDeveloperApplicationDto) 
 
     if not dev_app or not verify_refresh_token(login_data.refresh_token, dev_app.refresh_token):
         raise HTTPException(
-            status_code=HTTP_403_FORBIDDEN,
+            status_code=HTTP_401_UNAUTHORIZED,
             detail="Invalid username or refresh token",
         )
 
