@@ -11,7 +11,17 @@ from abandonauth.settings import settings
 valid_token_cache = set()
 
 
+def generate_refresh_token() -> str:
+    ...
+
+
 def _generate_jwt(user_id: str, long_lived: bool = False) -> str:
+    """Generate an AbandonAuth long-lived or short-lived JWT for the given user.
+
+    Creates a JWT containing the user ID and expiration of the token.
+    long-lived = True should be used for user login sessions (i.e. website user or internal application login).
+    long-lived = False should be used for any token exchange (i.e. Discord OAuth login).
+    """
     if long_lived:
         exp_seconds = settings.JWT_EXPIRES_IN_SECONDS_LONG_LIVED
     else:

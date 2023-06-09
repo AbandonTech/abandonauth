@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from fastapi.responses import RedirectResponse
 from prisma.models import User
 from starlette.status import HTTP_404_NOT_FOUND
@@ -26,6 +26,17 @@ async def current_user_information(user_id: str = Depends(JWTBearer())) -> UserD
         raise HTTPException(status_code=HTTP_404_NOT_FOUND)
 
     return UserDto(id=user.id, username=user.username)
+
+
+@router.post(
+    "/login",
+    summary="Exchange a temporary AbandonAuth token for a permanent user token.",
+    response_description="A long-lived JWT to authenticate the user on AbandonAuth.",
+    response_model=JwtDto
+)
+async def login_user(authentication: str | None = Header(default=None)) -> JwtDto:
+    """Logs in a user using the given, short-term AbandonAuth JWT."""
+    ...
 
 
 @router.post("/burn-token", status_code=200)
