@@ -89,7 +89,9 @@ async def delete_developer_application(
             "id": dev_app.id
         })
 
-        return DeveloperApplicationDto(id=deleted.id, owner_id=deleted.owner_id)
+        # It should not be possible for this condition to fail. Adding for Pyright
+        if deleted:
+            return DeveloperApplicationDto(id=deleted.id, owner_id=deleted.owner_id)
 
     raise HTTPException(status_code=HTTP_404_NOT_FOUND)
 
@@ -125,7 +127,9 @@ async def change_application_refresh_token(
             }
         )
 
-        return CreateDeveloperApplicationDto(id=updated.id, owner_id=updated.owner_id, token=refresh_token)
+        # It should not be possible for this condition to fail. Adding for Pyright
+        if updated:
+            return CreateDeveloperApplicationDto(id=updated.id, owner_id=updated.owner_id, token=refresh_token)
 
     raise HTTPException(status_code=HTTP_404_NOT_FOUND)
 
