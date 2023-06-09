@@ -60,7 +60,7 @@ async def current_user_information(user_id: str = Depends(JWTBearer())) -> UserD
     response_model=JwtDto
 )
 async def login_user(user_id: str = Depends(JWTBearer())) -> JwtDto:
-    """Logs in a user using the given, short-term AbandonAuth JWT."""
+    """Logs in a user using a short-term or long-term AbandonAuth JWT."""
     return JwtDto(token=generate_long_lived_jwt(user_id))
 
 
