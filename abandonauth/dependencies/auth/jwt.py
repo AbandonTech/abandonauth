@@ -12,10 +12,6 @@ from abandonauth.settings import settings
 valid_token_cache = set()
 
 
-def generate_refresh_token() -> str:
-    ...
-
-
 def _generate_jwt(user_id: str, long_lived: bool = False) -> str:
     """Generate an AbandonAuth long-lived or short-lived JWT for the given user.
 
