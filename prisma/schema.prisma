@@ -9,11 +9,11 @@ generator client {
 }
 
 model User {
-  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  username        String
-  discord_account DiscordAccount?
-  github_account  GitHubAccount?
-  google_account  GoogleAccount?
+  id                     String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  username               String
+  discord_account        DiscordAccount?
+  github_account         GitHubAccount?
+  google_account         GoogleAccount?
   developer_applications DeveloperApplication[]
 }
 
