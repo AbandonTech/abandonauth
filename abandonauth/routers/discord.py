@@ -1,5 +1,5 @@
 import httpx
-from abandonauth.dependencies.auth.jwt import generate_temp_jwt
+from abandonauth.dependencies.auth.jwt import generate_short_lived_jwt
 from abandonauth.models import DiscordLoginDto, JwtDto
 from abandonauth.settings import settings
 from fastapi import APIRouter
@@ -61,4 +61,4 @@ async def login_with_discord(login_data: DiscordLoginDto) -> JwtDto:
             }
         })
 
-    return JwtDto(token=generate_temp_jwt(user.id))
+    return JwtDto(token=generate_short_lived_jwt(user.id))

@@ -4,6 +4,7 @@ from fastapi import HTTPException, Request
 from fastapi.security import HTTPBearer
 from jose import JWTError, jwt
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
+from typing import Any
 
 from abandonauth.settings import settings
 
@@ -11,30 +12,51 @@ from abandonauth.settings import settings
 valid_token_cache = set()
 
 
-def generate_temp_jwt(user_id: str) -> str:
-    """Create a JWT token using the given user ID."""
-    expiration = datetime.now(timezone.utc) + timedelta(seconds=settings.JWT_EXPIRES_IN_SECONDS)
+def _generate_jwt(user_id: str, long_lived: bool = False) -> str:
+    """Generate an AbandonAuth long-lived or short-lived JWT for the given user.
+
+    Creates a JWT containing the user ID and expiration of the token.
+    long-lived = True should be used for user login sessions (i.e. website user or internal application login).
+    long-lived = False should be used for any token exchange (i.e. Discord OAuth login).
+    """
+    if long_lived:
+        exp_seconds = settings.JWT_EXPIRES_IN_SECONDS_LONG_LIVED
+    else:
+        exp_seconds = settings.JWT_EXPIRES_IN_SECONDS_SHORT_LIVED
+
+    expiration = datetime.now(timezone.utc) + timedelta(seconds=exp_seconds)
+
     token = jwt.encode(
         claims={
             "user_id": user_id,
             "exp": expiration,
+            "lifespan": "long" if long_lived else "short"
         },
         key=settings.JWT_SECRET.get_secret_value(),
         algorithm=settings.JWT_HASHING_ALGO
     )
-
-    valid_token_cache.add(token)
+    if not long_lived:
+        valid_token_cache.add(token)
 
     return token
+
+
+def generate_long_lived_jwt(user_id: str) -> str:
+    return _generate_jwt(user_id, long_lived=True)
+
+
+def generate_short_lived_jwt(user_id: str) -> str:
+    """Create a JWT token using the given user ID."""
+    return _generate_jwt(user_id, long_lived=False)
 
 
 class JWTBearer(HTTPBearer):
     """Dependency for routes to enforce JWT auth."""
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
-        self.token_data: dict | None = None
+        self.token_data: dict[str, Any] | None = None
 
     async def __call__(self, request: Request) -> str:
         """
@@ -53,9 +75,6 @@ class JWTBearer(HTTPBearer):
 
         credentials_string = credentials.credentials
 
-        if credentials_string not in valid_token_cache:
-            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED, detail="Token is not valid.")
-
         try:
             self.token_data = jwt.decode(credentials_string, settings.JWT_SECRET.get_secret_value())
         except JWTError:
@@ -69,5 +88,11 @@ class JWTBearer(HTTPBearer):
                 status_code=HTTP_400_BAD_REQUEST,
                 detail="Token has expired"
             )
+
+        # If token is short-lived/exchange token check if it currently exists in the token cache
+        # This means short-lived tokens will only work with a single worker
+        # This is a hack and a future version will resolve this https://github.com/AbandonTech/abandonauth/issues/12
+        if self.token_data["lifespan"] == "short" and credentials_string not in valid_token_cache:
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED, detail="Token is not valid.")
 
         return self.token_data["user_id"]

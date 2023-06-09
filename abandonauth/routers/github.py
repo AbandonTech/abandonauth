@@ -1,5 +1,5 @@
 import httpx
-from abandonauth.dependencies.auth.jwt import generate_temp_jwt
+from abandonauth.dependencies.auth.jwt import generate_short_lived_jwt
 from abandonauth.models import JwtDto
 from abandonauth.settings import settings
 from fastapi import APIRouter
@@ -58,4 +58,4 @@ async def login_with_github(code: str, state: str) -> RedirectResponse:
             }
         })
 
-    return RedirectResponse(f"{state}?authentication={generate_temp_jwt(user.id)}")
+    return RedirectResponse(f"{state}?authentication={generate_short_lived_jwt(user.id)}")
