@@ -7,6 +7,10 @@ authors = [
     "Fisher60 <kyler@abandontech.cloud>",
 ]
 
+[tool.pyright]
+reportMissingParameterType = true
+reportMissingTypeArgument = true
+
 [tool.poetry.dependencies]
 python = "^3.10"
 fastapi = "^0.92.0"

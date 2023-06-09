@@ -4,6 +4,7 @@ from fastapi import HTTPException, Request
 from fastapi.security import HTTPBearer
 from jose import JWTError, jwt
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
+from typing import Any
 
 from abandonauth.settings import settings
 
@@ -56,10 +57,10 @@ def generate_short_lived_jwt(user_id: str) -> str:
 class JWTBearer(HTTPBearer):
     """Dependency for routes to enforce JWT auth."""
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
-        self.token_data: dict | None = None
+        self.token_data: dict[str, Any] | None = None
 
     async def __call__(self, request: Request) -> str:
         """
