@@ -4,7 +4,8 @@ from prisma.models import User
 from starlette.status import HTTP_404_NOT_FOUND
 
 from abandonauth.dependencies.auth.jwt import valid_token_cache, generate_long_lived_jwt, JWTBearer
-from abandonauth.models import JwtDto, UserDto
+from abandonauth.models import JwtDto, DeveloperApplicationDto, UserDto
+from prisma.models import DeveloperApplication
 
 router = APIRouter()
 
@@ -13,6 +14,23 @@ router = APIRouter()
 async def index() -> RedirectResponse:
     """Redirect to docs when going to root."""
     return RedirectResponse("/docs")
+
+
+@router.get(
+    "/user/applications",
+    summary="List all developer applications owned by the current user.",
+    response_description="List of developer applications",
+    response_model=list[DeveloperApplicationDto]
+)
+async def get_user_applications(user_id: str = Depends(JWTBearer())) -> list[DeveloperApplicationDto]:
+    """List all developer applications owned by the authenticated user."""
+    dev_apps = await DeveloperApplication.prisma().find_many(
+        where={
+            "owner_id": user_id
+        }
+    )
+
+    return [DeveloperApplicationDto(id=x.id, owner_id=x.owner_id) for x in dev_apps]
 
 
 @router.get("/me", response_model=UserDto)

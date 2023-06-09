@@ -75,7 +75,11 @@ async def login_developer_application(login_data: LoginDeveloperApplicationDto) 
     response_description="The deleted application data",
     response_model=DeveloperApplicationDto
 )
-async def delete_org_server(application_id: str, user_id: str = Depends(JWTBearer())) -> DeveloperApplicationDto:
+async def delete_developer_application(
+        application_id: str,
+        user_id: str = Depends(JWTBearer())
+) -> DeveloperApplicationDto:
+    """Delete the given developer application if the current user owns the application."""
     dev_app = await DeveloperApplication.prisma().find_unique({
         "id": application_id
     })
@@ -86,6 +90,39 @@ async def delete_org_server(application_id: str, user_id: str = Depends(JWTBeare
         })
 
         return DeveloperApplicationDto(id=deleted.id, owner_id=deleted.owner_id)
+
+    raise HTTPException(status_code=HTTP_404_NOT_FOUND)
+
+
+@router.patch(
+    "/{application_id}",
+    summary="Change the refresh token on a developer application. This is not reversible.",
+    response_description="The newly generated refresh token for the application.",
+    response_model=CreateDeveloperApplicationDto
+)
+async def change_application_refresh_token(application_id: str, user_id: str = Depends(JWTBearer())) -> CreateDeveloperApplicationDto:
+    """Generates and sets a new refresh token for the given developer application.
+
+    This action is not reversible and destroys the existing refresh token for the application.
+    """
+    dev_app = await DeveloperApplication.prisma().find_unique({
+        "id": application_id
+    })
+
+    if dev_app and user_id == dev_app.owner_id:
+        refresh_token = generate_refresh_token()
+        hashed_token = get_refresh_token_hash(refresh_token)
+
+        updated = await DeveloperApplication.prisma().update(
+            where={
+                "id": dev_app.id
+            },
+            data={
+                "refresh_token": hashed_token
+            }
+        )
+
+        return CreateDeveloperApplicationDto(id=updated.id, owner_id=updated.owner_id, token=refresh_token)
 
     raise HTTPException(status_code=HTTP_404_NOT_FOUND)
 
