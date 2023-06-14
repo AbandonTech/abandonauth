@@ -22,9 +22,9 @@ async def identify_user(user_id: str) -> User:
     return user
 
 
-@router.get("/", summary="Redirect to docs", include_in_schema=False)
+@router.get("/", summary="Redirect to landing page", include_in_schema=False)
 async def index() -> RedirectResponse:
-    """Redirect to docs when going to root."""
+    """Redirect to landing page when going to root."""
     return RedirectResponse("/ui")
 
 
