@@ -3,6 +3,7 @@ from .discord import router as discord_router
 from .github import router as github_router
 from .google import router as google_router
 from .index import router as index_router
+from .ui import router as ui_router
 
 routers = [
     developer_router,
@@ -10,4 +11,5 @@ routers = [
     github_router,
     google_router,
     index_router,
+    ui_router
 ]
