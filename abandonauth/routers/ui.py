@@ -3,7 +3,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from abandonauth import templates
+from abandonauth import templates  # type: ignore
 
 from abandonauth.models import DiscordLoginDto
 from abandonauth.routers.discord import login_with_discord
@@ -11,6 +11,7 @@ from abandonauth.settings import settings
 
 router = APIRouter(prefix="/ui")
 
+print(templates.__path__)
 jinja_templates = Jinja2Templates(directory=templates.__path__)
 
 BASE_URL = "http://localhost"
