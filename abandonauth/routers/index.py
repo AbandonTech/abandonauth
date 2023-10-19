@@ -22,10 +22,10 @@ async def identify_user(user_id: str) -> User:
     return user
 
 
-@router.get("/", summary="Redirect to docs", include_in_schema=False)
+@router.get("/", summary="Redirect to landing page", include_in_schema=False)
 async def index() -> RedirectResponse:
-    """Redirect to docs when going to root."""
-    return RedirectResponse("/docs")
+    """Redirect to landing page when going to root."""
+    return RedirectResponse("/ui")
 
 
 @router.get(
@@ -53,7 +53,7 @@ async def current_user_information(user_id: str = Depends(JWTBearer())) -> UserD
     return UserDto(id=user.id, username=user.username)
 
 
-@router.post(
+@router.get(
     "/login",
     summary="Exchange a temporary AbandonAuth token for a permanent user token.",
     response_description="A long-lived JWT to authenticate the user on AbandonAuth.",

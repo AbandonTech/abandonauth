@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AbandonAuth</title>
+</head>
+    <body>
+    <h3>Abandon Auth Developer UI</h3>
+        <a href="/docs">Docs</a>
+        <div>
+            {% if authenticated %}
+                <button onclick="deleteAuthCookie()">Logout</button>
+            {% else %}
+                <a href={{ discord_redirect }}>Login</a>
+            {% endif %}
+        </div>
+
+        <script>
+            function deleteAuthCookie(){
+                document.cookie = "Authorization" +'=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+                location.reload();
+            }
+        </script>
+    </body>
+</html>
