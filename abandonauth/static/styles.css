@@ -1,0 +1,109 @@
+:root {
+    --White: #F6F6F6;
+    --Background: #3F3F46;
+    --GitHub: #333;
+    --Discord: #5865F2;
+}
+
+body {
+    background: var(--Background);
+    color: var(--White);
+    font-family: 'Lato', sans-serif;
+    margin: 0;
+}
+
+button:hover {
+    cursor: pointer;
+}
+
+footer {
+    bottom: 0;
+}
+
+#content {
+    display: flex;
+    height: 100vh;
+    flex-direction: column;
+    justify-content: space-evenly;
+    align-items: center;
+}
+
+#title {
+    font-size: 6rem;
+    font-family: 'Atkinson Hyperlegible', sans-serif;
+    margin: 0;
+}
+
+#subtitle {
+    font-size: 1.75rem;
+    font-weight: 400;
+    font-family: 'Atkinson Hyperlegible', sans-serif;
+    margin: 0;
+}
+
+#header {
+    display: flex;
+    flex-direction: column;
+    align-items: left;
+    flex-shrink: 0;
+}
+
+#login-buttons {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2vh;
+
+    height: 33vh;
+
+    width: 66vw;
+}
+
+button[id^="login-"] {
+    color: var(--White);
+    border-radius: 10px;
+    border: none;
+
+    display: flex;
+    width: 100%;
+
+    height: 15%;
+    align-items: center;
+    gap: 5%;
+
+    font-size: 2rem;
+}
+
+button[id^="login-"] > svg {
+    height: 66%;
+    margin: 3% 0 3% 3%;
+}
+
+
+#login-discord {
+    background: var(--Discord);
+}
+
+#login-github {
+    background: var(--GitHub);
+}
+
+@media (min-width: 1024px) {
+    #title {
+        font-size: 4rem;
+
+    }
+
+    #subtitle {
+        font-size: 1.25em;
+
+    }
+
+    #login-buttons {
+        width: 33vw;
+    }
+
+    button[id^="login-"] {
+        font-size: 1.25rem;
+    }
+}
