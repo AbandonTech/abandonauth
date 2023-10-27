@@ -2,12 +2,15 @@ import os
 
 from abandonauth.routers import routers
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from prisma import Prisma
 
 app = FastAPI(
     title="AbandonAuth",
     version=os.environ.get("VERSION", "local-dev")
 )
+
+app.mount("/static", StaticFiles(directory="./abandonauth/static"), name="static")
 
 for router in routers:
     app.include_router(router)
