@@ -145,7 +145,7 @@ async def change_application_refresh_token(
     response_description="General information about the developer application",
     response_model=DeveloperApplicationWithCallbackUriDto
 )
-async def current_developer_application_information(
+async def get_developer_application(
     application_id: str,
     user_id: str = Depends(JWTBearer())
 ) -> DeveloperApplicationWithCallbackUriDto:
@@ -158,7 +158,11 @@ async def current_developer_application_information(
     if not (dev_app and user_id == dev_app.owner_id):
         raise HTTPException(status_code=HTTP_404_NOT_FOUND)
 
-    return DeveloperApplicationWithCallbackUriDto(id=dev_app.id, owner_id=dev_app.owner_id, callback_uris=[x.uri for x in dev_app.callback_uris])
+    return DeveloperApplicationWithCallbackUriDto(
+        id=dev_app.id,
+        owner_id=dev_app.owner_id,
+        callback_uris=[x.uri for x in dev_app.callback_uris]
+    )
 
 
 @router.patch(
@@ -202,16 +206,16 @@ async def update_developer_application_callback_uris(
     for delete_uri in existing_callback_uris:
         if delete_uri not in callback_uris:
             uris_to_delete.append(existing_callback_uris[delete_uri])
-    
+
     # Batch the creation of new URIs and the deletion of URIs that were not given in the request
     # Only URIs that were passed into the request should exist after the entire exchange is done
     async with prisma_db.batch_() as batcher:
         for create_uri in callback_uris_to_create:
             batcher.callbackuri.create(dict(create_uri))
-        
+
         for delete_uri in uris_to_delete:
             batcher.callbackuri.delete(where={"id": delete_uri.id})
-    
+
     return DeveloperApplicationDto(id=dev_app.id, owner_id=dev_app.owner_id)
 
 
