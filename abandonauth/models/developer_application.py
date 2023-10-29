@@ -19,3 +19,15 @@ class LoginDeveloperApplicationDto(BaseModel):
 
     id: str
     refresh_token: str
+
+
+class CreateCallbackUriDto(BaseModel):
+    """Data for creating a callback URI"""
+    developer_application_id: str
+    uri: str
+
+
+class CallbackUriDto(CreateCallbackUriDto):
+    """All data that should be displayed to a user for a callback URI"""
+    id: int
+

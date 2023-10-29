@@ -8,12 +8,15 @@ from abandonauth.dependencies.auth.refresh_token import (
     verify_refresh_token
 )
 from abandonauth.models import (
+    CallbackUriDto,
+    CreateCallbackUriDto,
     CreateDeveloperApplicationDto,
     DeveloperApplicationDto,
     JwtDto,
     LoginDeveloperApplicationDto
 )
 from prisma.models import DeveloperApplication
+
 
 router = APIRouter(
     prefix="/developer_application",
@@ -97,7 +100,7 @@ async def delete_developer_application(
 
 
 @router.patch(
-    "/{application_id}",
+    "/{application_id}/reset_token",
     summary="Change the refresh token on a developer application. This is not reversible.",
     response_description="The newly generated refresh token for the application.",
     response_model=CreateDeveloperApplicationDto
@@ -132,6 +135,44 @@ async def change_application_refresh_token(
             return CreateDeveloperApplicationDto(id=updated.id, owner_id=updated.owner_id, token=refresh_token)
 
     raise HTTPException(status_code=HTTP_404_NOT_FOUND)
+
+
+@router.patch(
+    "/{application_id}/callback_uris",
+    summary="Upate the callback URIs for the given developer application",
+    response_description="The new list of callback URIs for the developer application",
+    response_model=list[CallbackUriDto]
+)
+async def update_developer_application_callback_uris(
+        application_id: str,
+        callback_uris: list[str],
+        user_id: str = Depends(JWTBearer())
+) -> list[CallbackUriDto]:
+    """Generates and sets a new refresh token for the given developer application.
+
+    This action is not reversible and destroys the existing refresh token for the application.
+    """
+    dev_app = await DeveloperApplication.prisma().find_unique(
+        where={"id": application_id},
+        include={"callback_uris": True}
+    )
+
+    if not (dev_app and user_id == dev_app.owner_id):
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND)
+
+    existing_callback_uris = [x.uri for x in dev_app.callback_uris]
+
+    for uri in callback_uris:
+
+
+    updated = await DeveloperApplication.prisma().update(
+        where={
+            "id": dev_app.id
+        },
+        data={
+            "": hashed_token
+        }
+    )
 
 
 @router.get(
