@@ -12,6 +12,20 @@ body {
     margin: 0;
 }
 
+.alert-container {
+  position: absolute;
+  top: 5px;
+  width: 50vw;
+  font-size: 1.75rem;
+}
+
+.error-banner {
+  padding: 10px;
+  color: white;
+  background-color: #e65449;
+  margin-top: 10px;
+}
+
 button:hover {
     cursor: pointer;
 }

@@ -37,6 +37,28 @@ async def index(request: Request):
     )
 
 
+@router.get("/login", response_class=HTMLResponse, include_in_schema=False)
+async def oauth_login(request: Request, application_id: str | None = None, callback_uri: str | None = None):
+    """Login for initiating the OAuth flow
+
+    This page is used to start the OAuth flow for applications using AbandonAuth.
+    Users are redirected to the selected identity provider then directed to the specified, verified callback uri.
+    Callback URL is validated as being valid for the given application ID.
+    """
+
+    errors = ["test"]
+    if not (application_id and callback_uri):
+        errors.append("Request url is invalid, login cannot be completed")
+
+    return jinja_templates.TemplateResponse(
+        "login.html",
+        {
+            "request": request,
+            "errors": errors
+        }
+    )
+
+
 @router.get("/discord-callback", response_class=RedirectResponse)
 async def discord_callback(request: Request) -> RedirectResponse:
     """Discord callback endpoint for authenticating with Discord OAuth with AbandonAuth UI."""
