@@ -7,6 +7,7 @@ class DeveloperApplicationDto(BaseModel):
     id: str
     owner_id: str
 
+
 class DeveloperApplicationWithCallbackUriDto(DeveloperApplicationDto):
     """Basic data for developer applications as well as the Callback URIs for the app"""
 
@@ -35,4 +36,3 @@ class CreateCallbackUriDto(BaseModel):
 class CallbackUriDto(CreateCallbackUriDto):
     """All data that should be displayed to a user for a callback URI"""
     id: int
-
