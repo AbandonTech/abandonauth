@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_404_NOT_FOUND
 
+from abandonauth.database import prisma_db
 from abandonauth.dependencies.auth.jwt import JWTBearer, generate_short_lived_jwt
 from abandonauth.dependencies.auth.refresh_token import (
     generate_refresh_token,
@@ -8,14 +9,15 @@ from abandonauth.dependencies.auth.refresh_token import (
     verify_refresh_token
 )
 from abandonauth.models import (
-    CallbackUriDto,
     CreateCallbackUriDto,
     CreateDeveloperApplicationDto,
     DeveloperApplicationDto,
+    DeveloperApplicationWithCallbackUriDto,
     JwtDto,
     LoginDeveloperApplicationDto
 )
-from prisma.models import DeveloperApplication
+
+from prisma.models import CallbackUri, DeveloperApplication
 
 
 router = APIRouter(
@@ -137,20 +139,44 @@ async def change_application_refresh_token(
     raise HTTPException(status_code=HTTP_404_NOT_FOUND)
 
 
+@router.get(
+    "/{application_id}",
+    summary="Retrieve the given application if it belongs to the currently authenticated user",
+    response_description="General information about the developer application",
+    response_model=DeveloperApplicationWithCallbackUriDto
+)
+async def current_developer_application_information(
+    application_id: str,
+    user_id: str = Depends(JWTBearer())
+) -> DeveloperApplicationWithCallbackUriDto:
+    """Get information about the given developer application if the requesting user owns the developer app."""
+    dev_app = await DeveloperApplication.prisma().find_unique(
+        where={"id": application_id},
+        include={"callback_uris": True}
+    )
+
+    if not (dev_app and user_id == dev_app.owner_id):
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND)
+
+    return DeveloperApplicationWithCallbackUriDto(id=dev_app.id, owner_id=dev_app.owner_id, callback_uris=[x.uri for x in dev_app.callback_uris])
+
+
 @router.patch(
     "/{application_id}/callback_uris",
     summary="Upate the callback URIs for the given developer application",
     response_description="The new list of callback URIs for the developer application",
-    response_model=list[CallbackUriDto]
+    response_model=DeveloperApplicationDto
 )
 async def update_developer_application_callback_uris(
         application_id: str,
         callback_uris: list[str],
         user_id: str = Depends(JWTBearer())
-) -> list[CallbackUriDto]:
-    """Generates and sets a new refresh token for the given developer application.
+) -> DeveloperApplicationDto:
+    """Replace the valid callback URIs for the given developer application and return the given developer application
 
-    This action is not reversible and destroys the existing refresh token for the application.
+    Create all callback URIs that do not exist yet.
+    Delete all callback URIs that already exist and were not given in this request.
+    Callback URIs that already exist and were given in this request will remain in the database unaltered.
     """
     dev_app = await DeveloperApplication.prisma().find_unique(
         where={"id": application_id},
@@ -160,19 +186,33 @@ async def update_developer_application_callback_uris(
     if not (dev_app and user_id == dev_app.owner_id):
         raise HTTPException(status_code=HTTP_404_NOT_FOUND)
 
-    existing_callback_uris = [x.uri for x in dev_app.callback_uris]
+    existing_callback_uris: dict[str, CallbackUri] = {x.uri: x for x in dev_app.callback_uris}
+
+    # Gather URIs that do not exist yet and stage them for creation
+    callback_uris_to_create: list[CreateCallbackUriDto] = []
 
     for uri in callback_uris:
+        if uri not in existing_callback_uris:
+            to_create = CreateCallbackUriDto(developer_application_id=dev_app.id, uri=uri)
+            callback_uris_to_create.append(to_create)
 
+    # Gather URIs that already exist and were not specified in the request and stage them for deletion
+    uris_to_delete: list[CallbackUri] = []
 
-    updated = await DeveloperApplication.prisma().update(
-        where={
-            "id": dev_app.id
-        },
-        data={
-            "": hashed_token
-        }
-    )
+    for delete_uri in existing_callback_uris:
+        if delete_uri not in callback_uris:
+            uris_to_delete.append(existing_callback_uris[delete_uri])
+    
+    # Batch the creation of new URIs and the deletion of URIs that were not given in the request
+    # Only URIs that were passed into the request should exist after the entire exchange is done
+    async with prisma_db.batch_() as batcher:
+        for create_uri in callback_uris_to_create:
+            batcher.callbackuri.create(dict(create_uri))
+        
+        for delete_uri in uris_to_delete:
+            batcher.callbackuri.delete(where={"id": delete_uri.id})
+    
+    return DeveloperApplicationDto(id=dev_app.id, owner_id=dev_app.owner_id)
 
 
 @router.get(
