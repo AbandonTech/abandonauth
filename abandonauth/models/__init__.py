@@ -3,6 +3,7 @@ from .developer_application import (
     CreateCallbackUriDto,
     CreateDeveloperApplicationDto,
     DeveloperApplicationDto,
+    DeveloperApplicationWithCallbackUriDto,
     LoginDeveloperApplicationDto
 )
 from .discord import DiscordLoginDto

@@ -7,6 +7,11 @@ class DeveloperApplicationDto(BaseModel):
     id: str
     owner_id: str
 
+class DeveloperApplicationWithCallbackUriDto(DeveloperApplicationDto):
+    """Basic data for developer applications as well as the Callback URIs for the app"""
+
+    callback_uris: list[str]
+
 
 class CreateDeveloperApplicationDto(DeveloperApplicationDto):
     """Basic info for a developer application as well as the refresh token."""
