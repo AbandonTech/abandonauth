@@ -11,7 +11,6 @@ from abandonauth.settings import settings
 
 router = APIRouter(prefix="/ui")
 
-print(templates.__path__)
 jinja_templates = Jinja2Templates(directory=templates.__path__)
 
 BASE_URL = "http://localhost"
