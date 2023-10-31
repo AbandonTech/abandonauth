@@ -2,6 +2,7 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from prisma.models import DeveloperApplication
 
 from abandonauth import templates  # type: ignore
 
@@ -18,7 +19,7 @@ BASE_URL = "http://localhost"
 
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def index(request: Request):
-    """Landing page for AbandonAuth UI."""
+    """Developer landing page for AbandonAuth UI."""
     if token := request.cookies.get("Authorization"):
         async with httpx.AsyncClient() as client:
             headers = {"Authorization": f"Bearer {token}"}
@@ -48,6 +49,11 @@ async def oauth_login(request: Request, application_id: str | None = None, callb
     errors = ["test"]
     if not (application_id and callback_uri):
         errors.append("Request url is invalid, login cannot be completed")
+    else:
+        dev_app = await DeveloperApplication.prisma().find_unique(
+            where={"id": application_id},
+            include={"callback_uris": True}
+        )
 
     return jinja_templates.TemplateResponse(
         "login.html",
