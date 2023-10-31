@@ -17,8 +17,6 @@
             <div>
                 {% if authenticated %}
                     <button onclick="deleteAuthCookie()">Logout</button>
-                {% else %}
-                    <a href={{ discord_redirect }}>Login</a>
                 {% endif %}
             </div>
             <script>

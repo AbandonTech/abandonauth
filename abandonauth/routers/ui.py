@@ -1,8 +1,9 @@
 import httpx
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from prisma.models import DeveloperApplication
+from starlette.status import HTTP_403_FORBIDDEN
 
 from abandonauth import templates  # type: ignore
 
@@ -20,6 +21,8 @@ BASE_URL = "http://localhost"
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def index(request: Request):
     """Developer landing page for AbandonAuth UI."""
+    internal_app_id = settings.ABANDON_AUTH_DEVELOPER_APP_ID
+
     if token := request.cookies.get("Authorization"):
         async with httpx.AsyncClient() as client:
             headers = {"Authorization": f"Bearer {token}"}
@@ -27,11 +30,13 @@ async def index(request: Request):
     else:
         authenticated = False
 
+    if authenticated is False:
+        return RedirectResponse(f"/ui/login?application_id={internal_app_id}&callback_uri=/ui")
+
     return jinja_templates.TemplateResponse(
         "index.html",
         {
             "request": request,
-            "discord_redirect": settings.ABANDON_AUTH_DISCORD_REDIRECT,
             "authenticated": authenticated
         }
     )
@@ -55,10 +60,19 @@ async def oauth_login(request: Request, application_id: str | None = None, callb
             include={"callback_uris": True}
         )
 
+        if not dev_app or callback_uri not in [x.uri for x in dev_app.callback_uris]:
+            raise HTTPException(
+                status_code=HTTP_403_FORBIDDEN,
+                detail="Invalid application ID or callback_uri",
+            )
+
+    discord_login_url = f"{settings.ABANDON_AUTH_DISCORD_REDIRECT}&state={callback_uri}"
+
     return jinja_templates.TemplateResponse(
         "login.html",
         {
             "request": request,
+            "discord_redirect": discord_login_url,
             "errors": errors
         }
     )
@@ -69,6 +83,7 @@ async def discord_callback(request: Request) -> RedirectResponse:
     """Discord callback endpoint for authenticating with Discord OAuth with AbandonAuth UI."""
     code = request.query_params.get("code")
 
+    redirect_url = request.query_params.get("state")
     if code:
         login_data = DiscordLoginDto(code=code, redirect_uri=settings.ABANDON_AUTH_DISCORD_CALLBACK)
         exchange_token = (await login_with_discord(login_data)).token
@@ -77,9 +92,9 @@ async def discord_callback(request: Request) -> RedirectResponse:
             headers = {"Authorization": f"Bearer {exchange_token}"}
             user_token = (await client.get(f"{BASE_URL}/login", headers=headers)).json().get("token")
 
-        resp = RedirectResponse("/ui")
+        resp = RedirectResponse(redirect_url)
         resp.set_cookie(key="Authorization", value=user_token)
 
         return resp
 
-    return RedirectResponse("/ui")
+    return RedirectResponse(redirect_url)
