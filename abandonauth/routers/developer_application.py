@@ -19,6 +19,8 @@ from abandonauth.models import (
 
 from prisma.models import CallbackUri, DeveloperApplication
 
+from abandonauth.models.auth import JwtClaimsDataDto
+from abandonauth.settings import settings
 
 router = APIRouter(
     prefix="/developer_application",
@@ -32,7 +34,9 @@ router = APIRouter(
     response_description="The refresh token for the new developer account.",
     response_model=CreateDeveloperApplicationDto
 )
-async def create_developer_application(user_id: str = Depends(JWTBearer())) -> CreateDeveloperApplicationDto:
+async def create_developer_application(
+        token_data: JwtClaimsDataDto = Depends(JWTBearer())
+) -> CreateDeveloperApplicationDto:
     """Create a new developer application owned by the currently authenticated User.
 
     Returns the permanent refresh token for the account. This token can only be manually changed.
@@ -41,7 +45,7 @@ async def create_developer_application(user_id: str = Depends(JWTBearer())) -> C
     hashed_token = get_refresh_token_hash(refresh_token)
 
     dev_app = await DeveloperApplication.prisma().create({
-        "owner_id": user_id,
+        "owner_id": token_data.user_id,
         "refresh_token": hashed_token
     })
 
@@ -71,7 +75,7 @@ async def login_developer_application(login_data: LoginDeveloperApplicationDto) 
             detail="Invalid username or refresh token",
         )
 
-    return JwtDto(token=generate_short_lived_jwt(dev_app.id))
+    return JwtDto(token=generate_short_lived_jwt(dev_app.id, settings.ABANDON_AUTH_DEVELOPER_APP_ID))
 
 
 @router.delete(
@@ -82,14 +86,14 @@ async def login_developer_application(login_data: LoginDeveloperApplicationDto) 
 )
 async def delete_developer_application(
         application_id: str,
-        user_id: str = Depends(JWTBearer())
+        token_data: JwtClaimsDataDto = Depends(JWTBearer())
 ) -> DeveloperApplicationDto:
     """Delete the given developer application if the current user owns the application."""
     dev_app = await DeveloperApplication.prisma().find_unique({
         "id": application_id
     })
 
-    if dev_app and user_id == dev_app.owner_id:
+    if dev_app and token_data.user_id == dev_app.owner_id:
         deleted = await DeveloperApplication.prisma().delete({
             "id": dev_app.id
         })
@@ -109,7 +113,7 @@ async def delete_developer_application(
 )
 async def change_application_refresh_token(
         application_id: str,
-        user_id: str = Depends(JWTBearer())
+        token_data: JwtClaimsDataDto = Depends(JWTBearer())
 ) -> CreateDeveloperApplicationDto:
     """Generates and sets a new refresh token for the given developer application.
 
@@ -119,7 +123,7 @@ async def change_application_refresh_token(
         "id": application_id
     })
 
-    if dev_app and user_id == dev_app.owner_id:
+    if dev_app and token_data.user_id == dev_app.owner_id:
         refresh_token = generate_refresh_token()
         hashed_token = get_refresh_token_hash(refresh_token)
 
@@ -147,7 +151,7 @@ async def change_application_refresh_token(
 )
 async def get_developer_application(
     application_id: str,
-    user_id: str = Depends(JWTBearer())
+    token_data: JwtClaimsDataDto = Depends(JWTBearer())
 ) -> DeveloperApplicationWithCallbackUriDto:
     """Get information about the given developer application if the requesting user owns the developer app."""
     dev_app = await DeveloperApplication.prisma().find_unique(
@@ -155,7 +159,7 @@ async def get_developer_application(
         include={"callback_uris": True}
     )
 
-    if not (dev_app and user_id == dev_app.owner_id):
+    if not (dev_app and token_data.user_id == dev_app.owner_id):
         raise HTTPException(status_code=HTTP_404_NOT_FOUND)
 
     return DeveloperApplicationWithCallbackUriDto(
@@ -174,7 +178,7 @@ async def get_developer_application(
 async def update_developer_application_callback_uris(
         application_id: str,
         callback_uris: list[str],
-        user_id: str = Depends(JWTBearer())
+        token_data: JwtClaimsDataDto = Depends(JWTBearer())
 ) -> DeveloperApplicationDto:
     """Replace the valid callback URIs for the given developer application and return the given developer application
 
@@ -187,7 +191,7 @@ async def update_developer_application_callback_uris(
         include={"callback_uris": True}
     )
 
-    if not (dev_app and user_id == dev_app.owner_id):
+    if not (dev_app and token_data.user_id == dev_app.owner_id):
         raise HTTPException(status_code=HTTP_404_NOT_FOUND)
 
     if dev_app.callback_uris:
@@ -232,11 +236,11 @@ async def update_developer_application_callback_uris(
     response_model=DeveloperApplicationDto
 )
 async def current_developer_application_information(
-        application_id: str = Depends(JWTBearer())
+        token_data: JwtClaimsDataDto = Depends(JWTBearer())
 ) -> DeveloperApplicationDto:
     """Get information about the developer application from a jwt."""
     dev_app = await DeveloperApplication.prisma().find_unique({
-        "id": application_id
+        "id": token_data.user_id
     })
 
     if dev_app is None:

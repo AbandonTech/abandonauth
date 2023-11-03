@@ -7,6 +7,8 @@ from abandonauth.dependencies.auth.jwt import valid_token_cache, generate_long_l
 from abandonauth.models import JwtDto, DeveloperApplicationDto, UserDto
 from prisma.models import DeveloperApplication
 
+from abandonauth.models.auth import JwtClaimsDataDto
+
 router = APIRouter()
 
 
@@ -34,11 +36,11 @@ async def index() -> RedirectResponse:
     response_description="List of developer applications",
     response_model=list[DeveloperApplicationDto]
 )
-async def get_user_applications(user_id: str = Depends(JWTBearer())) -> list[DeveloperApplicationDto]:
+async def get_user_applications(token_data: JwtClaimsDataDto = Depends(JWTBearer())) -> list[DeveloperApplicationDto]:
     """List all developer applications owned by the authenticated user."""
     dev_apps = await DeveloperApplication.prisma().find_many(
         where={
-            "owner_id": user_id
+            "owner_id": token_data.user_id
         }
     )
 
@@ -46,9 +48,9 @@ async def get_user_applications(user_id: str = Depends(JWTBearer())) -> list[Dev
 
 
 @router.get("/me", response_model=UserDto)
-async def current_user_information(user_id: str = Depends(JWTBearer())) -> UserDto:
+async def current_user_information(token_data: JwtClaimsDataDto = Depends(JWTBearer())) -> UserDto:
     """Get information about the user from a jwt token."""
-    user = await identify_user(user_id)
+    user = await identify_user(token_data.user_id)
 
     return UserDto(id=user.id, username=user.username)
 
@@ -59,9 +61,9 @@ async def current_user_information(user_id: str = Depends(JWTBearer())) -> UserD
     response_description="A long-lived JWT to authenticate the user on AbandonAuth.",
     response_model=JwtDto
 )
-async def login_user(user_id: str = Depends(JWTBearer())) -> JwtDto:
+async def login_user(token_data: JwtClaimsDataDto = Depends(JWTBearer())) -> JwtDto:
     """Logs in a user using a short-term or long-term AbandonAuth JWT."""
-    return JwtDto(token=generate_long_lived_jwt(user_id))
+    return JwtDto(token=generate_long_lived_jwt(token_data.user_id, token_data.aud))
 
 
 @router.post("/burn-token", status_code=200)

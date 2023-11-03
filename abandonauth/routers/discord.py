@@ -13,8 +13,7 @@ router = APIRouter(
 DISCORD_API_BASE = "https://discord.com/api/v10"
 
 
-@router.post("", response_model=JwtDto)
-async def login_with_discord(login_data: DiscordLoginDto) -> JwtDto:
+async def login_with_discord(login_data: DiscordLoginDto, application_id: str) -> JwtDto:
     """Log a user in using Discord's OAuth2 as validation."""
 
     # Gather access token
@@ -61,4 +60,4 @@ async def login_with_discord(login_data: DiscordLoginDto) -> JwtDto:
             }
         })
 
-    return JwtDto(token=generate_short_lived_jwt(user.id))
+    return JwtDto(token=generate_short_lived_jwt(user.id, application_id))
