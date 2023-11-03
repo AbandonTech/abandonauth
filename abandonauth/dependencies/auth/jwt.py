@@ -6,7 +6,7 @@ from jose import JWTError, jwt
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 from typing import Any
 
-from abandonauth.models.auth import JwtClaimsDataDto
+from abandonauth.models.auth import JwtClaimsDataDto, ScopeEnum, LifespanEnum
 from abandonauth.settings import settings
 
 # Cache of all valid issued tokens. Tokens should be removed after their first use
@@ -31,9 +31,9 @@ def _generate_jwt(user_id: str, application_id_aud: str, long_lived: bool = Fals
     claims = JwtClaimsDataDto(
         user_id=user_id,
         exp=expiration,
-        scope="identify",
+        scope=ScopeEnum.identify,
         aud=application_id_aud,
-        lifespan="long" if long_lived else "short"
+        lifespan=LifespanEnum.long if long_lived else LifespanEnum.short
     )
 
     token = jwt.encode(
