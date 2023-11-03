@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     ABANDON_AUTH_DISCORD_REDIRECT: str
     ABANDON_AUTH_DISCORD_CALLBACK: str
-    ABANDON_AUTH_DEVELOPER_APP_ID: str | None = None
+    ABANDON_AUTH_DEVELOPER_APP_ID: str
     DISCORD_CLIENT_ID: str
     DISCORD_CLIENT_SECRET: pydantic.SecretStr
 
