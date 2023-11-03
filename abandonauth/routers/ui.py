@@ -20,16 +20,42 @@ BASE_URL = "http://localhost"
 
 
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
-async def developer_dashboard(request: Request):
+async def index(request: Request, code: str | None = None):
     """Developer landing page for AbandonAuth UI."""
     internal_app_id = settings.ABANDON_AUTH_DEVELOPER_APP_ID
+
+    if exchange_token := code:
+        token = get_new_token(exchange_token).token
+    else:
+        token = request.cookies.get("Authorization")
+
+    authenticated = False
+
+    if token:
+        async with httpx.AsyncClient() as client:
+            headers = {"Authorization": f"Bearer {token}"}
+            authenticated = (await client.get(f"{BASE_URL}/me", headers=headers)).status_code == 200
+
+    if authenticated is False:
+        return RedirectResponse(f"/ui/login?application_id={internal_app_id}&callback_uri=/ui")
+
+    resp = RedirectResponse("/ui/developer_dashboard")
+    resp.set_cookie(key="Authorization", value=token)  # pyright: ignore
+
+    return resp
+
+
+@router.get("/developer_dashboard", response_class=HTMLResponse, include_in_schema=False)
+async def developer_dashboard(request: Request):
+    """Developer dashboard page for AbandonAuth UI."""
+    internal_app_id = settings.ABANDON_AUTH_DEVELOPER_APP_ID
+
+    authenticated = False
 
     if token := request.cookies.get("Authorization"):
         async with httpx.AsyncClient() as client:
             headers = {"Authorization": f"Bearer {token}"}
             authenticated = (await client.get(f"{BASE_URL}/me", headers=headers)).status_code == 200
-    else:
-        authenticated = False
 
     if authenticated is False:
         return RedirectResponse(f"/ui/login?application_id={internal_app_id}&callback_uri=/ui")
@@ -116,10 +142,7 @@ async def discord_callback(request: Request) -> RedirectResponse:
         login_data = DiscordLoginDto(code=code, redirect_uri=settings.ABANDON_AUTH_DISCORD_CALLBACK)
         exchange_token = (await login_with_discord(login_data, app_id)).token
 
-        user_token = get_new_token(exchange_token).token
-
-        resp = RedirectResponse(redirect_url)
-        resp.set_cookie(key="Authorization", value=user_token)
+        resp = RedirectResponse(f"{redirect_url}?code={exchange_token}")
 
         return resp
 
