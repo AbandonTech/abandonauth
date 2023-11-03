@@ -51,7 +51,7 @@ async def oauth_login(request: Request, application_id: str | None = None, callb
     Callback URL is validated as being valid for the given application ID.
     """
 
-    errors = ["test"]
+    errors = []
     if not (application_id and callback_uri):
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
