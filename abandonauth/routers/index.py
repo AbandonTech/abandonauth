@@ -7,7 +7,7 @@ from abandonauth.dependencies.auth.jwt import valid_token_cache, generate_long_l
 from abandonauth.models import JwtDto, DeveloperApplicationDto, UserDto
 from prisma.models import DeveloperApplication
 
-from abandonauth.models.auth import JwtClaimsDataDto
+from abandonauth.models.auth import JwtClaimsDataDto, ScopeEnum
 
 router = APIRouter()
 
@@ -36,7 +36,9 @@ async def index() -> RedirectResponse:
     response_description="List of developer applications",
     response_model=list[DeveloperApplicationDto]
 )
-async def get_user_applications(token_data: JwtClaimsDataDto = Depends(JWTBearer())) -> list[DeveloperApplicationDto]:
+async def get_user_applications(
+        token_data: JwtClaimsDataDto = Depends(JWTBearer())
+) -> list[DeveloperApplicationDto]:
     """List all developer applications owned by the authenticated user."""
     dev_apps = await DeveloperApplication.prisma().find_many(
         where={
@@ -48,7 +50,9 @@ async def get_user_applications(token_data: JwtClaimsDataDto = Depends(JWTBearer
 
 
 @router.get("/me", response_model=UserDto)
-async def current_user_information(token_data: JwtClaimsDataDto = Depends(JWTBearer())) -> UserDto:
+async def current_user_information(
+        token_data: JwtClaimsDataDto = Depends(JWTBearer(scope=ScopeEnum.identify))
+) -> UserDto:
     """Get information about the user from a jwt token."""
     user = await identify_user(token_data.user_id)
 

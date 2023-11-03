@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, Request
 from fastapi.security import HTTPBearer
 from jose import JWTError, jwt
-from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
+from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 from typing import Any
 
 from abandonauth.models.auth import JwtClaimsDataDto, ScopeEnum, LifespanEnum
@@ -28,10 +28,15 @@ def _generate_jwt(user_id: str, application_id_aud: str, long_lived: bool = Fals
 
     expiration = datetime.now(timezone.utc) + timedelta(seconds=exp_seconds)
 
+    if long_lived and application_id_aud == settings.ABANDON_AUTH_DEVELOPER_APP_ID:
+        scope = " ".join((ScopeEnum.abandonauth, ScopeEnum.identify))
+    else:
+        scope = ScopeEnum.identify
+
     claims = JwtClaimsDataDto(
         user_id=user_id,
         exp=expiration,
-        scope=ScopeEnum.identify,
+        scope=scope,
         aud=application_id_aud,
         lifespan=LifespanEnum.long if long_lived else LifespanEnum.short
     )
@@ -59,11 +64,12 @@ def generate_short_lived_jwt(user_id: str, application_id_aud: str) -> str:
 class JWTBearer(HTTPBearer):
     """Dependency for routes to enforce JWT auth."""
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, verify_aud: bool = False, scope: ScopeEnum = ScopeEnum.abandonauth, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
         self.token_data: dict[str, Any] | None = None
-        self.decode_options = {"verify_aud": False}
+        self.ignore_aud_decode_options = None if verify_aud else {"verify_aud": False}
+        self.required_scope = scope
 
     async def __call__(self, request: Request) -> JwtClaimsDataDto:
         """
@@ -71,7 +77,7 @@ class JWTBearer(HTTPBearer):
 
         If no token is present, a 403 will be raised
         If the token is invalid, a 403 will be raised
-        If the token has expired, a 400 will be raised
+        If the token has expired, a 403 will be raised
         """
         credentials = await super().__call__(request)
         if credentials is None:
@@ -86,7 +92,7 @@ class JWTBearer(HTTPBearer):
             self.token_data = jwt.decode(
                 credentials_string,
                 settings.JWT_SECRET.get_secret_value(),
-                options=self.decode_options
+                options=self.ignore_aud_decode_options
             )
         except JWTError:
             raise HTTPException(
@@ -96,8 +102,14 @@ class JWTBearer(HTTPBearer):
 
         if self.token_data["exp"] < datetime.utcnow().timestamp():
             raise HTTPException(
-                status_code=HTTP_400_BAD_REQUEST,
+                status_code=HTTP_403_FORBIDDEN,
                 detail="Token has expired"
+            )
+
+        if self.required_scope != ScopeEnum.none and self.required_scope not in self.token_data["scope"]:
+            raise HTTPException(
+                status_code=HTTP_403_FORBIDDEN,
+                detail="JWT lacks the required scope to access this endpoint."
             )
 
         # If token is short-lived/exchange token check if it currently exists in the token cache

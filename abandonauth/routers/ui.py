@@ -53,7 +53,10 @@ async def oauth_login(request: Request, application_id: str | None = None, callb
 
     errors = ["test"]
     if not (application_id and callback_uri):
-        errors.append("Request url is invalid, login cannot be completed")
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail="Both application_id and callback_uri are required"
+        )
     else:
         dev_app = await DeveloperApplication.prisma().find_unique(
             where={"id": application_id},
@@ -66,7 +69,7 @@ async def oauth_login(request: Request, application_id: str | None = None, callb
                 detail="Invalid application ID or callback_uri",
             )
 
-    discord_login_url = f"{settings.ABANDON_AUTH_DISCORD_REDIRECT}&state={application_id},{callback_uri}"
+    discord_login_url = f"{settings.ABANDON_AUTH_DISCORD_REDIRECT}&state={dev_app.id},{callback_uri}"
 
     return jinja_templates.TemplateResponse(
         "login.html",

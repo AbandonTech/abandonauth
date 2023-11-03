@@ -12,6 +12,8 @@ class JwtDto(BaseModel):
 
 class ScopeEnum(str, Enum):
     identify = "identify"
+    abandonauth = "abandonauth"
+    none = None
 
 
 class LifespanEnum(str, Enum):
@@ -24,6 +26,6 @@ class JwtClaimsDataDto(BaseModel):
 
     user_id: str
     exp: datetime
-    scope: ScopeEnum
+    scope: str
     aud: str
     lifespan: LifespanEnum
