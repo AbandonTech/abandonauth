@@ -9,6 +9,7 @@ from abandonauth import templates  # type: ignore
 
 from abandonauth.models import DiscordLoginDto
 from abandonauth.routers.discord import login_with_discord
+from abandonauth.routers.index import get_new_token
 from abandonauth.settings import settings
 
 router = APIRouter(prefix="/ui")
@@ -115,9 +116,7 @@ async def discord_callback(request: Request) -> RedirectResponse:
         login_data = DiscordLoginDto(code=code, redirect_uri=settings.ABANDON_AUTH_DISCORD_CALLBACK)
         exchange_token = (await login_with_discord(login_data, app_id)).token
 
-        async with httpx.AsyncClient() as client:
-            headers = {"Authorization": f"Bearer {exchange_token}"}
-            user_token = (await client.get(f"{BASE_URL}/login", headers=headers)).json().get("token")
+        user_token = get_new_token(exchange_token).token
 
         resp = RedirectResponse(redirect_url)
         resp.set_cookie(key="Authorization", value=user_token)
