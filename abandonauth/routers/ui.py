@@ -63,6 +63,8 @@ async def oauth_login(request: Request, application_id: str | None = None, callb
             include={"callback_uris": True}
         )
 
+        # This check is very important. application ID and callback URI must be validated
+        # The state in the discord login URL is naively trusted and therefore must be secure and verified at all times
         if not dev_app or not dev_app.callback_uris or callback_uri not in [x.uri for x in dev_app.callback_uris]:
             raise HTTPException(
                 status_code=HTTP_403_FORBIDDEN,
@@ -86,6 +88,8 @@ async def discord_callback(request: Request) -> RedirectResponse:
     """Discord callback endpoint for authenticating with Discord OAuth with AbandonAuth UI."""
     code = request.query_params.get("code")
 
+    # Application ID and callback URI are verified before being added to the discord callback URI
+    # The state param can/must be trusted here based on the checks done before building the URI on the login UI
     if request_state := request.query_params.get("state"):
         app_id, redirect_url = request_state.split(",")
     else:
