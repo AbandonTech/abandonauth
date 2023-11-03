@@ -63,8 +63,8 @@ async def oauth_login(request: Request, application_id: str | None = None, callb
             include={"callback_uris": True}
         )
 
-        # This check is very important. application ID and callback URI must be validated
-        # The state in the discord login URL is naively trusted and therefore must be secure and verified at all times
+        # This check is a convenience in order to provide accurate and immediate feedback to users
+        # The security check for application IDs and callback URIs must be done later in the auth flow
         if not dev_app or not dev_app.callback_uris or callback_uri not in [x.uri for x in dev_app.callback_uris]:
             raise HTTPException(
                 status_code=HTTP_403_FORBIDDEN,
@@ -89,9 +89,22 @@ async def discord_callback(request: Request) -> RedirectResponse:
     code = request.query_params.get("code")
 
     # Application ID and callback URI are verified before being added to the discord callback URI
-    # The state param can/must be trusted here based on the checks done before building the URI on the login UI
+    # The state param can be altered via user input on previous steps and must be verified here
     if request_state := request.query_params.get("state"):
         app_id, redirect_url = request_state.split(",")
+
+        dev_app = await DeveloperApplication.prisma().find_unique(
+            where={"id": app_id},
+            include={"callback_uris": True}
+        )
+
+        # This check is very important. application ID and callback URI must be validated
+        # The state in the discord login URL cannot be trusted
+        if not dev_app or not dev_app.callback_uris or redirect_url not in [x.uri for x in dev_app.callback_uris]:
+            raise HTTPException(
+                status_code=HTTP_403_FORBIDDEN,
+                detail="Invalid application ID or callback_uri",
+            )
     else:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
