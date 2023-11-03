@@ -170,7 +170,7 @@ async def get_developer_application(
     return DeveloperApplicationWithCallbackUriDto(
         id=dev_app.id,
         owner_id=dev_app.owner_id,
-        callback_uris=[x.uri for x in dev_app.callback_uris]
+        callback_uris=callbacks
     )
 
 
@@ -223,7 +223,7 @@ async def update_developer_application_callback_uris(
     # Only URIs that were passed into the request should exist after the entire exchange is done
     async with prisma_db.batch_() as batcher:
         for create_uri in callback_uris_to_create:
-            batcher.callbackuri.create(dict(create_uri))
+            batcher.callbackuri.create(dict(create_uri))  # pyright: ignore
 
         for delete_uri in uris_to_delete:
             batcher.callbackuri.delete(where={"id": delete_uri.id})

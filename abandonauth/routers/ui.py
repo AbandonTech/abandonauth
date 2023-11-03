@@ -83,7 +83,13 @@ async def discord_callback(request: Request) -> RedirectResponse:
     """Discord callback endpoint for authenticating with Discord OAuth with AbandonAuth UI."""
     code = request.query_params.get("code")
 
-    app_id, redirect_url = request.query_params.get("state").split(",")
+    if request_state := request.query_params.get("state"):
+        app_id, redirect_url = request_state.split(",")
+    else:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail="application_id and callback_uri are required in query param 'state'"
+        )
 
     if code:
         login_data = DiscordLoginDto(code=code, redirect_uri=settings.ABANDON_AUTH_DISCORD_CALLBACK)
