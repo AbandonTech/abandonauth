@@ -65,7 +65,7 @@ async def current_user_information(
     response_description="A long-lived JWT to authenticate the user on AbandonAuth.",
     response_model=JwtDto
 )
-async def login_user(token_data: JwtClaimsDataDto = Depends(JWTBearer())) -> JwtDto:
+async def login_user(token_data: JwtClaimsDataDto = Depends(JWTBearer(scope=ScopeEnum.identify))) -> JwtDto:
     """Logs in a user using a short-term or long-term AbandonAuth JWT."""
     return JwtDto(token=generate_long_lived_jwt(token_data.user_id, token_data.aud))
 
