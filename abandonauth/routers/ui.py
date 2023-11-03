@@ -3,7 +3,7 @@ from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from prisma.models import DeveloperApplication
-from starlette.status import HTTP_403_FORBIDDEN
+from starlette.status import HTTP_403_FORBIDDEN, HTTP_400_BAD_REQUEST
 
 from abandonauth import templates  # type: ignore
 
@@ -60,7 +60,7 @@ async def oauth_login(request: Request, application_id: str | None = None, callb
             include={"callback_uris": True}
         )
 
-        if not dev_app or callback_uri not in [x.uri for x in dev_app.callback_uris]:
+        if not dev_app or not dev_app.callback_uris or callback_uri not in [x.uri for x in dev_app.callback_uris]:
             raise HTTPException(
                 status_code=HTTP_403_FORBIDDEN,
                 detail="Invalid application ID or callback_uri",
@@ -83,7 +83,8 @@ async def discord_callback(request: Request) -> RedirectResponse:
     """Discord callback endpoint for authenticating with Discord OAuth with AbandonAuth UI."""
     code = request.query_params.get("code")
 
-    redirect_url = request.query_params.get("state")
+    app_id, redirect_url = request.query_params.get("state").split(",")
+
     if code:
         login_data = DiscordLoginDto(code=code, redirect_uri=settings.ABANDON_AUTH_DISCORD_CALLBACK)
         exchange_token = (await login_with_discord(login_data, app_id)).token

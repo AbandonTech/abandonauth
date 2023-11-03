@@ -162,10 +162,15 @@ async def get_developer_application(
     if not (dev_app and token_data.user_id == dev_app.owner_id):
         raise HTTPException(status_code=HTTP_404_NOT_FOUND)
 
+    if dev_app.callback_uris:
+        callbacks = [x.uri for x in dev_app.callback_uris]
+    else:
+        callbacks = []
+
     return DeveloperApplicationWithCallbackUriDto(
         id=dev_app.id,
         owner_id=dev_app.owner_id,
-        callback_uris=[x.uri for x in dev_app.callback_uris] if dev_app.callback_uris else None
+        callback_uris=[x.uri for x in dev_app.callback_uris]
     )
 
 
@@ -218,10 +223,7 @@ async def update_developer_application_callback_uris(
     # Only URIs that were passed into the request should exist after the entire exchange is done
     async with prisma_db.batch_() as batcher:
         for create_uri in callback_uris_to_create:
-            batcher.callbackuri.create({
-                "developer_application_id": create_uri.developer_application_id,
-                "uri": create_uri.uri
-            })
+            batcher.callbackuri.create(dict(create_uri))
 
         for delete_uri in uris_to_delete:
             batcher.callbackuri.delete(where={"id": delete_uri.id})
