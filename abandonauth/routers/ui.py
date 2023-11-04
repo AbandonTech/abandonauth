@@ -24,8 +24,8 @@ async def index(request: Request, code: str | None = None):
     """Developer landing page for AbandonAuth UI."""
     internal_app_id = settings.ABANDON_AUTH_DEVELOPER_APP_ID
 
-    if exchange_token := code:
-        token = get_new_token(exchange_token).token
+    if code:
+        token = get_new_token(code).token
     else:
         token = request.cookies.get("Authorization")
 
