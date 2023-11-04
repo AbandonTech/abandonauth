@@ -22,6 +22,8 @@ model CallbackUri {
   uri                      String
   developer_application_id String               @db.Uuid
   developer_application    DeveloperApplication @relation(fields: [developer_application_id], references: [id], onDelete: Cascade)
+
+  @@unique([developer_application_id, uri])
 }
 
 model DeveloperApplication {
