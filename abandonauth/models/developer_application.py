@@ -11,7 +11,7 @@ class DeveloperApplicationDto(BaseModel):
 class DeveloperApplicationWithCallbackUriDto(DeveloperApplicationDto):
     """Basic data for developer applications as well as the Callback URIs for the app"""
 
-    callback_uris: list[str] | None
+    callback_uris: list[str]
 
 
 class CreateDeveloperApplicationDto(DeveloperApplicationDto):
