@@ -177,7 +177,7 @@ async def get_developer_application(
     token_data: JwtClaimsDataDto = Depends(JWTBearer())
 ) -> DeveloperApplicationWithCallbackUriDto:
     """Get information about the given developer application if the requesting user owns the developer app."""
-    print("RUNNING GET_DEV_APP")
+
     dev_app = await DeveloperApplication.prisma().find_unique(
         where={"id": application_id},
         include={"callback_uris": True}
