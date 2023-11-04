@@ -142,3 +142,16 @@ class JWTBearer(HTTPBearer):
         credentials_string = credentials.credentials
 
         return decode_jwt(credentials_string, self.aud, self.required_scope)
+
+
+class DeveloperAppJwtBearer(JWTBearer):
+    """JWTBearer class for authorizing developer application tokens"""
+    def __init__(
+            self,
+            **kwargs: Any
+    ) -> None:
+        super().__init__(
+            scope=ScopeEnum.abandonauth,
+            aud=settings.ABANDON_AUTH_DEVELOPER_APP_ID,
+            **kwargs
+        )

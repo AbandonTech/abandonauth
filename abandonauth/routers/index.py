@@ -3,7 +3,8 @@ from fastapi.responses import RedirectResponse
 from prisma.models import User
 from starlette.status import HTTP_404_NOT_FOUND
 
-from abandonauth.dependencies.auth.jwt import valid_token_cache, generate_long_lived_jwt, JWTBearer, decode_jwt
+from abandonauth.dependencies.auth.jwt import valid_token_cache, generate_long_lived_jwt, JWTBearer, decode_jwt, \
+    DeveloperAppJwtBearer
 from abandonauth.models import JwtDto, DeveloperApplicationDto, UserDto
 from prisma.models import DeveloperApplication
 
@@ -24,9 +25,9 @@ async def identify_user(user_id: str) -> User:
     return user
 
 
-def get_new_token(exchange_token: str) -> JwtDto:
+def get_new_token(exchange_token: str, aud: str | None = None) -> JwtDto:
     """Return a short-term or long-term AbandonAuth JWT from an existing JWT."""
-    token_data: JwtClaimsDataDto = decode_jwt(token=exchange_token, required_scope=ScopeEnum.identify)
+    token_data: JwtClaimsDataDto = decode_jwt(token=exchange_token, aud=aud, required_scope=ScopeEnum.identify)
     return JwtDto(token=generate_long_lived_jwt(token_data.user_id, token_data.aud))
 
 
@@ -71,9 +72,15 @@ async def current_user_information(
     response_description="A long-lived JWT to authenticate the user on AbandonAuth.",
     response_model=JwtDto
 )
-async def login_user(exchange_token: str = Header()) -> JwtDto:
-    """Logs in a user using a short-term or long-term AbandonAuth JWT."""
-    return get_new_token(exchange_token)
+async def login_user(
+        exchange_token: str = Header(),
+        dev_app_token: JwtClaimsDataDto = Depends(DeveloperAppJwtBearer())
+) -> JwtDto:
+    """Logs in a user using a short-term or long-term AbandonAuth JWT.
+
+    New JWT's aud must match the developer application's ID as an additional security check.
+    """
+    return get_new_token(exchange_token, dev_app_token.user_id)
 
 
 @router.post("/burn-token", status_code=200)

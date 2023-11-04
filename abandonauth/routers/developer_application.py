@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_404_NOT_FOUND
 
 from abandonauth.database import prisma_db
-from abandonauth.dependencies.auth.jwt import JWTBearer, generate_short_lived_jwt
+from abandonauth.dependencies.auth.jwt import JWTBearer, DeveloperAppJwtBearer, generate_long_lived_jwt
 from abandonauth.dependencies.auth.refresh_token import (
     generate_refresh_token,
     get_refresh_token_hash,
@@ -75,7 +75,7 @@ async def login_developer_application(login_data: LoginDeveloperApplicationDto) 
             detail="Invalid username or refresh token",
         )
 
-    return JwtDto(token=generate_short_lived_jwt(dev_app.id, settings.ABANDON_AUTH_DEVELOPER_APP_ID))
+    return JwtDto(token=generate_long_lived_jwt(dev_app.id, settings.ABANDON_AUTH_DEVELOPER_APP_ID))
 
 
 @router.delete(
@@ -144,6 +144,29 @@ async def change_application_refresh_token(
 
 
 @router.get(
+    "/me",
+    summary="Verify and retrieve information for a developer application",
+    response_description="General information about the authenticated developer application",
+    response_model=DeveloperApplicationDto
+)
+async def current_developer_application_information(
+        token_data: JwtClaimsDataDto = Depends(DeveloperAppJwtBearer())
+) -> DeveloperApplicationDto:
+    """Get information about the developer application from a jwt.
+
+    This function must be defined before other endpoints that use path params at the same path
+    """
+    dev_app = await DeveloperApplication.prisma().find_unique({
+        "id": token_data.user_id
+    })
+
+    if dev_app is None:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND)
+
+    return DeveloperApplicationDto(id=dev_app.id, owner_id=dev_app.owner_id)
+
+
+@router.get(
     "/{application_id}",
     summary="Retrieve the given application if it belongs to the currently authenticated user",
     response_description="General information about the developer application",
@@ -154,6 +177,7 @@ async def get_developer_application(
     token_data: JwtClaimsDataDto = Depends(JWTBearer())
 ) -> DeveloperApplicationWithCallbackUriDto:
     """Get information about the given developer application if the requesting user owns the developer app."""
+    print("RUNNING GET_DEV_APP")
     dev_app = await DeveloperApplication.prisma().find_unique(
         where={"id": application_id},
         include={"callback_uris": True}
@@ -176,7 +200,7 @@ async def get_developer_application(
 
 @router.patch(
     "/{application_id}/callback_uris",
-    summary="Upate the callback URIs for the given developer application",
+    summary="Update the callback URIs for the given developer application",
     response_description="The new list of callback URIs for the developer application",
     response_model=DeveloperApplicationDto
 )
@@ -227,25 +251,5 @@ async def update_developer_application_callback_uris(
 
         for delete_uri in uris_to_delete:
             batcher.callbackuri.delete(where={"id": delete_uri.id})
-
-    return DeveloperApplicationDto(id=dev_app.id, owner_id=dev_app.owner_id)
-
-
-@router.get(
-    "/me",
-    summary="Verify and retrieve information for a developer application",
-    response_description="General information about the authenticated developer application",
-    response_model=DeveloperApplicationDto
-)
-async def current_developer_application_information(
-        token_data: JwtClaimsDataDto = Depends(JWTBearer())
-) -> DeveloperApplicationDto:
-    """Get information about the developer application from a jwt."""
-    dev_app = await DeveloperApplication.prisma().find_unique({
-        "id": token_data.user_id
-    })
-
-    if dev_app is None:
-        raise HTTPException(status_code=HTTP_404_NOT_FOUND)
 
     return DeveloperApplicationDto(id=dev_app.id, owner_id=dev_app.owner_id)
