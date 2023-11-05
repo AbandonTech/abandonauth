@@ -3,19 +3,23 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, Request
 from fastapi.security import HTTPBearer
 from jose import JWTError, jwt
-from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
+from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 from typing import Any
 
+from abandonauth.models.auth import JwtClaimsDataDto, ScopeEnum, LifespanEnum
 from abandonauth.settings import settings
 
 # Cache of all valid issued tokens. Tokens should be removed after their first use
 valid_token_cache = set()
 
+IGNORE_AUD_DECODE_OPTIONS = {"verify_aud": False}
 
-def _generate_jwt(user_id: str, long_lived: bool = False) -> str:
+
+def _generate_jwt(user_id: str, application_id_aud: str, long_lived: bool = False) -> str:
     """Generate an AbandonAuth long-lived or short-lived JWT for the given user.
 
     Creates a JWT containing the user ID and expiration of the token.
+    application_id_aud is the verified developer application ID that will be consuming the token
     long-lived = True should be used for user login sessions (i.e. website user or internal application login).
     long-lived = False should be used for any token exchange (i.e. Discord OAuth login).
     """
@@ -26,12 +30,21 @@ def _generate_jwt(user_id: str, long_lived: bool = False) -> str:
 
     expiration = datetime.now(timezone.utc) + timedelta(seconds=exp_seconds)
 
+    if long_lived and application_id_aud == settings.ABANDON_AUTH_DEVELOPER_APP_ID:
+        scope = " ".join((ScopeEnum.abandonauth, ScopeEnum.identify))
+    else:
+        scope = ScopeEnum.identify
+
+    claims = JwtClaimsDataDto(
+        user_id=user_id,
+        exp=expiration,
+        scope=scope,
+        aud=application_id_aud,
+        lifespan=LifespanEnum.long if long_lived else LifespanEnum.short
+    )
+
     token = jwt.encode(
-        claims={
-            "user_id": user_id,
-            "exp": expiration,
-            "lifespan": "long" if long_lived else "short"
-        },
+        claims=dict(claims),
         key=settings.JWT_SECRET.get_secret_value(),
         algorithm=settings.JWT_HASHING_ALGO
     )
@@ -41,32 +54,85 @@ def _generate_jwt(user_id: str, long_lived: bool = False) -> str:
     return token
 
 
-def generate_long_lived_jwt(user_id: str) -> str:
-    return _generate_jwt(user_id, long_lived=True)
+def decode_jwt(
+        token: str,
+        aud: str | None = None,
+        required_scope: ScopeEnum = ScopeEnum.abandonauth
+) -> JwtClaimsDataDto:
+    try:
+        if aud:
+            decode_kwargs = {
+                "audience": aud,
+            }
+        else:
+            decode_kwargs = {"options": IGNORE_AUD_DECODE_OPTIONS}
+
+        token_data = jwt.decode(
+            token,
+            settings.JWT_SECRET.get_secret_value(),
+            **decode_kwargs
+        )
+    except JWTError:
+        raise HTTPException(
+            status_code=HTTP_403_FORBIDDEN,
+            detail="Invalid token format"
+        )
+
+    if token_data["exp"] < datetime.utcnow().timestamp():
+        raise HTTPException(
+            status_code=HTTP_403_FORBIDDEN,
+            detail="Token has expired"
+        )
+
+    if required_scope != ScopeEnum.none and required_scope not in token_data["scope"]:
+        raise HTTPException(
+            status_code=HTTP_403_FORBIDDEN,
+            detail="JWT lacks the required scope to access this endpoint."
+        )
+
+    # If token is short-lived/exchange token check if it currently exists in the token cache
+    # This means short-lived tokens will only work with a single worker
+    # This is a hack and a future version will resolve this https://github.com/AbandonTech/abandonauth/issues/12
+    if token_data["lifespan"] == "short" and token not in valid_token_cache:
+        raise HTTPException(status_code=HTTP_401_UNAUTHORIZED, detail="Token is not valid.")
+
+    return JwtClaimsDataDto(**dict(token_data))
 
 
-def generate_short_lived_jwt(user_id: str) -> str:
+def generate_long_lived_jwt(user_id: str, application_id_aud: str) -> str:
+    return _generate_jwt(user_id, application_id_aud, long_lived=True)
+
+
+def generate_short_lived_jwt(user_id: str, application_id_aud: str) -> str:
     """Create a JWT token using the given user ID."""
-    return _generate_jwt(user_id, long_lived=False)
+    return _generate_jwt(user_id, application_id_aud, long_lived=False)
 
 
 class JWTBearer(HTTPBearer):
     """Dependency for routes to enforce JWT auth."""
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(
+            self,
+            scope: ScopeEnum = ScopeEnum.abandonauth,
+            aud: str | None = None,
+            **kwargs: Any
+    ) -> None:
         super().__init__(**kwargs)
 
-        self.token_data: dict[str, Any] | None = None
+        self.token_data: dict[str, Any]
+        self.aud = aud
+        self.required_scope = scope
 
-    async def __call__(self, request: Request) -> str:
+    async def __call__(self, request: Request) -> JwtClaimsDataDto:
         """
         Retrieve user from a jwt token provided in headers.
 
         If no token is present, a 403 will be raised
         If the token is invalid, a 403 will be raised
-        If the token has expired, a 400 will be raised
+        If the token has expired, a 403 will be raised
         """
         credentials = await super().__call__(request)
+
         if credentials is None:
             raise HTTPException(
                 status_code=HTTP_403_FORBIDDEN,
@@ -75,24 +141,17 @@ class JWTBearer(HTTPBearer):
 
         credentials_string = credentials.credentials
 
-        try:
-            self.token_data = jwt.decode(credentials_string, settings.JWT_SECRET.get_secret_value())
-        except JWTError:
-            raise HTTPException(
-                status_code=HTTP_403_FORBIDDEN,
-                detail="Invalid token format"
-            )
+        return decode_jwt(credentials_string, self.aud, self.required_scope)
 
-        if self.token_data["exp"] < datetime.utcnow().timestamp():
-            raise HTTPException(
-                status_code=HTTP_400_BAD_REQUEST,
-                detail="Token has expired"
-            )
 
-        # If token is short-lived/exchange token check if it currently exists in the token cache
-        # This means short-lived tokens will only work with a single worker
-        # This is a hack and a future version will resolve this https://github.com/AbandonTech/abandonauth/issues/12
-        if self.token_data["lifespan"] == "short" and credentials_string not in valid_token_cache:
-            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED, detail="Token is not valid.")
-
-        return self.token_data["user_id"]
+class DeveloperAppJwtBearer(JWTBearer):
+    """JWTBearer class for authorizing developer application tokens"""
+    def __init__(
+            self,
+            **kwargs: Any
+    ) -> None:
+        super().__init__(
+            scope=ScopeEnum.abandonauth,
+            aud=settings.ABANDON_AUTH_DEVELOPER_APP_ID,
+            **kwargs
+        )

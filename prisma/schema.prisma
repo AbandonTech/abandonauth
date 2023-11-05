@@ -17,11 +17,21 @@ model User {
   developer_applications DeveloperApplication[]
 }
 
+model CallbackUri {
+  id                       Int                  @id @default(autoincrement())
+  uri                      String
+  developer_application_id String               @db.Uuid
+  developer_application    DeveloperApplication @relation(fields: [developer_application_id], references: [id], onDelete: Cascade)
+
+  @@unique([developer_application_id, uri])
+}
+
 model DeveloperApplication {
-  id            String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  owner         User   @relation(fields: [owner_id], references: [id], onDelete: Cascade)
-  owner_id      String @db.Uuid
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  owner         User          @relation(fields: [owner_id], references: [id], onDelete: Cascade)
+  owner_id      String        @db.Uuid
   refresh_token String
+  callback_uris CallbackUri[]
 }
 
 model DiscordAccount {

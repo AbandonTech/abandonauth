@@ -62,4 +62,4 @@ async def login_with_google(code: str, state: str) -> RedirectResponse:
             }
         })
 
-    return RedirectResponse(f"{state}?authentication={generate_short_lived_jwt(user.id)}")
+    return RedirectResponse(f"{state}?authentication={generate_short_lived_jwt(user.id, 'fake_application_id')}")
