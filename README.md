@@ -6,12 +6,6 @@ Currently supported;
 - Discord
 - GitHub
 
-![Authflow](./docs/imgs/authflow.png)
-
-Example diagram with a website and backend
-
-![image](https://user-images.githubusercontent.com/39353605/225700524-386b968a-bf1a-44fb-91cc-c53d3524569d.png)
-
 
 ## First Time Install
 
