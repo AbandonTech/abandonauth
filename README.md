@@ -4,7 +4,24 @@ Authentic Auth Service... Provides identification of a user from multiple extern
 
 Currently supported;
 - Discord
-- GitHub
+
+
+# Using Abandon Auth
+
+## Using Abandon Auth to Secure Your Application
+
+1. Login to [AbandonAuth](https://auth.abandontech.cloud)
+2. Create a Developer Application
+   1. Grab your user token from the inspector's cookies
+   2. Navigate to the [API Docs](https://auth.abandontech.cloud/docs#/) (Web UI for this coming soon).
+   3. Authorize by pasting your token into the JWT bearer field on the `Authorization` popup.
+   4. Execute a POST request to [Create A New Developer App](https://auth.abandontech.cloud/docs#/Developer%20Applications/create_developer_application_developer_application_post)
+   5. Take note of your details, especially your application's secret since it cannot be viewed again (but it can be reset using the API).
+3. Using your Developer App UUID, add the required callback URIs to your dev app. The callback URI you specify is where abandon auth will redirect users after authenticating. It should be whichever address your server is using to finish handling the login process.  Some examples are as follows:
+   1. For local dev you could have something like this `"http://your_computers_local_ip:8001/login/abandonauth-callback"`
+   2. For a production website, you may use a domain name to redirect to `https://mc.abandonauth.cloud/api/callback`
+4. Configure your app to use your developer application ID and secret to authenticate users from AbandonAuth.
+
 
 ![Authflow](./docs/imgs/authflow.png)
 
@@ -12,6 +29,8 @@ Example diagram with a website and backend
 
 ![image](https://user-images.githubusercontent.com/39353605/225700524-386b968a-bf1a-44fb-91cc-c53d3524569d.png)
 
+
+## Local Development Guide
 
 ## First Time Install
 
