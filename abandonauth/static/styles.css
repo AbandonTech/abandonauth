@@ -73,6 +73,10 @@ footer {
     width: 66vw;
 }
 
+#warning-text {
+  color: rgb(234 88 12);
+}
+
 button[id^="login-"] {
     color: var(--White);
     border-radius: 10px;

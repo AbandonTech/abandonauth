@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AbandonAuth</title>
+    <link href="{{ url_for('static', path='/styles.css') }}" rel="stylesheet">
+</head>
+<body>
+    <div>
+        <p>Application ID: {{ dev_app_id }}</p>
+        <p>Application Secret: {{ dev_app_token }}</p> <span id="warning-text">Warning! This application secret will never be visible again!</span>
+    </div>
+</body>
+</html>

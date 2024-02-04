@@ -7,7 +7,8 @@ from starlette.status import HTTP_403_FORBIDDEN, HTTP_400_BAD_REQUEST
 
 from abandonauth import templates  # type: ignore
 
-from abandonauth.models import DiscordLoginDto
+from abandonauth.models import DiscordLoginDto, DeveloperApplicationWithCallbackUriDto
+from abandonauth.models.user import UserAuthInfo
 from abandonauth.routers.discord import login_with_discord
 from abandonauth.routers.index import get_new_token
 from abandonauth.settings import settings
@@ -19,11 +20,39 @@ jinja_templates = Jinja2Templates(directory=templates.__path__)
 BASE_URL = "http://localhost"
 
 
+async def user_info_from_me_response(request: Request) -> UserAuthInfo | None:
+    if token := request.cookies.get("Authorization"):
+        async with httpx.AsyncClient() as client:
+            headers = {"Authorization": f"Bearer {token}"}
+            me_response = await client.get(f"{BASE_URL}/me", headers=headers)
+
+        me_response_data = me_response.json()
+
+        if me_response.status_code == 200:
+            user_uuid = me_response_data.get("id")
+            username = me_response_data.get("username")
+        else:
+            raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail="User ID and/or username was missing")
+
+        if None in (user_uuid, username):
+            raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail="User ID and/or username was missing")
+
+        return UserAuthInfo(
+            id=user_uuid,
+            username=username,
+            token=token
+        )
+    return None
+
+
+async def build_abandon_auth_redirect_url() -> str:
+    callback_uri = "/ui"
+    return f"/ui/login?application_id={settings.ABANDON_AUTH_DEVELOPER_APP_ID}&callback_uri={callback_uri}"
+
+
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def index(request: Request, code: str | None = None):
     """Developer landing page for AbandonAuth UI."""
-    internal_app_id = settings.ABANDON_AUTH_DEVELOPER_APP_ID
-
     if code:
         token = get_new_token(code).token
     else:
@@ -37,7 +66,7 @@ async def index(request: Request, code: str | None = None):
             authenticated = (await client.get(f"{BASE_URL}/me", headers=headers)).status_code == 200
 
     if authenticated is False:
-        return RedirectResponse(f"/ui/login?application_id={internal_app_id}&callback_uri=/ui")
+        return RedirectResponse(await build_abandon_auth_redirect_url())
 
     resp = RedirectResponse("/ui/developer_dashboard")
     resp.set_cookie(key="Authorization", value=token)  # pyright: ignore
@@ -48,23 +77,108 @@ async def index(request: Request, code: str | None = None):
 @router.get("/developer_dashboard", response_class=HTMLResponse, include_in_schema=False)
 async def developer_dashboard(request: Request):
     """Developer dashboard page for AbandonAuth UI."""
-    internal_app_id = settings.ABANDON_AUTH_DEVELOPER_APP_ID
+    user_info = await user_info_from_me_response(request)
 
-    authenticated = False
-
-    if token := request.cookies.get("Authorization"):
-        async with httpx.AsyncClient() as client:
-            headers = {"Authorization": f"Bearer {token}"}
-            authenticated = (await client.get(f"{BASE_URL}/me", headers=headers)).status_code == 200
-
-    if authenticated is False:
-        return RedirectResponse(f"/ui/login?application_id={internal_app_id}&callback_uri=/ui")
+    if user_info is None:
+        return RedirectResponse(f"/ui/login?application_id={settings.ABANDON_AUTH_DEVELOPER_APP_ID}&callback_uri=/ui")
 
     return jinja_templates.TemplateResponse(
         "index.html",
         {
             "request": request,
-            "authenticated": authenticated
+            "authenticated": user_info.token is not None,
+            "username": user_info.username,
+            "user_id": user_info.id
+        }
+    )
+
+
+@router.get("/applications/new", response_class=HTMLResponse, include_in_schema=False)
+async def create_new_developer_application_form(request: Request):
+    """Page for managing developer applications"""
+    user_info = await user_info_from_me_response(request)
+
+    if user_info is None:
+        return RedirectResponse(await build_abandon_auth_redirect_url())
+
+    return jinja_templates.TemplateResponse(
+        "create_developer_app.html",
+        {
+            "request": request
+        }
+    )
+
+
+@router.post("/applications/new", response_class=HTMLResponse, include_in_schema=False)
+async def create_new_developer_applications(request: Request):
+    """Page for managing developer applications"""
+    user_info = await user_info_from_me_response(request)
+
+    if user_info is None:
+        return RedirectResponse(await build_abandon_auth_redirect_url())
+
+    async with httpx.AsyncClient() as client:
+        headers = {"Authorization": f"Bearer {user_info.token}"}
+        new_dev_app = (await client.post(f"{BASE_URL}/developer_application", headers=headers)).json()
+
+    return jinja_templates.TemplateResponse(
+        "created_application_info.html",
+        {
+            "request": request,
+            "dev_app_id": new_dev_app.get("id"),
+            "dev_app_token": new_dev_app.get("token")
+
+        }
+    )
+
+
+@router.get("/applications", response_class=HTMLResponse, include_in_schema=False)
+async def list_developer_applications(request: Request):
+    """Page for managing developer applications"""
+    user_info = await user_info_from_me_response(request)
+
+    if user_info is None:
+        return RedirectResponse(await build_abandon_auth_redirect_url())
+
+    async with httpx.AsyncClient() as client:
+        headers = {"Authorization": f"Bearer {user_info.token}"}
+        dev_apps = (await client.get(f"{BASE_URL}/user/applications", headers=headers)).json()
+
+    return jinja_templates.TemplateResponse(
+        "developer_apps.html",
+        {
+            "request": request,
+            "dev_apps": [x["id"] for x in dev_apps]
+        }
+    )
+
+
+@router.get("/applications/{application_id}", response_class=HTMLResponse, include_in_schema=False)
+async def developer_application_detail(
+        request: Request,
+        application_id: str
+):
+    """Page for managing developer applications"""
+    user_info = await user_info_from_me_response(request)
+
+    if user_info is None:
+        return RedirectResponse(await build_abandon_auth_redirect_url())
+
+    async with httpx.AsyncClient() as client:
+        headers = {"Authorization": f"Bearer {user_info.token}"}
+        application_info = (
+            await client.get(f"{BASE_URL}/developer_application/{application_id}", headers=headers)
+        ).json()
+
+    app_dto = DeveloperApplicationWithCallbackUriDto(**application_info)
+
+    return jinja_templates.TemplateResponse(
+        "developer_app_info.html",
+        {
+            "request": request,
+            "dev_app_id": app_dto.id,
+            "owner_id": app_dto.owner_id,
+            "callback_uris": app_dto.callback_uris
         }
     )
 
