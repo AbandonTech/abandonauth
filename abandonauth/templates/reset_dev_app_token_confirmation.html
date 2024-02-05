@@ -7,8 +7,11 @@
 </head>
 <body>
     <div>
-        <p>Application ID: {{ dev_app_id }}</p>
-        <p>Application Token: {{ dev_app_token }}</p> <span id="warning-text">Warning! This secret key will never be visible again, please store it somewhere safe.</span>
+        <p>Are you sure you would like to reset your token for {{ dev_app_id }}</p>
+        <form method="post">
+            <button>Yes</button>
+            <a href="/ui/applications/{{ dev_app_id }}">No</a>
+        </form>
     </div>
 </body>
 </html>

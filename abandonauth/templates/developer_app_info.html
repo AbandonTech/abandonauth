@@ -9,7 +9,16 @@
     <div>
         <p>Application ID: {{ dev_app_id }}</p>
         <p>Owner ID: {{ owner_id }}</p>
-        <p>Callback URIs: {{ callback_uris }}</p>
+        <p>Callback URIs:</p>
+        <ul>
+            {% for uri in callback_uris %}
+                <li>{{ uri }}</li>
+            {% endfor %}
+
+        </ul>
+
+        <a href="/ui/applications/{{ dev_app_id }}/reset_token">Rest Token</a>
+        <a href="/ui/applications/{{ dev_app_id }}/delete_application">Delete Application</a>
     </div>
 </body>
 </html>

@@ -3,7 +3,7 @@ from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from prisma.models import DeveloperApplication
-from starlette.status import HTTP_403_FORBIDDEN, HTTP_400_BAD_REQUEST
+from starlette.status import HTTP_403_FORBIDDEN, HTTP_400_BAD_REQUEST, HTTP_303_SEE_OTHER
 
 from abandonauth import templates  # type: ignore
 
@@ -181,6 +181,79 @@ async def developer_application_detail(
             "callback_uris": app_dto.callback_uris
         }
     )
+
+
+@router.get("/applications/{application_id}/reset_token", response_class=HTMLResponse, include_in_schema=False)
+async def reset_dev_application_token_confirmation(request: Request, application_id: str):
+    """Request for resetting a developer application token from the dev application info page."""
+    user_info = await user_info_from_me_response(request)
+
+    if user_info is None:
+        return RedirectResponse(await build_abandon_auth_redirect_url())
+
+    return jinja_templates.TemplateResponse(
+        "reset_dev_app_token_confirmation.html",
+        {
+            "request": request,
+            "dev_app_id": application_id
+        }
+    )
+
+
+@router.post("/applications/{application_id}/reset_token", response_class=HTMLResponse, include_in_schema=False)
+async def reset_dev_application_token(request: Request, application_id: str):
+    """Request for resetting a developer application token from the dev application info page."""
+    user_info = await user_info_from_me_response(request)
+
+    if user_info is None:
+        return RedirectResponse(await build_abandon_auth_redirect_url())
+
+    async with httpx.AsyncClient() as client:
+        headers = {"Authorization": f"Bearer {user_info.token}"}
+        application_info = (
+            await client.patch(f"{BASE_URL}/developer_application/{application_id}/reset_token", headers=headers)
+        ).json()
+
+    return jinja_templates.TemplateResponse(
+        "created_application_info.html",
+        {
+            "request": request,
+            "dev_app_id": application_info.get("id"),
+            "dev_app_token": application_info.get("token")
+        }
+    )
+
+
+@router.get("/applications/{application_id}/delete_application", response_class=HTMLResponse, include_in_schema=False)
+async def delete_dev_application_confirmation(request: Request, application_id: str):
+    """Request for deleting a developer application."""
+    user_info = await user_info_from_me_response(request)
+
+    if user_info is None:
+        return RedirectResponse(await build_abandon_auth_redirect_url())
+
+    return jinja_templates.TemplateResponse(
+        "delete_dev_app_confirmation.html",
+        {
+            "request": request,
+            "dev_app_id": application_id
+        }
+    )
+
+
+@router.post("/applications/{application_id}/delete_application", response_class=HTMLResponse, include_in_schema=False)
+async def delete_dev_application(request: Request, application_id: str):
+    """Request for deleting a developer application."""
+    user_info = await user_info_from_me_response(request)
+
+    if user_info is None:
+        return RedirectResponse(await build_abandon_auth_redirect_url())
+
+    async with httpx.AsyncClient() as client:
+        headers = {"Authorization": f"Bearer {user_info.token}"}
+        await client.delete(f"{BASE_URL}/developer_application/{application_id}", headers=headers)
+
+    return RedirectResponse("/ui/applications", status_code=HTTP_303_SEE_OTHER)
 
 
 @router.get("/login", response_class=HTMLResponse, include_in_schema=False)
