@@ -8,7 +8,6 @@
 <body>
     <div>
         <p>Application ID: {{ dev_app_id }}</p>
-        <p>Owner ID: {{ owner_id }}</p>
         <p>Callback URIs:</p>
         <ul>
             {% for uri in callback_uris %}
@@ -16,13 +15,11 @@
             {% endfor %}
 
         </ul>
-
-        <div>
-            <a href="/ui/applications/{{ dev_app_id }}/edit_callback_uris">Edit Callback URIs</a>
-        </div>
-
-        <a href="/ui/applications/{{ dev_app_id }}/reset_token">Reset Token</a>
-        <a href="/ui/applications/{{ dev_app_id }}/delete_application">Delete Application</a>
+        <form method="post">
+            <label for="new_callback_uris">New Callback URIs</label>
+            <input type="text" id="new_callback_uris" name="new_callback_uris" value="{{ callback_uris_form_value }}">
+            <button>Submit</button>
+        </form>
     </div>
 </body>
 </html>

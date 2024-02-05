@@ -1,5 +1,7 @@
+from typing import Annotated
+
 import httpx
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Form, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from prisma.models import DeveloperApplication
@@ -254,6 +256,58 @@ async def delete_dev_application(request: Request, application_id: str):
         await client.delete(f"{BASE_URL}/developer_application/{application_id}", headers=headers)
 
     return RedirectResponse("/ui/applications", status_code=HTTP_303_SEE_OTHER)
+
+
+@router.get("/applications/{application_id}/edit_callback_uris", response_class=HTMLResponse, include_in_schema=False)
+async def edit_dev_application_callback_uris_page(request: Request, application_id: str):
+    """Page for editing a developer application's callback URIs."""
+    user_info = await user_info_from_me_response(request)
+
+    if user_info is None:
+        return RedirectResponse(await build_abandon_auth_redirect_url())
+
+    async with httpx.AsyncClient() as client:
+        headers = {"Authorization": f"Bearer {user_info.token}"}
+        application_info = (
+            await client.get(f"{BASE_URL}/developer_application/{application_id}", headers=headers)
+        ).json()
+
+    app_dto = DeveloperApplicationWithCallbackUriDto(**application_info)
+
+    return jinja_templates.TemplateResponse(
+        "edit_callback_uris.html",
+        {
+            "request": request,
+            "dev_app_id": app_dto.id,
+            "callback_uris": app_dto.callback_uris,
+            "callback_uris_form_value": ",".join(app_dto.callback_uris)
+        }
+    )
+
+
+@router.post("/applications/{application_id}/edit_callback_uris", response_class=HTMLResponse, include_in_schema=False)
+async def edit_dev_application_callback_uris(
+        request: Request,
+        application_id: str,
+        new_callback_uris: Annotated[str, Form()]
+):
+    """Request for deleting a developer application."""
+    user_info = await user_info_from_me_response(request)
+
+    if user_info is None:
+        return RedirectResponse(await build_abandon_auth_redirect_url())
+
+    formatted_uris = new_callback_uris.strip(" ").split(",")
+
+    async with httpx.AsyncClient() as client:
+        headers = {"Authorization": f"Bearer {user_info.token}"}
+        await client.patch(
+            f"{BASE_URL}/developer_application/{application_id}/callback_uris",
+            headers=headers,
+            json=formatted_uris
+        )
+
+    return RedirectResponse(f"/ui/applications/{application_id}", status_code=HTTP_303_SEE_OTHER)
 
 
 @router.get("/login", response_class=HTMLResponse, include_in_schema=False)
