@@ -63,8 +63,75 @@ footer {
     align-items: center;
 }
 
+.devAppButtonGroup {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+  align-items: center;
+  gap: 1em;
+}
+
+.devAppButtonGroup a {
+  width: 150px;
+}
+
+.noteText {
+  font-size: 0.75rem;
+}
+
+.editCallbackForm {
+  display: flex;
+  justify-content: space-evenly;
+  align-items: center;
+  gap: 1em;
+}
+
+.button-submit {
+  background-color: #04AA6D; /* Green */
+  border: none;
+  color: white;
+  padding: 3px 16px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 16px;
+}
+
 .button {
   background-color: #04AA6D; /* Green */
+  border: none;
+  color: white;
+  padding: 15px 32px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 16px;
+}
+
+.button-info {
+  background-color: #4092b3;
+  border: none;
+  color: white;
+  padding: 15px 32px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 16px;
+}
+
+.button-warning {
+  background-color: #b39e40;
+  border: none;
+  color: white;
+  padding: 15px 32px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 16px;
+}
+
+.button-danger {
+  background-color: #b34040;
   border: none;
   color: white;
   padding: 15px 32px;
@@ -83,6 +150,12 @@ footer {
 .developerApps a {
     color: white;
     font-size: 2rem;
+}
+
+.appInfo {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-evenly;
 }
 
 #loginContent {
