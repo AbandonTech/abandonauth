@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+{% include "navbar.html" %}
+    <div class="mainApp">
+        <p>Application ID: {{ dev_app_id }}</p>
+        <p>Application Token: {{ dev_app_token }}</p> <span id="warning-text">Warning! This secret key will never be visible again, please store it somewhere safe.</span>
+    </div>
+{% endblock %}

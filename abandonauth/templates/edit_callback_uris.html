@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+{% include "navbar.html" %}
+    <div class="mainApp">
+        <p>Application ID: {{ dev_app_id }}</p>
+        <p>Callback URIs:</p>
+        <ul>
+            {% for uri in callback_uris %}
+                <li>{{ uri }}</li>
+            {% endfor %}
+
+        </ul>
+        <form method="post">
+            <div class="editCallbackForm">
+                <label for="new_callback_uris">New Callback URIs</label>
+            <input type="text" id="new_callback_uris" name="new_callback_uris" value="{{ callback_uris_form_value }}">
+            <button class="button-submit">Submit</button>
+            </div>
+        </form>
+
+        <div class="noteText">
+            <p>Callback URIs is a comma separated value of all valid callback URIs your application allows.</p>
+            <p>Example: realwebsite.fake/callback,anothersite.fake/api,localhost:8000/callback/uri</p>
+        </div>
+    </div>
+{% endblock %}

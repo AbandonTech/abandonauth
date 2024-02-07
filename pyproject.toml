@@ -13,12 +13,13 @@ reportMissingTypeArgument = true
 
 [tool.poetry.dependencies]
 python = "^3.10"
-fastapi = "^0.92.0"
+fastapi = "^0.109.2"
 httpx = "^0.23.3"
 uvicorn = "^0.20.0"
 prisma = "^0.8.2"
 pydantic = {extras = ["dotenv"], version = "^1.10.5"}
 python-jose = "^3.3.0"
+python-multipart = "^0.0.7"
 passlib = {extras = ["bcrypt"], version = "^1.7.4"}
 
 [tool.poetry.group.dev.dependencies]
@@ -29,7 +30,6 @@ pyright = "^1.1.297"
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
-
 
 [tool.poetry.scripts]
 dev = "abandonauth.__main__:main"

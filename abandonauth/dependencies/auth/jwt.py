@@ -70,7 +70,7 @@ def decode_jwt(
         token_data = jwt.decode(
             token,
             settings.JWT_SECRET.get_secret_value(),
-            **decode_kwargs
+            **decode_kwargs  # pyright: ignore
         )
     except JWTError:
         raise HTTPException(
@@ -123,7 +123,7 @@ class JWTBearer(HTTPBearer):
         self.aud = aud
         self.required_scope = scope
 
-    async def __call__(self, request: Request) -> JwtClaimsDataDto:
+    async def __call__(self, request: Request) -> JwtClaimsDataDto:  # pyright: ignore
         """
         Retrieve user from a jwt token provided in headers.
 

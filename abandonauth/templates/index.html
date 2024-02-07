@@ -1,31 +1,10 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>AbandonAuth</title>
-    <link href="{{ url_for('static', path='/styles.css') }}" rel="stylesheet">
-</head>
-<body>
-    <div id="content">
+{% extends "base.html" %}
+{% block content %}
+{% include "navbar.html" %}
+    <div class="mainApp">
         <div id="header">
-            <h1 id="title">AbandonAuth</h1>
-            <h2 id="subtitle">Developer Dashboard</h2>
-        </div>
-        <!-- used for developing, will be removed in future -->
-        <div style="display: flex; gap: 5vw">
-            <a href="/docs">Docs</a>
-            <div>
-                {% if authenticated %}
-                    <button onclick="deleteAuthCookie()">Logout</button>
-                {% endif %}
-            </div>
-            <script>
-                function deleteAuthCookie(){
-                    document.cookie = "Authorization" +'=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
-                    location.reload();
-                }
-            </script>
+            <h1 id="title">Developer Dashboard</h1>
+            <h1 id="userInfo">{{ username }}: {{ user_id }}</h1>
         </div>
     </div>
-</body>
-</html>
+{% endblock %}

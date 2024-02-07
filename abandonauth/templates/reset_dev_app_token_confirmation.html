@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+{% include "navbar.html" %}
+    <div class="mainApp">
+        <p>Are you sure you would like to reset your token for {{ dev_app_id }}</p>
+        <form method="post">
+            <button class="button-warning">Yes</button>
+            <a class="button-danger" href="/ui/applications/{{ dev_app_id }}">No</a>
+        </form>
+    </div>
+{% endblock %}

@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: pydantic.SecretStr
     GOOGLE_CALLBACK: str
 
-    class Config:
+    class Config:  # pyright: ignore
         frozen = True
         env_file = '.env'
         env_file_encoding = 'utf-8'

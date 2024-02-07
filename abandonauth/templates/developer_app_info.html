@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+{% include "navbar.html" %}
+    <div class="mainApp">
+        <div class="appInfo">
+            <p>Application ID: {{ dev_app_id }}</p>
+            <p>Owner ID: {{ owner_id }}</p>
+            <p>Callback URIs:</p>
+            <ul>
+                {% for uri in callback_uris %}
+                    <li>{{ uri }}</li>
+                {% endfor %}
+
+            </ul>
+
+            <div class="devAppButtonGroup">
+                <a class="button-info" href="/ui/applications/{{ dev_app_id }}/edit_callback_uris">Edit Callback URIs</a>
+                <a class="button-warning" href="/ui/applications/{{ dev_app_id }}/reset_token">Reset Token</a>
+                <a class="button-danger" href="/ui/applications/{{ dev_app_id }}/delete_application">Delete Application</a>
+            </div>
+        </div>
+
+    </div>
+{% endblock %}
