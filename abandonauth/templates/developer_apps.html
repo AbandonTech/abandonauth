@@ -1,19 +1,13 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>AbandonAuth</title>
-    <link href="{{ url_for('static', path='/styles.css') }}" rel="stylesheet">
-</head>
-<body>
-    <div>
-        <a href="/ui/applications/new">Create a new application</a>
+{% extends "base.html" %}
+{% block content %}
+{% include "navbar.html" %}
+    <div class="mainApp">
+        <a class="button" style="margin-bottom: 2em; margin-top: 2em;" href="/ui/applications/new">Create a new application</a>
 
-        {% for app in dev_apps %}
-        <div>
-            <a href="/ui/applications/{{ app }}">{{ app }}</a>
+        <div class="developerApps">
+            {% for app in dev_apps %}
+                <a href="/ui/applications/{{ app }}">{{ app }}</a>
+            {% endfor %}
         </div>
-        {% endfor %}
     </div>
-</body>
-</html>
+{% endblock %}

@@ -1,12 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>AbandonAuth</title>
-    <link href="{{ url_for('static', path='/styles.css') }}" rel="stylesheet">
-</head>
-<body>
-    <div>
+{% extends "base.html" %}
+{% block content %}
+{% include "navbar.html" %}
+    <div class="mainApp">
         <p>Application ID: {{ dev_app_id }}</p>
         <p>Owner ID: {{ owner_id }}</p>
         <p>Callback URIs:</p>
@@ -24,5 +19,4 @@
         <a href="/ui/applications/{{ dev_app_id }}/reset_token">Reset Token</a>
         <a href="/ui/applications/{{ dev_app_id }}/delete_application">Delete Application</a>
     </div>
-</body>
-</html>
+{% endblock %}

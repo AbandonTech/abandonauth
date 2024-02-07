@@ -12,6 +12,28 @@ body {
     margin: 0;
 }
 
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  padding: 1rem 2rem;
+  background: var(--Discord);
+}
+
+.navbar ul {
+  display: flex;
+  list-style: none;
+}
+
+.navbar li {
+  padding-left: 1rem;
+}
+
+.navbar a {
+  text-decoration: none;
+  color: white;
+  font-size: 1.2em;
+}
+
 .alert-container {
   position: absolute;
   top: 5px;
@@ -34,7 +56,36 @@ footer {
     bottom: 0;
 }
 
-#content {
+.mainApp {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-evenly;
+    align-items: center;
+}
+
+.button {
+  background-color: #04AA6D; /* Green */
+  border: none;
+  color: white;
+  padding: 15px 32px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 16px;
+}
+
+.developerApps {
+    display: flex;
+    flex-direction: column;
+    gap: 2em;
+}
+
+.developerApps a {
+    color: white;
+    font-size: 2rem;
+}
+
+#loginContent {
     display: flex;
     height: 100vh;
     flex-direction: column;
