@@ -106,7 +106,8 @@ async def create_new_developer_application_form(request: Request):
     return jinja_templates.TemplateResponse(
         "create_developer_app.html",
         {
-            "request": request
+            "request": request,
+            "authenticated": user_info.token is not None
         }
     )
 
@@ -128,7 +129,8 @@ async def create_new_developer_applications(request: Request):
         {
             "request": request,
             "dev_app_id": new_dev_app.get("id"),
-            "dev_app_token": new_dev_app.get("token")
+            "dev_app_token": new_dev_app.get("token"),
+            "authenticated": user_info.token is not None
 
         }
     )
@@ -150,7 +152,8 @@ async def list_developer_applications(request: Request):
         "developer_apps.html",
         {
             "request": request,
-            "dev_apps": [x["id"] for x in dev_apps]
+            "dev_apps": [x["id"] for x in dev_apps],
+            "authenticated": user_info.token is not None
         }
     )
 
@@ -180,7 +183,8 @@ async def developer_application_detail(
             "request": request,
             "dev_app_id": app_dto.id,
             "owner_id": app_dto.owner_id,
-            "callback_uris": app_dto.callback_uris
+            "callback_uris": app_dto.callback_uris,
+            "authenticated": user_info.token is not None
         }
     )
 
@@ -197,7 +201,8 @@ async def reset_dev_application_token_confirmation(request: Request, application
         "reset_dev_app_token_confirmation.html",
         {
             "request": request,
-            "dev_app_id": application_id
+            "dev_app_id": application_id,
+            "authenticated": user_info.token is not None
         }
     )
 
@@ -221,7 +226,8 @@ async def reset_dev_application_token(request: Request, application_id: str):
         {
             "request": request,
             "dev_app_id": application_info.get("id"),
-            "dev_app_token": application_info.get("token")
+            "dev_app_token": application_info.get("token"),
+            "authenticated": user_info.token is not None
         }
     )
 
@@ -238,7 +244,8 @@ async def delete_dev_application_confirmation(request: Request, application_id: 
         "delete_dev_app_confirmation.html",
         {
             "request": request,
-            "dev_app_id": application_id
+            "dev_app_id": application_id,
+            "authenticated": user_info.token is not None,
         }
     )
 
@@ -280,7 +287,8 @@ async def edit_dev_application_callback_uris_page(request: Request, application_
             "request": request,
             "dev_app_id": app_dto.id,
             "callback_uris": app_dto.callback_uris,
-            "callback_uris_form_value": ",".join(app_dto.callback_uris)
+            "callback_uris_form_value": ",".join(app_dto.callback_uris),
+            "authenticated": user_info.token is not None
         }
     )
 
