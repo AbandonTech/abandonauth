@@ -13,7 +13,6 @@ from abandonauth import templates  # type: ignore
 from abandonauth.models import DiscordLoginDto, DeveloperApplicationWithCallbackUriDto
 from abandonauth.models.user import UserAuthInfo
 from abandonauth.routers.discord import login_with_discord
-from abandonauth.routers.index import get_new_token
 from abandonauth.settings import settings
 
 router = APIRouter(prefix="/ui")
@@ -57,7 +56,23 @@ async def build_abandon_auth_redirect_url() -> str:
 async def index(request: Request, code: str | None = None):
     """Developer landing page for AbandonAuth UI."""
     if code:
-        token = get_new_token(code).token
+        login_body = {
+            "id": settings.ABANDON_AUTH_DEVELOPER_APP_ID,
+            "refresh_token": settings.ABANDON_AUTH_DEVELOPER_APP_TOKEN
+        }
+
+        login_headers = {
+            "exchange-token": code
+        }
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(f"{BASE_URL}/login", headers=login_headers, json=login_body)
+
+        # If login failed, set token to None so that the user will be redirected back to the logic page
+        if resp.status_code != 200:
+            token = None
+        else:
+            token = resp.json().get("token")
     else:
         token = request.cookies.get("Authorization")
 

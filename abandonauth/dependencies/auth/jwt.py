@@ -155,3 +155,40 @@ class DeveloperAppJwtBearer(JWTBearer):
             aud=settings.ABANDON_AUTH_DEVELOPER_APP_ID,
             **kwargs
         )
+
+
+class OptionalDeveloperAppJwtBearer(HTTPBearer):
+    """Dependency for routes to utilize JWT auth when the JWT is optional.
+
+    This dependency should usually be paired with an additional auth method where an exception should be raised if
+    no authentication method is provided.
+    """
+
+    def __init__(
+            self,
+            **kwargs: Any
+    ) -> None:
+        super().__init__(
+            auto_error=False,
+            **kwargs
+        )
+
+        self.token_data: dict[str, Any]
+        self.aud = settings.ABANDON_AUTH_DEVELOPER_APP_ID
+        self.required_scope = ScopeEnum.abandonauth
+
+    async def __call__(self, request: Request) -> JwtClaimsDataDto | None:  # pyright: ignore
+        """Retrieve user from a jwt token provided in headers if the token was provided.
+
+        If no token is present, returns None
+        If the token is invalid, a 403 will be raised
+        If the token has expired, a 403 will be raised
+        """
+        credentials = await super().__call__(request)
+
+        if credentials is None:
+            return None
+
+        credentials_string = credentials.credentials
+
+        return decode_jwt(credentials_string, self.aud, self.required_scope)
