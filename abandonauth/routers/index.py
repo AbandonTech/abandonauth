@@ -1,10 +1,18 @@
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, Response, Header
 from fastapi.responses import RedirectResponse
 from prisma.models import User
-from starlette.status import HTTP_404_NOT_FOUND
+from starlette.status import HTTP_404_NOT_FOUND, HTTP_401_UNAUTHORIZED
 
-from abandonauth.dependencies.auth.jwt import valid_token_cache, generate_long_lived_jwt, JWTBearer, decode_jwt, \
-    DeveloperAppJwtBearer
+from abandonauth.dependencies.auth.developer_application_deps import LoginDevAppWithOptionalCredentialsDep
+from abandonauth.dependencies.auth.jwt import (
+    valid_token_cache,
+    generate_long_lived_jwt,
+    JWTBearer,
+    decode_jwt,
+    OptionalDeveloperAppJwtBearer
+)
 from abandonauth.models import JwtDto, DeveloperApplicationDto, UserDto
 from prisma.models import DeveloperApplication
 
@@ -66,21 +74,32 @@ async def current_user_information(
     return UserDto(id=user.id, username=user.username)
 
 
-@router.get(
+@router.post(
     "/login",
     summary="Exchange a temporary AbandonAuth token for a permanent user token.",
     response_description="A long-lived JWT to authenticate the user on AbandonAuth.",
     response_model=JwtDto
 )
 async def login_user(
+        authenticated_dev_app: LoginDevAppWithOptionalCredentialsDep,
+        dev_app_token: Annotated[JwtClaimsDataDto | None, Depends(OptionalDeveloperAppJwtBearer())],
         exchange_token: str = Header(),
-        dev_app_token: JwtClaimsDataDto = Depends(DeveloperAppJwtBearer())
 ) -> JwtDto:
     """Logs in a user using a short-term or long-term AbandonAuth JWT.
 
     New JWT's aud must match the developer application's ID as an additional security check.
     """
-    return get_new_token(exchange_token, dev_app_token.user_id)
+    if dev_app_token is not None:
+        app_id = dev_app_token.user_id
+    elif authenticated_dev_app is not None:
+        app_id = authenticated_dev_app.id
+    else:
+        raise HTTPException(
+            status_code=HTTP_401_UNAUTHORIZED,
+            detail="Either a developer application JWT must be given in headers "
+                   "or the developer application credentials must be passed in the request body"
+        )
+    return get_new_token(exchange_token, app_id)
 
 
 @router.post("/burn-token", status_code=200)
