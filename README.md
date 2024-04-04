@@ -12,16 +12,16 @@ Currently supported;
 
 1. Login to [AbandonAuth](https://auth.abandontech.cloud)
 2. Create a Developer Application
-   1. Grab your user token from the inspector's cookies
-   2. Navigate to the [API Docs](https://auth.abandontech.cloud/docs#/) (Web UI for this coming soon).
-   3. Authorize by pasting your token into the JWT bearer field on the `Authorization` popup.
-   4. Execute a POST request to [Create A New Developer App](https://auth.abandontech.cloud/docs#/Developer%20Applications/create_developer_application_developer_application_post)
-   5. Take note of your details, especially your application's secret since it cannot be viewed again (but it can be reset using the API).
-3. Using your Developer App UUID, add the required callback URIs to your dev app. The callback URI you specify is where abandon auth will redirect users after authenticating. It should be whichever address your server is using to finish handling the login process.  Some examples are as follows:
+   1. Navigate to `Developer Applications`
+   2. Click `Create a new application`, then click `Create Application`
+   3. Take note of/save your application token as it will never be visible again (you can reset it anytime)
+3. Navigate back to `Developer Applications` and click on the recently created app's UUID to edit it then click `Edit Callback URIs`. The callback URI you specify is where abandon auth will redirect users after authenticating. It should be whichever address your server is using to finish handling the login process.  Some examples are as follows:
    1. For local dev you could have something like this `"http://your_computers_local_ip:8001/login/abandonauth-callback"`
    2. For a production website, you may use a domain name to redirect to `https://mc.abandonauth.cloud/api/callback`
-4. Configure your app to use your developer application ID and secret to authenticate users from AbandonAuth.
+   ![Callback URIs](./docs/imgs/callback-uris-example.png)
+4. Configure *your* application to use your developer application ID and secret to authenticate users from AbandonAuth.
 
+For a quick example of how to log a user in using AbandonAuth, please see [AbandonAuth's login UI](./abandonauth/routers/ui.py)
 
 
 ## Local Development Guide
