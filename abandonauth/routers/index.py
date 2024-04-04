@@ -83,7 +83,7 @@ async def current_user_information(
 async def login_user(
         authenticated_dev_app: LoginDevAppWithOptionalCredentialsDep,
         dev_app_token: Annotated[JwtClaimsDataDto | None, Depends(OptionalDeveloperAppJwtBearer())],
-        exchange_token: str = Header(),
+        exchange_token: Annotated[str, Header()]
 ) -> JwtDto:
     """Logs in a user using a short-term or long-term AbandonAuth JWT.
 
