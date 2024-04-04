@@ -158,7 +158,11 @@ class DeveloperAppJwtBearer(JWTBearer):
 
 
 class OptionalDeveloperAppJwtBearer(HTTPBearer):
-    """Dependency for routes to enforce JWT auth."""
+    """Dependency for routes to utilize JWT auth when the JWT is optional.
+
+    This dependency should usually be paired with an additional auth method where an exception should be raised if
+    no authentication method is provided.
+    """
 
     def __init__(
             self,
@@ -174,8 +178,7 @@ class OptionalDeveloperAppJwtBearer(HTTPBearer):
         self.required_scope = ScopeEnum.abandonauth
 
     async def __call__(self, request: Request) -> JwtClaimsDataDto | None:  # pyright: ignore
-        """
-        Retrieve user from a jwt token provided in headers if the token was rovided.
+        """Retrieve user from a jwt token provided in headers if the token was provided.
 
         If no token is present, returns None
         If the token is invalid, a 403 will be raised
