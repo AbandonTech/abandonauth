@@ -6,7 +6,7 @@ from fastapi import APIRouter, Form, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from prisma.models import DeveloperApplication
-from starlette.status import HTTP_403_FORBIDDEN, HTTP_400_BAD_REQUEST, HTTP_303_SEE_OTHER
+from starlette.status import HTTP_403_FORBIDDEN, HTTP_400_BAD_REQUEST, HTTP_303_SEE_OTHER, HTTP_404_NOT_FOUND
 
 from abandonauth import templates  # type: ignore
 
@@ -342,7 +342,12 @@ async def oauth_login(request: Request, application_id: UUID | None = None, call
 
         # This check is a convenience in order to provide accurate and immediate feedback to users
         # The security check for application IDs and callback URIs must be done later in the auth flow
-        if not dev_app or not dev_app.callback_uris or callback_uri not in [x.uri for x in dev_app.callback_uris]:
+        if not dev_app:
+            raise HTTPException(
+                status_code=HTTP_404_NOT_FOUND,
+                detail="Invalid application ID",
+            )
+        if not dev_app.callback_uris or callback_uri not in [x.uri for x in dev_app.callback_uris]:
             raise HTTPException(
                 status_code=HTTP_403_FORBIDDEN,
                 detail="Invalid application ID or callback_uri",
