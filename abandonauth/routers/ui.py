@@ -1,4 +1,5 @@
 from typing import Annotated
+from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Form, Request, HTTPException
@@ -319,7 +320,7 @@ async def edit_dev_application_callback_uris(
 
 
 @router.get("/login", response_class=HTMLResponse, include_in_schema=False)
-async def oauth_login(request: Request, application_id: str | None = None, callback_uri: str | None = None):
+async def oauth_login(request: Request, application_id: UUID | None = None, callback_uri: str | None = None):
     """Login for initiating the OAuth flow
 
     This page is used to start the OAuth flow for applications using AbandonAuth.
@@ -335,7 +336,7 @@ async def oauth_login(request: Request, application_id: str | None = None, callb
         )
     else:
         dev_app = await DeveloperApplication.prisma().find_unique(
-            where={"id": application_id},
+            where={"id": str(application_id)},
             include={"callback_uris": True}
         )
 
