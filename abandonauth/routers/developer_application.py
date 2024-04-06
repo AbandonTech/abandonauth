@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException
 from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_404_NOT_FOUND
 
@@ -85,7 +87,7 @@ async def login_developer_application(login_data: LoginDeveloperApplicationDto) 
     response_model=DeveloperApplicationDto
 )
 async def delete_developer_application(
-        application_id: str,
+        application_id: UUID,
         token_data: JwtClaimsDataDto = Depends(JWTBearer())
 ) -> DeveloperApplicationDto:
     """Delete the given developer application if the current user owns the application."""
@@ -112,7 +114,7 @@ async def delete_developer_application(
     response_model=CreateDeveloperApplicationDto
 )
 async def change_application_refresh_token(
-        application_id: str,
+        application_id: UUID,
         token_data: JwtClaimsDataDto = Depends(JWTBearer())
 ) -> CreateDeveloperApplicationDto:
     """Generates and sets a new refresh token for the given developer application.
@@ -173,7 +175,7 @@ async def current_developer_application_information(
     response_model=DeveloperApplicationWithCallbackUriDto
 )
 async def get_developer_application(
-    application_id: str,
+    application_id: UUID,
     token_data: JwtClaimsDataDto = Depends(JWTBearer())
 ) -> DeveloperApplicationWithCallbackUriDto:
     """Get information about the given developer application if the requesting user owns the developer app."""
@@ -205,7 +207,7 @@ async def get_developer_application(
     response_model=DeveloperApplicationDto
 )
 async def update_developer_application_callback_uris(
-        application_id: str,
+        application_id: UUID,
         callback_uris: list[str],
         token_data: JwtClaimsDataDto = Depends(JWTBearer())
 ) -> DeveloperApplicationDto:
