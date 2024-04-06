@@ -92,7 +92,7 @@ async def delete_developer_application(
 ) -> DeveloperApplicationDto:
     """Delete the given developer application if the current user owns the application."""
     dev_app = await DeveloperApplication.prisma().find_unique({
-        "id": application_id
+        "id": str(application_id)
     })
 
     if dev_app and token_data.user_id == dev_app.owner_id:
@@ -122,7 +122,7 @@ async def change_application_refresh_token(
     This action is not reversible and destroys the existing refresh token for the application.
     """
     dev_app = await DeveloperApplication.prisma().find_unique({
-        "id": application_id
+        "id": str(application_id)
     })
 
     if dev_app and token_data.user_id == dev_app.owner_id:
@@ -181,7 +181,7 @@ async def get_developer_application(
     """Get information about the given developer application if the requesting user owns the developer app."""
 
     dev_app = await DeveloperApplication.prisma().find_unique(
-        where={"id": application_id},
+        where={"id": str(application_id)},
         include={"callback_uris": True}
     )
 
@@ -218,7 +218,7 @@ async def update_developer_application_callback_uris(
     Callback URIs that already exist and were given in this request will remain in the database unaltered.
     """
     dev_app = await DeveloperApplication.prisma().find_unique(
-        where={"id": application_id},
+        where={"id": str(application_id)},
         include={"callback_uris": True}
     )
 
