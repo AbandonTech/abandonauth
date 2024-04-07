@@ -19,6 +19,7 @@ from dependencies.services import identify_user, get_new_token
 
 router = APIRouter()
 
+
 @router.get("/", summary="Redirect to landing page", include_in_schema=False)
 async def index() -> RedirectResponse:
     """Redirect to landing page when going to root."""
