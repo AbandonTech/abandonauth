@@ -21,7 +21,7 @@ async def authenticate_developer_app_from_optional_app_id_and_secret(
 
     dev_app = await DeveloperApplication.prisma().find_unique(
         {
-            "id": login_data.id
+            "id": str(login_data.id)
         }
     )
 

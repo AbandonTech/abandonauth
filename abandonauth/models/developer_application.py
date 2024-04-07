@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from pydantic import BaseModel
 
 
@@ -23,7 +25,7 @@ class CreateDeveloperApplicationDto(DeveloperApplicationDto):
 class LoginDeveloperApplicationDto(BaseModel):
     """Data for logging in a developer application."""
 
-    id: str
+    id: UUID
     refresh_token: str
 
 

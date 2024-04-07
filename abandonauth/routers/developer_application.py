@@ -67,7 +67,7 @@ async def login_developer_application(login_data: LoginDeveloperApplicationDto) 
     """
     dev_app = await DeveloperApplication.prisma().find_unique(
         {
-            "id": login_data.id
+            "id": str(login_data.id)
         }
     )
 
