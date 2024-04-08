@@ -17,6 +17,7 @@ Currently supported;
    3. Take note of/save your application token as it will never be visible again (you can reset it anytime)
 3. Navigate back to `Developer Applications` and click on the recently created app's UUID to edit it then click `Edit Callback URIs`. The callback URI you specify is where AbandonAuth will redirect users after authenticating. It should be whichever address your server is using to finish handling the login process.  Some examples are as follows:
    1. For local dev you could have something like this `"http://your_computers_local_ip:8001/login/abandonauth-callback"`
+      1. Or you should be able to use localhost `"http://localhost:8001/login/abandonauth-callback"`
    2. For a production website, you may use a domain name to redirect to `https://mc.abandonauth.cloud/api/callback`
    ![Callback URIs](./docs/imgs/callback-uris-example.png)
 4. Configure *your* application to use your developer application ID and secret to authenticate users from AbandonAuth.
