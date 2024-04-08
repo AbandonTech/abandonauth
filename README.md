@@ -6,16 +6,16 @@ Currently supported;
 - Discord
 
 
-# Using Abandon Auth
+# Using AbandonAuth
 
-## Using Abandon Auth to Secure Your Application
+## Using AbandonAuth to Secure Your Application
 
 1. Login to [AbandonAuth](https://auth.abandontech.cloud)
 2. Create a Developer Application
    1. Navigate to `Developer Applications`
    2. Click `Create a new application`, then click `Create Application`
    3. Take note of/save your application token as it will never be visible again (you can reset it anytime)
-3. Navigate back to `Developer Applications` and click on the recently created app's UUID to edit it then click `Edit Callback URIs`. The callback URI you specify is where abandon auth will redirect users after authenticating. It should be whichever address your server is using to finish handling the login process.  Some examples are as follows:
+3. Navigate back to `Developer Applications` and click on the recently created app's UUID to edit it then click `Edit Callback URIs`. The callback URI you specify is where AbandonAuth will redirect users after authenticating. It should be whichever address your server is using to finish handling the login process.  Some examples are as follows:
    1. For local dev you could have something like this `"http://your_computers_local_ip:8001/login/abandonauth-callback"`
    2. For a production website, you may use a domain name to redirect to `https://mc.abandonauth.cloud/api/callback`
    ![Callback URIs](./docs/imgs/callback-uris-example.png)
