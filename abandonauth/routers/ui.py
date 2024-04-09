@@ -5,51 +5,20 @@ import httpx
 from fastapi import APIRouter, Form, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from prisma.models import DeveloperApplication
 from starlette.status import HTTP_403_FORBIDDEN, HTTP_400_BAD_REQUEST, HTTP_303_SEE_OTHER, HTTP_404_NOT_FOUND
 
 from abandonauth import templates  # type: ignore
-
 from abandonauth.models import DiscordLoginDto, DeveloperApplicationWithCallbackUriDto
-from abandonauth.models.user import UserAuthInfo
 from abandonauth.routers.discord import login_with_discord
 from abandonauth.settings import settings
+from abandonauth.dependencies.services import build_abandon_auth_redirect_url, user_info_from_me_response
+from prisma.models import DeveloperApplication
 
 router = APIRouter(prefix="/ui")
 
 jinja_templates = Jinja2Templates(directory=templates.__path__)
 
 BASE_URL = "http://localhost"
-
-
-async def user_info_from_me_response(request: Request) -> UserAuthInfo | None:
-    if token := request.cookies.get("Authorization"):
-        async with httpx.AsyncClient() as client:
-            headers = {"Authorization": f"Bearer {token}"}
-            me_response = await client.get(f"{BASE_URL}/me", headers=headers)
-
-        me_response_data = me_response.json()
-
-        if me_response.status_code == 200:
-            user_uuid = me_response_data.get("id")
-            username = me_response_data.get("username")
-        else:
-            raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail="User ID and/or username was missing")
-
-        if None in (user_uuid, username):
-            raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail="User ID and/or username was missing")
-
-        return UserAuthInfo(
-            id=user_uuid,
-            username=username,
-            token=token
-        )
-    return None
-
-
-async def build_abandon_auth_redirect_url() -> str:
-    callback_uri = "/ui"
-    return f"/ui/login?application_id={settings.ABANDON_AUTH_DEVELOPER_APP_ID}&callback_uri={callback_uri}"
 
 
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
