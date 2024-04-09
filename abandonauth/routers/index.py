@@ -15,7 +15,7 @@ from prisma.models import DeveloperApplication
 
 from abandonauth.models.auth import JwtClaimsDataDto, ScopeEnum
 
-from dependencies.services import identify_user, get_new_token
+from abandonauth.dependencies.services import identify_user, get_new_token
 
 router = APIRouter()
 
