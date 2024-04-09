@@ -11,7 +11,7 @@ from abandonauth import templates  # type: ignore
 from abandonauth.models import DiscordLoginDto, DeveloperApplicationWithCallbackUriDto
 from abandonauth.routers.discord import login_with_discord
 from abandonauth.settings import settings
-from dependencies.services import build_abandon_auth_redirect_url, user_info_from_me_response
+from abandonauth.dependencies.services import build_abandon_auth_redirect_url, user_info_from_me_response
 from prisma.models import DeveloperApplication
 
 router = APIRouter(prefix="/ui")
