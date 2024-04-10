@@ -13,13 +13,13 @@ reportMissingTypeArgument = true
 
 [tool.poetry.dependencies]
 python = "^3.10"
-fastapi = "^0.109.2"
-httpx = "^0.23.3"
-uvicorn = "^0.20.0"
-prisma = "^0.8.2"
+fastapi = "^0.110.1"
+httpx = "^0.27.0"
+uvicorn = "^0.29.0"
+prisma = "^0.13.1"
 pydantic = {extras = ["dotenv"], version = "^1.10.5"}
 python-jose = "^3.3.0"
-python-multipart = "^0.0.7"
+python-multipart = "^0.0.9"
 passlib = {extras = ["bcrypt"], version = "^1.7.4"}
 
 [tool.poetry.group.dev.dependencies]
