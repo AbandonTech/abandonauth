@@ -1,0 +1,32 @@
+@import url("https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400;1,700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Lato:ital,wght@0,100;0,300;0,400;0,700;0,900;1,100;1,300;1,400;1,700;1,900&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  h1 {
+    @apply font-header font-bold;
+  }
+  h2 {
+    @apply font-header;
+  }
+  h3 {
+    @apply font-header;
+  }
+  h4 {
+    @apply font-header;
+  }
+  h5 {
+    @apply font-header;
+  }
+}
+
+html, body {
+    margin:0;
+    padding:0;
+    min-height: 100vh;
+    max-width: 100vw;
+    scroll-behavior: smooth;
+  }
