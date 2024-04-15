@@ -15,6 +15,9 @@ model User {
   github_account         GitHubAccount?
   google_account         GoogleAccount?
   developer_applications DeveloperApplication[]
+  TestUser               TestUser[]
+
+  @@unique([id, username])
 }
 
 model CallbackUri {
@@ -50,4 +53,12 @@ model GoogleAccount {
   id      String @id
   user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
   user_id String @unique @db.Uuid
+}
+
+model TestUser {
+  id            String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  username      String
+  password      String
+  refresh_token String
+  user          User   @relation(fields: [id, username], references: [id, username], onDelete: Cascade)
 }
