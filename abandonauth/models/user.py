@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from pydantic import BaseModel
 
 
@@ -12,3 +14,13 @@ class UserAuthInfo(BaseModel):
     id: str | None
     username: str | None
     token: str | None
+
+
+class TestUserSchema(BaseModel):
+    username: str
+    password: str
+
+
+class LoginTestUserSchema(BaseModel):
+    user_id: UUID
+    password: str
