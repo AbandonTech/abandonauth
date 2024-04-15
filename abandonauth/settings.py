@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: pydantic.SecretStr
     GOOGLE_CALLBACK: str
 
+    DEBUG: str
+
     class Config:  # pyright: ignore
         frozen = True
         env_file = '.env'
