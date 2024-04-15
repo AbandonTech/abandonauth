@@ -4,6 +4,9 @@ from .github import router as github_router
 from .google import router as google_router
 from .index import router as index_router
 from .ui import router as ui_router
+from .test_router import router as test_router
+
+from settings import settings
 
 routers = [
     developer_router,
@@ -13,3 +16,6 @@ routers = [
     index_router,
     ui_router
 ]
+
+if settings.DEBUG:
+    routers.append(test_router)
