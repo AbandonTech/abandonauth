@@ -2,11 +2,10 @@ from abandonauth.settings import settings
 from abandonauth.dependencies.auth.jwt import generate_long_lived_jwt
 from fastapi import APIRouter, Response
 
-from abandonauth.dependencies.auth.refresh_token import (
+from abandonauth.dependencies.auth.hash import (
     generate_refresh_token,
-    get_refresh_token_hash
+    get_hashed_data,
 )
-from abandonauth.dependencies.auth.password import get_password_hash
 from prisma.models import TestUser, User
 from models.user import LoginTestUserSchema, TestUserSchema
 
@@ -18,8 +17,8 @@ async def create_test_user(user: TestUserSchema):
     token = generate_refresh_token()
     test_user = await TestUser.prisma().create({
         "username": user.username,
-        "password": get_password_hash(user.password),
-        "refresh_token": get_refresh_token_hash(token)
+        "password": get_hashed_data(user.password),
+        "refresh_token": get_hashed_data(token)
     })
 
     await User.prisma().create({

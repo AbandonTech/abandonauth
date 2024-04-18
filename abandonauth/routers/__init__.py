@@ -4,7 +4,7 @@ from .github import router as github_router
 from .google import router as google_router
 from .index import router as index_router
 from .ui import router as ui_router
-from .test_router import router as test_router
+from .password_login import router as password_login_router
 
 from settings import settings
 
@@ -18,4 +18,4 @@ routers = [
 ]
 
 if settings.DEBUG:
-    routers.append(test_router)
+    routers.append(password_login_router)

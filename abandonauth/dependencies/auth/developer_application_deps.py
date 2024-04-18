@@ -4,7 +4,7 @@ from fastapi import HTTPException, Depends
 from prisma.models import DeveloperApplication
 from starlette.status import HTTP_403_FORBIDDEN
 
-from abandonauth.dependencies.auth.refresh_token import verify_refresh_token
+from abandonauth.dependencies.auth.hash import verify_data
 from abandonauth.models.developer_application import LoginDeveloperApplicationDto
 
 
@@ -25,7 +25,7 @@ async def authenticate_developer_app_from_optional_app_id_and_secret(
         }
     )
 
-    if not dev_app or not verify_refresh_token(login_data.refresh_token, dev_app.refresh_token):
+    if not dev_app or not verify_data(login_data.refresh_token, dev_app.refresh_token):
         raise HTTPException(
             status_code=HTTP_403_FORBIDDEN,
             detail="Invalid username or refresh token",

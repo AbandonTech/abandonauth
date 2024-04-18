@@ -5,10 +5,10 @@ from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_404_NOT_FOUND
 
 from abandonauth.database import prisma_db
 from abandonauth.dependencies.auth.jwt import JWTBearer, DeveloperAppJwtBearer, generate_long_lived_jwt
-from abandonauth.dependencies.auth.refresh_token import (
+from abandonauth.dependencies.auth.hash import (
     generate_refresh_token,
-    get_refresh_token_hash,
-    verify_refresh_token
+    get_hashed_data,
+    verify_data
 )
 from abandonauth.models import (
     CreateCallbackUriDto,
@@ -44,7 +44,7 @@ async def create_developer_application(
     Returns the permanent refresh token for the account. This token can only be manually changed.
     """
     refresh_token = generate_refresh_token()
-    hashed_token = get_refresh_token_hash(refresh_token)
+    hashed_token = get_hashed_data(refresh_token)
 
     dev_app = await DeveloperApplication.prisma().create({
         "owner_id": token_data.user_id,
@@ -71,7 +71,7 @@ async def login_developer_application(login_data: LoginDeveloperApplicationDto) 
         }
     )
 
-    if not dev_app or not verify_refresh_token(login_data.refresh_token, dev_app.refresh_token):
+    if not dev_app or not verify_data(login_data.refresh_token, dev_app.refresh_token):
         raise HTTPException(
             status_code=HTTP_401_UNAUTHORIZED,
             detail="Invalid username or refresh token",
@@ -127,7 +127,7 @@ async def change_application_refresh_token(
 
     if dev_app and token_data.user_id == dev_app.owner_id:
         refresh_token = generate_refresh_token()
-        hashed_token = get_refresh_token_hash(refresh_token)
+        hashed_token = get_hashed_data(refresh_token)
 
         updated = await DeveloperApplication.prisma().update(
             where={
