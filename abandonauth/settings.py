@@ -1,5 +1,5 @@
 import pydantic
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -27,13 +27,9 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str
     GOOGLE_CLIENT_SECRET: pydantic.SecretStr
     GOOGLE_CALLBACK: str
-
     DEBUG: str
 
-    class Config:  # pyright: ignore
-        frozen = True
-        env_file = '.env'
-        env_file_encoding = 'utf-8'
+    model_config = SettingsConfigDict(frozen=True, env_file='.env', env_file_encoding='utf-8')
 
 
 settings = Settings()  # pyright: ignore

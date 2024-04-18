@@ -11,9 +11,9 @@ class UserDto(BaseModel):
 
 class UserAuthInfo(BaseModel):
     """User info and authorization info"""
-    id: str | None
-    username: str | None
-    token: str | None
+    id: str | None = None
+    username: str | None = None
+    token: str | None = None
 
 
 class TestUserSchema(BaseModel):
