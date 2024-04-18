@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str
     GOOGLE_CLIENT_SECRET: pydantic.SecretStr
     GOOGLE_CALLBACK: str
-    DEBUG: str
+    DEBUG: bool
 
     model_config = SettingsConfigDict(frozen=True, env_file='.env', env_file_encoding='utf-8')
 
