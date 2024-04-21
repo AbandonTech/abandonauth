@@ -16,11 +16,13 @@ class UserAuthInfo(BaseModel):
     token: str | None = None
 
 
-class TestUserSchema(BaseModel):
+class PasswordAccountSchema(BaseModel):
+    """Data required to create User and PasswordAccount"""
     username: str
     password: str
 
 
-class LoginTestUserSchema(BaseModel):
+class PasswordLoginDto(BaseModel):
+    """Data required to login using password"""
     user_id: UUID
     password: str
