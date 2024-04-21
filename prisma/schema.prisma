@@ -14,8 +14,8 @@ model User {
   discord_account        DiscordAccount?
   github_account         GitHubAccount?
   google_account         GoogleAccount?
+  password_account       PasswordAccount?
   developer_applications DeveloperApplication[]
-  TestUser               TestUser[]
 
   @@unique([id, username])
 }
@@ -55,10 +55,9 @@ model GoogleAccount {
   user_id String @unique @db.Uuid
 }
 
-model TestUser {
-  id            String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  username      String
-  password      String
-  refresh_token String
-  user          User   @relation(fields: [id, username], references: [id, username], onDelete: Cascade)
+model PasswordAccount {
+  id       BigInt @id @default(autoincrement())
+  password String
+  user     User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user_id  String @unique @db.Uuid
 }
