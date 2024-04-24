@@ -32,10 +32,11 @@ async def login_test_user(user_data: PasswordLoginDto, res: Response):
             "user_id": str(user_data.user_id)
         }
     )
-    if password_account is None:
-        return {'message': 'User not found'}
-    if not verify_data(user_data.password, password_account.password):
-        return {'message': 'Invalid password'}
+  if password_account is None or not verify_data(user_data.password, password_account.password):
+        raise HTTPException(
+            status_code=HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password",
+        )
     access_token = generate_long_lived_jwt(str(password_account.user_id), settings.ABANDON_AUTH_DEVELOPER_APP_ID)
     res.set_cookie('Authorization', access_token, secure=True, httponly=True)
     return JwtDto(token=access_token)
