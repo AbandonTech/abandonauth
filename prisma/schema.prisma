@@ -16,8 +16,6 @@ model User {
   google_account         GoogleAccount?
   password_account       PasswordAccount?
   developer_applications DeveloperApplication[]
-
-  @@unique([id, username])
 }
 
 model CallbackUri {
