@@ -5,8 +5,7 @@ from .google import router as google_router
 from .index import router as index_router
 from .ui import router as ui_router
 from .password_login import router as password_login_router
-
-from settings import settings
+from ..settings import settings
 
 routers = [
     developer_router,
