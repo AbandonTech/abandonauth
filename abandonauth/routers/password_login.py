@@ -10,7 +10,7 @@ from abandonauth.models import JwtDto
 from abandonauth.settings import settings
 from abandonauth.dependencies.auth.jwt import generate_long_lived_jwt
 
-router = APIRouter()
+router = APIRouter(tags=["Password Accounts"])
 
 
 @router.post('/create_test_user', summary='Creates User and PasswordAccount')
