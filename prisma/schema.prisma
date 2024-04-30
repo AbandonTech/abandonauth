@@ -14,6 +14,7 @@ model User {
   discord_account        DiscordAccount?
   github_account         GitHubAccount?
   google_account         GoogleAccount?
+  password_account       PasswordAccount?
   developer_applications DeveloperApplication[]
 }
 
@@ -50,4 +51,11 @@ model GoogleAccount {
   id      String @id
   user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
   user_id String @unique @db.Uuid
+}
+
+model PasswordAccount {
+  id       BigInt @id @default(autoincrement())
+  password String
+  user     User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user_id  String @unique @db.Uuid
 }

@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from pydantic import BaseModel
 
 
@@ -12,3 +14,15 @@ class UserAuthInfo(BaseModel):
     id: str | None = None
     username: str | None = None
     token: str | None = None
+
+
+class PasswordAccountSchema(BaseModel):
+    """Data required to create User and PasswordAccount"""
+    username: str
+    password: str
+
+
+class PasswordLoginDto(BaseModel):
+    """Data required to login using password"""
+    user_id: UUID
+    password: str

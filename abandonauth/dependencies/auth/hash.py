@@ -4,12 +4,12 @@ from passlib.context import CryptContext
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
-def verify_refresh_token(plain_token: str, hashed_token: str) -> bool:
-    return pwd_context.verify(plain_token, hashed_token)
+def verify_data(plain_data: str, hashed_data: str) -> bool:
+    return pwd_context.verify(plain_data, hashed_data)
 
 
-def get_refresh_token_hash(token: str) -> str:
-    return pwd_context.hash(token)
+def get_hashed_data(data: str) -> str:
+    return pwd_context.hash(data)
 
 
 def generate_refresh_token() -> str:

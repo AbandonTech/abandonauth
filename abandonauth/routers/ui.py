@@ -37,7 +37,7 @@ async def index(request: Request, code: str | None = None):
         async with httpx.AsyncClient() as client:
             resp = await client.post(f"{BASE_URL}/login", headers=login_headers, json=login_body)
 
-        # If login failed, set token to None so that the user will be redirected back to the logic page
+        # If login failed, set token to None so that the user will be redirected back to the login page
         if resp.status_code != 200:
             token = None
         else:
