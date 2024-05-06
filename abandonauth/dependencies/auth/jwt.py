@@ -73,11 +73,11 @@ def decode_jwt(
             settings.JWT_SECRET.get_secret_value(),
             **decode_kwargs,  # pyright: ignore [reportArgumentType]
         )
-    except JWTError:
+    except JWTError as e:
         raise HTTPException(
             status_code=HTTP_403_FORBIDDEN,
             detail="Invalid token format",
-        )
+        ) from e
 
     if token_data["exp"] < datetime.now(timezone.utc).timestamp():
         raise HTTPException(
