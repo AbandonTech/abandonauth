@@ -79,7 +79,7 @@ def decode_jwt(
             detail="Invalid token format",
         )
 
-    if token_data["exp"] < datetime.utcnow().timestamp():
+    if token_data["exp"] < datetime.now(timezone.utc).timestamp():
         raise HTTPException(
             status_code=HTTP_403_FORBIDDEN,
             detail="Token has expired",
