@@ -328,24 +328,24 @@ async def oauth_login(
             status_code=HTTP_400_BAD_REQUEST,
             detail="Both application_id and callback_uri are required",
         )
-    else:
-        dev_app = await DeveloperApplication.prisma().find_unique(
-            where={"id": str(application_id)},
-            include={"callback_uris": True},
-        )
 
-        # This check is a convenience in order to provide accurate and immediate feedback to users
-        # The security check for application IDs and callback URIs must be done later in the auth flow
-        if not dev_app:
-            raise HTTPException(
-                status_code=HTTP_404_NOT_FOUND,
-                detail="Invalid application ID",
-            )
-        if not dev_app.callback_uris or callback_uri not in [x.uri for x in dev_app.callback_uris]:
-            raise HTTPException(
-                status_code=HTTP_403_FORBIDDEN,
-                detail="Invalid application ID or callback_uri",
-            )
+    dev_app = await DeveloperApplication.prisma().find_unique(
+        where={"id": str(application_id)},
+        include={"callback_uris": True},
+    )
+
+    # This check is a convenience in order to provide accurate and immediate feedback to users
+    # The security check for application IDs and callback URIs must be done later in the auth flow
+    if not dev_app:
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail="Invalid application ID",
+        )
+    if not dev_app.callback_uris or callback_uri not in [x.uri for x in dev_app.callback_uris]:
+        raise HTTPException(
+            status_code=HTTP_403_FORBIDDEN,
+            detail="Invalid application ID or callback_uri",
+        )
 
     discord_login_url = f"{settings.ABANDON_AUTH_DISCORD_REDIRECT}&state={dev_app.id},{callback_uri}"
 
@@ -391,8 +391,6 @@ async def discord_callback(request: Request) -> RedirectResponse:
         login_data = DiscordLoginDto(code=code, redirect_uri=settings.ABANDON_AUTH_DISCORD_CALLBACK)
         exchange_token = (await login_with_discord(login_data, app_id)).token
 
-        resp = RedirectResponse(f"{redirect_url}?code={exchange_token}")
-
-        return resp
+        return RedirectResponse(f"{redirect_url}?code={exchange_token}")
 
     return RedirectResponse(redirect_url)
