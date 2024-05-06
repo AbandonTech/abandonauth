@@ -1,5 +1,5 @@
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel
 
@@ -10,15 +10,15 @@ class JwtDto(BaseModel):
     token: str
 
 
-class ScopeEnum(str, Enum):
+class ScopeEnum(StrEnum):
     """All accepted scopes for an abandonauth JWT."""
 
     identify = "identify"
     abandonauth = "abandonauth"
-    none = None
+    none = ""
 
 
-class LifespanEnum(str, Enum):
+class LifespanEnum(StrEnum):
     """Allowed lifespans for an abandonauth JWT."""
 
     long = "long"

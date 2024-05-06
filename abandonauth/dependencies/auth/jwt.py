@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import HTTPException, Request
@@ -29,7 +29,7 @@ def _generate_jwt(user_id: str, application_id_aud: str, *, long_lived: bool = F
     else:
         exp_seconds = settings.JWT_EXPIRES_IN_SECONDS_SHORT_LIVED
 
-    expiration = datetime.now(timezone.utc) + timedelta(seconds=exp_seconds)
+    expiration = datetime.now(UTC) + timedelta(seconds=exp_seconds)
 
     if long_lived and application_id_aud == settings.ABANDON_AUTH_DEVELOPER_APP_ID:
         scope = f"{ScopeEnum.abandonauth} {ScopeEnum.identify}"
@@ -79,7 +79,7 @@ def decode_jwt(
             detail="Invalid token format",
         ) from e
 
-    if token_data["exp"] < datetime.now(timezone.utc).timestamp():
+    if token_data["exp"] < datetime.now(UTC).timestamp():
         raise HTTPException(
             status_code=HTTP_403_FORBIDDEN,
             detail="Token has expired",
