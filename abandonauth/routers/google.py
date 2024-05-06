@@ -40,7 +40,6 @@ async def login_with_google(code: str, state: str) -> RedirectResponse:
         response.raise_for_status()
         google_user = response.json()
 
-    print(google_user["sub"])
     user = await User.prisma().find_first(
         where={
             "google_account": {
