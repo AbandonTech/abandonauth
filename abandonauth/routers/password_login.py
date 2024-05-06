@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Response
+from prisma.models import PasswordAccount, User
 from starlette.status import HTTP_401_UNAUTHORIZED
 
 from abandonauth.dependencies.auth.hash import (
@@ -9,7 +10,6 @@ from abandonauth.dependencies.auth.jwt import generate_long_lived_jwt
 from abandonauth.models import JwtDto
 from abandonauth.models.user import PasswordAccountSchema, PasswordLoginDto, UserDto
 from abandonauth.settings import settings
-from prisma.models import PasswordAccount, User
 
 router = APIRouter(tags=["Password Accounts"])
 

@@ -1,11 +1,11 @@
 import httpx
 from fastapi import APIRouter
+from prisma.models import User
 from starlette.responses import RedirectResponse
 
 from abandonauth.dependencies.auth.jwt import generate_short_lived_jwt
 from abandonauth.models import JwtDto
 from abandonauth.settings import settings
-from prisma.models import User
 
 router = APIRouter(
     prefix="/github",

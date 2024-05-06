@@ -1,10 +1,10 @@
 import httpx
 from fastapi import APIRouter
+from prisma.models import User
 
 from abandonauth.dependencies.auth.jwt import generate_short_lived_jwt
 from abandonauth.models import DiscordLoginDto, JwtDto
 from abandonauth.settings import settings
-from prisma.models import User
 
 router = APIRouter(
     prefix="/discord",

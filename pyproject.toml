@@ -54,6 +54,7 @@ ban-relative-imports = "all"
 order-by-type = false
 case-sensitive = true
 combine-as-imports = true
+known-third-party = ["prisma"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/__init__.py" = ["F401"]

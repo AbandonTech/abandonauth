@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from prisma.models import CallbackUri, DeveloperApplication
 from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_404_NOT_FOUND
 
 from abandonauth.database import prisma_db
@@ -20,7 +21,6 @@ from abandonauth.models import (
 )
 from abandonauth.models.auth import JwtClaimsDataDto
 from abandonauth.settings import settings
-from prisma.models import CallbackUri, DeveloperApplication
 
 router = APIRouter(
     prefix="/developer_application",

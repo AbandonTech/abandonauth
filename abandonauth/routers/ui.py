@@ -6,6 +6,7 @@ import httpx
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from prisma.models import DeveloperApplication
 from starlette.status import HTTP_303_SEE_OTHER, HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
 
 from abandonauth import templates  # pyright: ignore [reportAttributeAccessIssue]
@@ -13,7 +14,6 @@ from abandonauth.dependencies.services import build_abandon_auth_redirect_url, u
 from abandonauth.models import DeveloperApplicationWithCallbackUriDto, DiscordLoginDto
 from abandonauth.routers.discord import login_with_discord
 from abandonauth.settings import settings
-from prisma.models import DeveloperApplication
 
 router = APIRouter(prefix="/ui")
 
