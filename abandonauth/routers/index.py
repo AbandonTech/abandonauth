@@ -1,21 +1,19 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, Response
 from fastapi.responses import RedirectResponse
 from starlette.status import HTTP_401_UNAUTHORIZED
 
 from abandonauth.dependencies.auth.developer_application_deps import LoginDevAppWithOptionalCredentialsDep
 from abandonauth.dependencies.auth.jwt import (
-    valid_token_cache,
     JWTBearer,
     OptionalDeveloperAppJwtBearer,
+    valid_token_cache,
 )
-from abandonauth.models import JwtDto, DeveloperApplicationDto, UserDto
-from prisma.models import DeveloperApplication
-
+from abandonauth.dependencies.services import get_new_token, identify_user
+from abandonauth.models import DeveloperApplicationDto, JwtDto, UserDto
 from abandonauth.models.auth import JwtClaimsDataDto, ScopeEnum
-
-from abandonauth.dependencies.services import identify_user, get_new_token
+from prisma.models import DeveloperApplication
 
 router = APIRouter()
 

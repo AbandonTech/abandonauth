@@ -1,11 +1,11 @@
 from typing import Annotated
 
-from fastapi import HTTPException, Depends
-from prisma.models import DeveloperApplication
+from fastapi import Depends, HTTPException
 from starlette.status import HTTP_403_FORBIDDEN
 
 from abandonauth.dependencies.auth.hash import verify_data
 from abandonauth.models.developer_application import LoginDeveloperApplicationDto
+from prisma.models import DeveloperApplication
 
 
 async def authenticate_developer_app_from_optional_app_id_and_secret(

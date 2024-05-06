@@ -1,3 +1,4 @@
+from .auth import JwtDto
 from .developer_application import (
     CallbackUriDto,
     CreateCallbackUriDto,
@@ -7,5 +8,4 @@ from .developer_application import (
     LoginDeveloperApplicationDto,
 )
 from .discord import DiscordLoginDto
-from .auth import JwtDto
 from .user import UserDto

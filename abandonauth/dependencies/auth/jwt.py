@@ -1,12 +1,12 @@
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import HTTPException, Request
 from fastapi.security import HTTPBearer
 from jose import JWTError, jwt
 from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
-from typing import Any
 
-from abandonauth.models.auth import JwtClaimsDataDto, ScopeEnum, LifespanEnum
+from abandonauth.models.auth import JwtClaimsDataDto, LifespanEnum, ScopeEnum
 from abandonauth.settings import settings
 
 # Cache of all valid issued tokens. Tokens should be removed after their first use

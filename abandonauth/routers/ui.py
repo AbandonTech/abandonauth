@@ -2,16 +2,16 @@ from typing import Annotated
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Form, Request, HTTPException
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from starlette.status import HTTP_403_FORBIDDEN, HTTP_400_BAD_REQUEST, HTTP_303_SEE_OTHER, HTTP_404_NOT_FOUND
+from starlette.status import HTTP_303_SEE_OTHER, HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
 
 from abandonauth import templates  # pyright: ignore [reportAttributeAccessIssue]
-from abandonauth.models import DiscordLoginDto, DeveloperApplicationWithCallbackUriDto
+from abandonauth.dependencies.services import build_abandon_auth_redirect_url, user_info_from_me_response
+from abandonauth.models import DeveloperApplicationWithCallbackUriDto, DiscordLoginDto
 from abandonauth.routers.discord import login_with_discord
 from abandonauth.settings import settings
-from abandonauth.dependencies.services import build_abandon_auth_redirect_url, user_info_from_me_response
 from prisma.models import DeveloperApplication
 
 router = APIRouter(prefix="/ui")

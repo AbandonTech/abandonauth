@@ -1,14 +1,14 @@
 import httpx
-from fastapi import Request, HTTPException
+from fastapi import HTTPException, Request
 from starlette.status import HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
 
-from abandonauth.models.user import UserAuthInfo
-from abandonauth.models.auth import JwtClaimsDataDto, JwtDto, ScopeEnum
-from abandonauth.settings import settings
 from abandonauth.dependencies.auth.jwt import (
-    generate_long_lived_jwt,
     decode_jwt,
+    generate_long_lived_jwt,
 )
+from abandonauth.models.auth import JwtClaimsDataDto, JwtDto, ScopeEnum
+from abandonauth.models.user import UserAuthInfo
+from abandonauth.settings import settings
 from prisma.models import User
 
 BASE_URL = "http://localhost"

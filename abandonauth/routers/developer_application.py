@@ -4,12 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_404_NOT_FOUND
 
 from abandonauth.database import prisma_db
-from abandonauth.dependencies.auth.jwt import JWTBearer, DeveloperAppJwtBearer, generate_long_lived_jwt
 from abandonauth.dependencies.auth.hash import (
     generate_refresh_token,
     get_hashed_data,
     verify_data,
 )
+from abandonauth.dependencies.auth.jwt import DeveloperAppJwtBearer, JWTBearer, generate_long_lived_jwt
 from abandonauth.models import (
     CreateCallbackUriDto,
     CreateDeveloperApplicationDto,
@@ -18,11 +18,9 @@ from abandonauth.models import (
     JwtDto,
     LoginDeveloperApplicationDto,
 )
-
-from prisma.models import CallbackUri, DeveloperApplication
-
 from abandonauth.models.auth import JwtClaimsDataDto
 from abandonauth.settings import settings
+from prisma.models import CallbackUri, DeveloperApplication
 
 router = APIRouter(
     prefix="/developer_application",

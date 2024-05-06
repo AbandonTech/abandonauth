@@ -6,7 +6,6 @@ from fastapi.staticfiles import StaticFiles
 from abandonauth.database import prisma_db
 from abandonauth.routers import routers
 
-
 app = FastAPI(
     title="AbandonAuth",
     version=os.environ.get("VERSION", "local-dev"),
