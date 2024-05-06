@@ -189,10 +189,7 @@ async def get_developer_application(
     if not (dev_app and token_data.user_id == dev_app.owner_id):
         raise HTTPException(status_code=HTTP_404_NOT_FOUND)
 
-    if dev_app.callback_uris:
-        callbacks = [x.uri for x in dev_app.callback_uris]
-    else:
-        callbacks = []
+    callbacks = [x.uri for x in dev_app.callback_uris] if dev_app.callback_uris else []
 
     return DeveloperApplicationWithCallbackUriDto(
         id=dev_app.id,

@@ -66,12 +66,7 @@ def decode_jwt(
     Raises errors if invalid, or unauthorized JWT is supplied.
     """
     try:
-        if aud:
-            decode_kwargs = {
-                "audience": aud,
-            }
-        else:
-            decode_kwargs = {"options": IGNORE_AUD_DECODE_OPTIONS}
+        decode_kwargs = {"audience": aud} if aud else {"options": IGNORE_AUD_DECODE_OPTIONS}
 
         token_data = jwt.decode(
             token,
