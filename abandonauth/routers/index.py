@@ -20,7 +20,7 @@ router = APIRouter()
 
 
 @router.get("/", summary="Redirect to landing page", include_in_schema=False)
-async def index() -> RedirectResponse:
+def index() -> RedirectResponse:
     """Redirect to landing page when going to root."""
     return RedirectResponse("/ui")
 
@@ -60,7 +60,7 @@ async def current_user_information(
     response_description="A long-lived JWT to authenticate the user on AbandonAuth.",
     response_model=JwtDto,
 )
-async def login_user(
+def login_user(
         authenticated_dev_app: LoginDevAppWithOptionalCredentialsDep,
         dev_app_token: Annotated[JwtClaimsDataDto | None, Depends(OptionalDeveloperAppJwtBearer())],
         exchange_token: Annotated[str, Header()],
@@ -84,7 +84,7 @@ async def login_user(
 
 
 @router.post("/burn-token", status_code=200)
-async def burn_jwt(token: JwtDto) -> Response:
+def burn_jwt(token: JwtDto) -> Response:
     """
     Invalidate the given JWT.
 

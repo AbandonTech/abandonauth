@@ -42,7 +42,7 @@ async def user_info_from_me_response(request: Request) -> UserAuthInfo | None:
     return None
 
 
-async def build_abandon_auth_redirect_url() -> str:
+def build_abandon_auth_redirect_url() -> str:
     """Return the redirect URL to be used for auth."""
     callback_uri = "/ui"
     return f"/ui/login?application_id={settings.ABANDON_AUTH_DEVELOPER_APP_ID}&callback_uri={callback_uri}"

@@ -51,7 +51,7 @@ async def index(request: Request, code: str | None = None) -> RedirectResponse:
             authenticated = (await client.get(f"{BASE_URL}/me", headers=headers)).status_code == HTTPStatus.OK
 
     if authenticated is False:
-        return RedirectResponse(await build_abandon_auth_redirect_url())
+        return RedirectResponse(build_abandon_auth_redirect_url())
 
     resp = RedirectResponse("/ui/developer_dashboard")
     resp.set_cookie(key="Authorization", value=token)  # pyright: ignore [reportArgumentType]
@@ -84,7 +84,7 @@ async def create_new_developer_application_form(request: Request) -> HTMLRespons
     user_info = await user_info_from_me_response(request)
 
     if user_info is None:
-        return RedirectResponse(await build_abandon_auth_redirect_url())
+        return RedirectResponse(build_abandon_auth_redirect_url())
 
     return jinja_templates.TemplateResponse(
         "create_developer_app.html",
@@ -101,7 +101,7 @@ async def create_new_developer_applications(request: Request) -> HTMLResponse | 
     user_info = await user_info_from_me_response(request)
 
     if user_info is None:
-        return RedirectResponse(await build_abandon_auth_redirect_url())
+        return RedirectResponse(build_abandon_auth_redirect_url())
 
     async with httpx.AsyncClient() as client:
         headers = {"Authorization": f"Bearer {user_info.token}"}
@@ -125,7 +125,7 @@ async def list_developer_applications(request: Request) -> HTMLResponse | Redire
     user_info = await user_info_from_me_response(request)
 
     if user_info is None:
-        return RedirectResponse(await build_abandon_auth_redirect_url())
+        return RedirectResponse(build_abandon_auth_redirect_url())
 
     async with httpx.AsyncClient() as client:
         headers = {"Authorization": f"Bearer {user_info.token}"}
@@ -150,7 +150,7 @@ async def developer_application_detail(
     user_info = await user_info_from_me_response(request)
 
     if user_info is None:
-        return RedirectResponse(await build_abandon_auth_redirect_url())
+        return RedirectResponse(build_abandon_auth_redirect_url())
 
     async with httpx.AsyncClient() as client:
         headers = {"Authorization": f"Bearer {user_info.token}"}
@@ -181,7 +181,7 @@ async def reset_dev_application_token_confirmation(
     user_info = await user_info_from_me_response(request)
 
     if user_info is None:
-        return RedirectResponse(await build_abandon_auth_redirect_url())
+        return RedirectResponse(build_abandon_auth_redirect_url())
 
     return jinja_templates.TemplateResponse(
         "reset_dev_app_token_confirmation.html",
@@ -199,7 +199,7 @@ async def reset_dev_application_token(request: Request, application_id: str) -> 
     user_info = await user_info_from_me_response(request)
 
     if user_info is None:
-        return RedirectResponse(await build_abandon_auth_redirect_url())
+        return RedirectResponse(build_abandon_auth_redirect_url())
 
     async with httpx.AsyncClient() as client:
         headers = {"Authorization": f"Bearer {user_info.token}"}
@@ -224,7 +224,7 @@ async def delete_dev_application_confirmation(request: Request, application_id: 
     user_info = await user_info_from_me_response(request)
 
     if user_info is None:
-        return RedirectResponse(await build_abandon_auth_redirect_url())
+        return RedirectResponse(build_abandon_auth_redirect_url())
 
     return jinja_templates.TemplateResponse(
         "delete_dev_app_confirmation.html",
@@ -242,7 +242,7 @@ async def delete_dev_application(request: Request, application_id: str) -> Redir
     user_info = await user_info_from_me_response(request)
 
     if user_info is None:
-        return RedirectResponse(await build_abandon_auth_redirect_url())
+        return RedirectResponse(build_abandon_auth_redirect_url())
 
     async with httpx.AsyncClient() as client:
         headers = {"Authorization": f"Bearer {user_info.token}"}
@@ -260,7 +260,7 @@ async def edit_dev_application_callback_uris_page(
     user_info = await user_info_from_me_response(request)
 
     if user_info is None:
-        return RedirectResponse(await build_abandon_auth_redirect_url())
+        return RedirectResponse(build_abandon_auth_redirect_url())
 
     async with httpx.AsyncClient() as client:
         headers = {"Authorization": f"Bearer {user_info.token}"}
@@ -292,7 +292,7 @@ async def edit_dev_application_callback_uris(
     user_info = await user_info_from_me_response(request)
 
     if user_info is None:
-        return RedirectResponse(await build_abandon_auth_redirect_url())
+        return RedirectResponse(build_abandon_auth_redirect_url())
 
     formatted_uris = new_callback_uris.strip(" ").split(",")
 
