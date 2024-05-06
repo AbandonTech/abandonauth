@@ -16,7 +16,8 @@ IGNORE_AUD_DECODE_OPTIONS = {"verify_aud": False}
 
 
 def _generate_jwt(user_id: str, application_id_aud: str, long_lived: bool = False) -> str:
-    """Generate an AbandonAuth long-lived or short-lived JWT for the given user.
+    """
+    Generate an AbandonAuth long-lived or short-lived JWT for the given user.
 
     Creates a JWT containing the user ID and expiration of the token.
     application_id_aud is the verified developer application ID that will be consuming the token
@@ -59,6 +60,11 @@ def decode_jwt(
         aud: str | None = None,
         required_scope: ScopeEnum = ScopeEnum.abandonauth,
 ) -> JwtClaimsDataDto:
+    """
+    Decode and return all claim data for the given JWT.
+
+    Raises errors if invalid, or unauthorized JWT is supplied.
+    """
     try:
         if aud:
             decode_kwargs = {
@@ -100,6 +106,7 @@ def decode_jwt(
 
 
 def generate_long_lived_jwt(user_id: str, application_id_aud: str) -> str:
+    """Generate a long lived JWT token using the given user ID."""
     return _generate_jwt(user_id, application_id_aud, long_lived=True)
 
 
@@ -145,7 +152,8 @@ class JWTBearer(HTTPBearer):
 
 
 class DeveloperAppJwtBearer(JWTBearer):
-    """JWTBearer class for authorizing developer application tokens"""
+    """JWTBearer class for authorizing developer application tokens."""
+
     def __init__(
             self,
             **kwargs: Any,
@@ -158,7 +166,8 @@ class DeveloperAppJwtBearer(JWTBearer):
 
 
 class OptionalDeveloperAppJwtBearer(HTTPBearer):
-    """Dependency for routes to utilize JWT auth when the JWT is optional.
+    """
+    Dependency for routes to utilize JWT auth when the JWT is optional.
 
     This dependency should usually be paired with an additional auth method where an exception should be raised if
     no authentication method is provided.
@@ -178,7 +187,8 @@ class OptionalDeveloperAppJwtBearer(HTTPBearer):
         self.required_scope = ScopeEnum.abandonauth
 
     async def __call__(self, request: Request) -> JwtClaimsDataDto | None:  # pyright: ignore [reportIncompatibleMethodOverride]
-        """Retrieve user from a jwt token provided in headers if the token was provided.
+        """
+        Retrieve user from a jwt token provided in headers if the token was provided.
 
         If no token is present, returns None
         If the token is invalid, a 403 will be raised

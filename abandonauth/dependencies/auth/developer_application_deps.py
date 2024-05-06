@@ -11,7 +11,8 @@ from abandonauth.models.developer_application import LoginDeveloperApplicationDt
 async def authenticate_developer_app_from_optional_app_id_and_secret(
         login_data: LoginDeveloperApplicationDto | None = None,
 ) -> DeveloperApplication | None:
-    """Attempt to fetch login data from request body and authenticate the developer application with provided creds.
+    """
+    Attempt to fetch login data from request body and authenticate the developer application with provided creds.
 
     Returns None if no credentials were provided.
     Raises an exception if credentials were provided and are not valid.

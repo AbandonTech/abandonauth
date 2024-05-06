@@ -66,7 +66,8 @@ async def login_user(
         dev_app_token: Annotated[JwtClaimsDataDto | None, Depends(OptionalDeveloperAppJwtBearer())],
         exchange_token: Annotated[str, Header()],
 ) -> JwtDto:
-    """Logs in a user using a short-term or long-term AbandonAuth JWT.
+    """
+    Log in the user, using a short-term or long-term AbandonAuth JWT.
 
     New JWT's aud must match the developer application's ID as an additional security check.
     """

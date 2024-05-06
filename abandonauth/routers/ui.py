@@ -82,7 +82,7 @@ async def developer_dashboard(request: Request):
 
 @router.get("/applications/new", response_class=HTMLResponse, include_in_schema=False)
 async def create_new_developer_application_form(request: Request):
-    """Page for managing developer applications"""
+    """Page for managing developer applications."""
     user_info = await user_info_from_me_response(request)
 
     if user_info is None:
@@ -99,7 +99,7 @@ async def create_new_developer_application_form(request: Request):
 
 @router.post("/applications/new", response_class=HTMLResponse, include_in_schema=False)
 async def create_new_developer_applications(request: Request):
-    """Page for managing developer applications"""
+    """Page for managing developer applications."""
     user_info = await user_info_from_me_response(request)
 
     if user_info is None:
@@ -123,7 +123,7 @@ async def create_new_developer_applications(request: Request):
 
 @router.get("/applications", response_class=HTMLResponse, include_in_schema=False)
 async def list_developer_applications(request: Request):
-    """Page for managing developer applications"""
+    """Page for managing developer applications."""
     user_info = await user_info_from_me_response(request)
 
     if user_info is None:
@@ -148,7 +148,7 @@ async def developer_application_detail(
         request: Request,
         application_id: str,
 ):
-    """Page for managing developer applications"""
+    """Page for managing developer applications."""
     user_info = await user_info_from_me_response(request)
 
     if user_info is None:
@@ -305,13 +305,13 @@ async def edit_dev_application_callback_uris(
 
 @router.get("/login", response_class=HTMLResponse, include_in_schema=False)
 async def oauth_login(request: Request, application_id: UUID | None = None, callback_uri: str | None = None):
-    """Login for initiating the OAuth flow
+    """
+    Login for initiating the OAuth flow.
 
     This page is used to start the OAuth flow for applications using AbandonAuth.
     Users are redirected to the selected identity provider then directed to the specified, verified callback uri.
     Callback URL is validated as being valid for the given application ID.
     """
-
     errors = []
     if not (application_id and callback_uri):
         raise HTTPException(

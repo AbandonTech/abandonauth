@@ -15,7 +15,6 @@ router = APIRouter(
 @router.get("", response_model=JwtDto)
 async def login_with_github(code: str, state: str) -> RedirectResponse:
     """Log a user in using GitHubs's OAuth2 as validation."""
-
     data = {
         "client_id": settings.GITHUB_CLIENT_ID,
         "redirect_uri": settings.GITHUB_CALLBACK,

@@ -15,6 +15,7 @@ BASE_URL = "http://localhost"
 
 
 async def user_info_from_me_response(request: Request) -> UserAuthInfo | None:
+    """Return the user's info auth info."""
     if token := request.cookies.get("Authorization"):
         async with httpx.AsyncClient() as client:
             headers = {"Authorization": f"Bearer {token}"}
@@ -40,12 +41,13 @@ async def user_info_from_me_response(request: Request) -> UserAuthInfo | None:
 
 
 async def build_abandon_auth_redirect_url() -> str:
+    """Return the redirect URL to be used for auth."""
     callback_uri = "/ui"
     return f"/ui/login?application_id={settings.ABANDON_AUTH_DEVELOPER_APP_ID}&callback_uri={callback_uri}"
 
 
 async def identify_user(user_id: str) -> User:
-    """Get the user with the given ID or raise an HTTP 404"""
+    """Get the user with the given ID or raise an HTTP 404."""
     user = await User.prisma().find_unique({
         "id": user_id,
     })

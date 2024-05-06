@@ -15,7 +15,6 @@ DISCORD_API_BASE = "https://discord.com/api/v10"
 
 async def login_with_discord(login_data: DiscordLoginDto, application_id: str) -> JwtDto:
     """Log a user in using Discord's OAuth2 as validation."""
-
     # Gather access token
     data = {
         "client_id": settings.DISCORD_CLIENT_ID,

@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Settings are loaded from .env"""
+    """Settings are loaded from .env."""
 
     DATABASE_URL: pydantic.SecretStr
 

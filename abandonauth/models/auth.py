@@ -11,18 +11,22 @@ class JwtDto(BaseModel):
 
 
 class ScopeEnum(str, Enum):
+    """All accepted scopes for an abandonauth JWT."""
+
     identify = "identify"
     abandonauth = "abandonauth"
     none = None
 
 
 class LifespanEnum(str, Enum):
+    """Allowed lifespans for an abandonauth JWT."""
+
     long = "long"
     short = "short"
 
 
 class JwtClaimsDataDto(BaseModel):
-    """All claim data for an Abandon Auth JWT"""
+    """All claim data for an Abandon Auth JWT."""
 
     user_id: str
     exp: datetime

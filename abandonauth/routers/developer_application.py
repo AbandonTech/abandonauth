@@ -39,7 +39,8 @@ router = APIRouter(
 async def create_developer_application(
         token_data: JwtClaimsDataDto = Depends(JWTBearer()),
 ) -> CreateDeveloperApplicationDto:
-    """Create a new developer application owned by the currently authenticated User.
+    """
+    Create a new developer application owned by the currently authenticated User.
 
     Returns the permanent refresh token for the account. This token can only be manually changed.
     """
@@ -61,7 +62,8 @@ async def create_developer_application(
     response_model=JwtDto,
 )
 async def login_developer_application(login_data: LoginDeveloperApplicationDto) -> JwtDto:
-    """Authenticate a developer application given a long-term refresh token or raise a **401** response.
+    """
+    Authenticate a developer application given a long-term refresh token or raise a **401** response.
 
     Returns a short-lived exchange token for the developer application.
     """
@@ -117,7 +119,8 @@ async def change_application_refresh_token(
         application_id: UUID,
         token_data: JwtClaimsDataDto = Depends(JWTBearer()),
 ) -> CreateDeveloperApplicationDto:
-    """Generates and sets a new refresh token for the given developer application.
+    """
+    Generate and set a new refresh token for the given developer application.
 
     This action is not reversible and destroys the existing refresh token for the application.
     """
@@ -154,7 +157,8 @@ async def change_application_refresh_token(
 async def current_developer_application_information(
         token_data: JwtClaimsDataDto = Depends(DeveloperAppJwtBearer()),
 ) -> DeveloperApplicationDto:
-    """Get information about the developer application from a jwt.
+    """
+    Get information about the developer application from a jwt.
 
     This function must be defined before other endpoints that use path params at the same path
     """
@@ -179,7 +183,6 @@ async def get_developer_application(
     token_data: JwtClaimsDataDto = Depends(JWTBearer()),
 ) -> DeveloperApplicationWithCallbackUriDto:
     """Get information about the given developer application if the requesting user owns the developer app."""
-
     dev_app = await DeveloperApplication.prisma().find_unique(
         where={"id": str(application_id)},
         include={"callback_uris": True},
@@ -211,7 +214,8 @@ async def update_developer_application_callback_uris(
         callback_uris: list[str],
         token_data: JwtClaimsDataDto = Depends(JWTBearer()),
 ) -> DeveloperApplicationDto:
-    """Replace the valid callback URIs for the given developer application and return the given developer application
+    """
+    Replace the valid callback URIs for the given developer application and return the given developer application.
 
     Create all callback URIs that do not exist yet.
     Delete all callback URIs that already exist and were not given in this request.

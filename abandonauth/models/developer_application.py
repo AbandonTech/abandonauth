@@ -4,14 +4,14 @@ from pydantic import BaseModel
 
 
 class DeveloperApplicationDto(BaseModel):
-    """Basic data for developer applications"""
+    """Basic data for developer applications."""
 
     id: str
     owner_id: str
 
 
 class DeveloperApplicationWithCallbackUriDto(DeveloperApplicationDto):
-    """Basic data for developer applications as well as the Callback URIs for the app"""
+    """Basic data for developer applications as well as the Callback URIs for the app."""
 
     callback_uris: list[str]
 
@@ -30,11 +30,13 @@ class LoginDeveloperApplicationDto(BaseModel):
 
 
 class CreateCallbackUriDto(BaseModel):
-    """Data for creating a callback URI"""
+    """Data for creating a callback URI."""
+
     developer_application_id: str
     uri: str
 
 
 class CallbackUriDto(CreateCallbackUriDto):
-    """All data that should be displayed to a user for a callback URI"""
+    """All data that should be displayed to a user for a callback URI."""
+
     id: int

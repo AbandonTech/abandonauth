@@ -16,7 +16,6 @@ router = APIRouter(
 @router.get("", response_model=JwtDto)
 async def login_with_google(code: str, state: str) -> RedirectResponse:
     """Log a user in using Google's OAuth2 as validation."""
-
     data = {
         "client_id": settings.GOOGLE_CLIENT_ID,
         "redirect_uri": settings.GOOGLE_CALLBACK,
