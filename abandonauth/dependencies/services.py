@@ -1,3 +1,5 @@
+from http import HTTPStatus
+
 import httpx
 from fastapi import HTTPException, Request
 from starlette.status import HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
@@ -23,7 +25,7 @@ async def user_info_from_me_response(request: Request) -> UserAuthInfo | None:
 
         me_response_data = me_response.json()
 
-        if me_response.status_code == 200:
+        if me_response.status_code == HTTPStatus.OK:
             user_uuid = me_response_data.get("id")
             username = me_response_data.get("username")
         else:

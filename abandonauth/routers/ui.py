@@ -1,3 +1,4 @@
+from http import HTTPStatus
 from typing import Annotated
 from uuid import UUID
 
@@ -38,7 +39,7 @@ async def index(request: Request, code: str | None = None) -> RedirectResponse:
             resp = await client.post(f"{BASE_URL}/login", headers=login_headers, json=login_body)
 
         # If login failed, set token to None so that the user will be redirected back to the login page
-        if resp.status_code != 200:
+        if resp.status_code != HTTPStatus.OK:
             token = None
         else:
             token = resp.json().get("token")
@@ -50,7 +51,7 @@ async def index(request: Request, code: str | None = None) -> RedirectResponse:
     if token:
         async with httpx.AsyncClient() as client:
             headers = {"Authorization": f"Bearer {token}"}
-            authenticated = (await client.get(f"{BASE_URL}/me", headers=headers)).status_code == 200
+            authenticated = (await client.get(f"{BASE_URL}/me", headers=headers)).status_code == HTTPStatus.OK
 
     if authenticated is False:
         return RedirectResponse(await build_abandon_auth_redirect_url())
