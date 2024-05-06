@@ -1,4 +1,5 @@
-from ..settings import settings
+from abandonauth.settings import settings
+
 from .developer_application import router as developer_router
 from .discord import router as discord_router
 from .github import router as github_router
