@@ -70,7 +70,7 @@ def decode_jwt(
         token_data = jwt.decode(
             token,
             settings.JWT_SECRET.get_secret_value(),
-            **decode_kwargs  # pyright: ignore
+            **decode_kwargs  # pyright: ignore [reportArgumentType]
         )
     except JWTError:
         raise HTTPException(
@@ -123,7 +123,7 @@ class JWTBearer(HTTPBearer):
         self.aud = aud
         self.required_scope = scope
 
-    async def __call__(self, request: Request) -> JwtClaimsDataDto:  # pyright: ignore
+    async def __call__(self, request: Request) -> JwtClaimsDataDto:  # pyright: ignore [reportIncompatibleMethodOverride]
         """
         Retrieve user from a jwt token provided in headers.
 
@@ -177,7 +177,7 @@ class OptionalDeveloperAppJwtBearer(HTTPBearer):
         self.aud = settings.ABANDON_AUTH_DEVELOPER_APP_ID
         self.required_scope = ScopeEnum.abandonauth
 
-    async def __call__(self, request: Request) -> JwtClaimsDataDto | None:  # pyright: ignore
+    async def __call__(self, request: Request) -> JwtClaimsDataDto | None:  # pyright: ignore [reportIncompatibleMethodOverride]
         """Retrieve user from a jwt token provided in headers if the token was provided.
 
         If no token is present, returns None

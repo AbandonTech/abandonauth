@@ -249,7 +249,7 @@ async def update_developer_application_callback_uris(
     # Only URIs that were passed into the request should exist after the entire exchange is done
     async with prisma_db.batch_() as batcher:
         for create_uri in callback_uris_to_create:
-            batcher.callbackuri.create(dict(create_uri))  # pyright: ignore
+            batcher.callbackuri.create(dict(create_uri))  # pyright: ignore [reportArgumentType]
 
         for delete_uri in uris_to_delete:
             batcher.callbackuri.delete(where={"id": delete_uri.id})

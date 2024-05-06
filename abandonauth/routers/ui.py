@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.status import HTTP_403_FORBIDDEN, HTTP_400_BAD_REQUEST, HTTP_303_SEE_OTHER, HTTP_404_NOT_FOUND
 
-from abandonauth import templates  # type: ignore
+from abandonauth import templates  # pyright: ignore [reportAttributeAccessIssue]
 from abandonauth.models import DiscordLoginDto, DeveloperApplicationWithCallbackUriDto
 from abandonauth.routers.discord import login_with_discord
 from abandonauth.settings import settings
@@ -56,7 +56,7 @@ async def index(request: Request, code: str | None = None):
         return RedirectResponse(await build_abandon_auth_redirect_url())
 
     resp = RedirectResponse("/ui/developer_dashboard")
-    resp.set_cookie(key="Authorization", value=token)  # pyright: ignore
+    resp.set_cookie(key="Authorization", value=token)  # pyright: ignore [reportArgumentType]
 
     return resp
 

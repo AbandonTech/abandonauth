@@ -32,4 +32,4 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(frozen=True, env_file=".env", env_file_encoding="utf-8")
 
 
-settings = Settings()  # pyright: ignore
+settings = Settings()  # pyright: ignore [reportCallIssue]
