@@ -15,7 +15,7 @@ valid_token_cache = set()
 IGNORE_AUD_DECODE_OPTIONS = {"verify_aud": False}
 
 
-def _generate_jwt(user_id: str, application_id_aud: str, long_lived: bool = False) -> str:
+def _generate_jwt(user_id: str, application_id_aud: str, *, long_lived: bool = False) -> str:
     """
     Generate an AbandonAuth long-lived or short-lived JWT for the given user.
 
