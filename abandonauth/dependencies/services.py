@@ -31,7 +31,7 @@ async def user_info_from_me_response(request: Request) -> UserAuthInfo | None:
         else:
             raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail="User ID and/or username was missing")
 
-        if None in (user_uuid, username):
+        if None in {user_uuid, username}:
             raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail="User ID and/or username was missing")
 
         return UserAuthInfo(
