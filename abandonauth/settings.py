@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     GOOGLE_CALLBACK: str
     DEBUG: bool
 
-    model_config = SettingsConfigDict(frozen=True, env_file='.env', env_file_encoding='utf-8')
+    model_config = SettingsConfigDict(frozen=True, env_file=".env", env_file_encoding="utf-8")
 
 
 settings = Settings()  # pyright: ignore

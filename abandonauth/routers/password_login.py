@@ -13,7 +13,7 @@ from abandonauth.dependencies.auth.jwt import generate_long_lived_jwt
 router = APIRouter(tags=["Password Accounts"])
 
 
-@router.post('/create_test_user', summary='Creates User and PasswordAccount')
+@router.post("/create_test_user", summary="Creates User and PasswordAccount")
 async def create_test_user(user_data: PasswordAccountSchema):
     user = await User.prisma().create({
         "username": user_data.username,
@@ -26,7 +26,7 @@ async def create_test_user(user_data: PasswordAccountSchema):
     return UserDto(id=user.id, username=user.username)
 
 
-@router.post('/login_test_user', summary='Login using password')
+@router.post("/login_test_user", summary="Login using password")
 async def login_test_user(user_data: PasswordLoginDto, res: Response):
     password_account = await PasswordAccount.prisma().find_first(
         where={
@@ -40,5 +40,5 @@ async def login_test_user(user_data: PasswordLoginDto, res: Response):
         )
 
     access_token = generate_long_lived_jwt(str(password_account.user_id), settings.ABANDON_AUTH_DEVELOPER_APP_ID)
-    res.set_cookie('Authorization', access_token, secure=True, httponly=True)
+    res.set_cookie("Authorization", access_token, secure=True, httponly=True)
     return JwtDto(token=access_token)
