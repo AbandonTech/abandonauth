@@ -1,3 +1,4 @@
+import contextlib
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Header, Response
@@ -89,9 +90,7 @@ async def burn_jwt(token: JwtDto) -> Response:
 
     Attempts to delete the given token. Returns 200 response regardless of if the token existed.
     """
-    try:
+    with contextlib.suppress(KeyError):
         valid_token_cache.remove(token.token)
-    except KeyError:
-        pass
 
     return Response(status_code=200)

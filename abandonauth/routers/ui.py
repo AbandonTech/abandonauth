@@ -39,10 +39,7 @@ async def index(request: Request, code: str | None = None) -> RedirectResponse:
             resp = await client.post(f"{BASE_URL}/login", headers=login_headers, json=login_body)
 
         # If login failed, set token to None so that the user will be redirected back to the login page
-        if resp.status_code != HTTPStatus.OK:
-            token = None
-        else:
-            token = resp.json().get("token")
+        token = None if resp.status_code != HTTPStatus.OK else resp.json().get("token")
     else:
         token = request.cookies.get("Authorization")
 
