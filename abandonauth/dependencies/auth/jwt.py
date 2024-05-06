@@ -32,7 +32,7 @@ def _generate_jwt(user_id: str, application_id_aud: str, long_lived: bool = Fals
     expiration = datetime.now(timezone.utc) + timedelta(seconds=exp_seconds)
 
     if long_lived and application_id_aud == settings.ABANDON_AUTH_DEVELOPER_APP_ID:
-        scope = " ".join((ScopeEnum.abandonauth, ScopeEnum.identify))
+        scope = f"{ScopeEnum.abandonauth} {ScopeEnum.identify}"
     else:
         scope = ScopeEnum.identify
 
