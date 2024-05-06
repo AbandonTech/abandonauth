@@ -47,6 +47,9 @@ ignore = [
     "D100", "D104", "D105", "D107", "D203", "D212", "D214", "D215", "D416",
 ]
 
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
 [tool.ruff.lint.isort]
 order-by-type = false
 case-sensitive = true

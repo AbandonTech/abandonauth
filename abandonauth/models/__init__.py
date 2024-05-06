@@ -1,5 +1,5 @@
-from .auth import JwtDto
-from .developer_application import (
+from abandonauth.models.auth import JwtDto
+from abandonauth.models.developer_application import (
     CallbackUriDto,
     CreateCallbackUriDto,
     CreateDeveloperApplicationDto,
@@ -7,5 +7,5 @@ from .developer_application import (
     DeveloperApplicationWithCallbackUriDto,
     LoginDeveloperApplicationDto,
 )
-from .discord import DiscordLoginDto
-from .user import UserDto
+from abandonauth.models.discord import DiscordLoginDto
+from abandonauth.models.user import UserDto

@@ -1,12 +1,11 @@
+from abandonauth.routers.developer_application import router as developer_router
+from abandonauth.routers.discord import router as discord_router
+from abandonauth.routers.github import router as github_router
+from abandonauth.routers.google import router as google_router
+from abandonauth.routers.index import router as index_router
+from abandonauth.routers.password_login import router as password_login_router
+from abandonauth.routers.ui import router as ui_router
 from abandonauth.settings import settings
-
-from .developer_application import router as developer_router
-from .discord import router as discord_router
-from .github import router as github_router
-from .google import router as google_router
-from .index import router as index_router
-from .password_login import router as password_login_router
-from .ui import router as ui_router
 
 routers = [
     developer_router,
