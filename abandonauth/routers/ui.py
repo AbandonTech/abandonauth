@@ -21,8 +21,8 @@ jinja_templates = Jinja2Templates(directory=templates.__path__)
 BASE_URL = "http://localhost"
 
 
-@router.get("/", response_class=HTMLResponse, include_in_schema=False)
-async def index(request: Request, code: str | None = None):
+@router.get("/", include_in_schema=False)
+async def index(request: Request, code: str | None = None) -> RedirectResponse:
     """Developer landing page for AbandonAuth UI."""
     if code:
         login_body = {
@@ -61,8 +61,8 @@ async def index(request: Request, code: str | None = None):
     return resp
 
 
-@router.get("/developer_dashboard", response_class=HTMLResponse, include_in_schema=False)
-async def developer_dashboard(request: Request):
+@router.get("/developer_dashboard", include_in_schema=False)
+async def developer_dashboard(request: Request) -> HTMLResponse | RedirectResponse:
     """Developer dashboard page for AbandonAuth UI."""
     user_info = await user_info_from_me_response(request)
 
@@ -80,8 +80,8 @@ async def developer_dashboard(request: Request):
     )
 
 
-@router.get("/applications/new", response_class=HTMLResponse, include_in_schema=False)
-async def create_new_developer_application_form(request: Request):
+@router.get("/applications/new", include_in_schema=False)
+async def create_new_developer_application_form(request: Request) -> HTMLResponse | RedirectResponse:
     """Page for managing developer applications."""
     user_info = await user_info_from_me_response(request)
 
@@ -97,8 +97,8 @@ async def create_new_developer_application_form(request: Request):
     )
 
 
-@router.post("/applications/new", response_class=HTMLResponse, include_in_schema=False)
-async def create_new_developer_applications(request: Request):
+@router.post("/applications/new", include_in_schema=False)
+async def create_new_developer_applications(request: Request) -> HTMLResponse | RedirectResponse:
     """Page for managing developer applications."""
     user_info = await user_info_from_me_response(request)
 
@@ -121,8 +121,8 @@ async def create_new_developer_applications(request: Request):
     )
 
 
-@router.get("/applications", response_class=HTMLResponse, include_in_schema=False)
-async def list_developer_applications(request: Request):
+@router.get("/applications", include_in_schema=False)
+async def list_developer_applications(request: Request) -> HTMLResponse | RedirectResponse:
     """Page for managing developer applications."""
     user_info = await user_info_from_me_response(request)
 
@@ -143,11 +143,11 @@ async def list_developer_applications(request: Request):
     )
 
 
-@router.get("/applications/{application_id}", response_class=HTMLResponse, include_in_schema=False)
+@router.get("/applications/{application_id}", include_in_schema=False)
 async def developer_application_detail(
-        request: Request,
-        application_id: str,
-):
+    request: Request,
+    application_id: str,
+) -> HTMLResponse | RedirectResponse:
     """Page for managing developer applications."""
     user_info = await user_info_from_me_response(request)
 
@@ -174,8 +174,11 @@ async def developer_application_detail(
     )
 
 
-@router.get("/applications/{application_id}/reset_token", response_class=HTMLResponse, include_in_schema=False)
-async def reset_dev_application_token_confirmation(request: Request, application_id: str):
+@router.get("/applications/{application_id}/reset_token", include_in_schema=False)
+async def reset_dev_application_token_confirmation(
+    request: Request,
+    application_id: str,
+) -> HTMLResponse | RedirectResponse:
     """Request for resetting a developer application token from the dev application info page."""
     user_info = await user_info_from_me_response(request)
 
@@ -192,8 +195,8 @@ async def reset_dev_application_token_confirmation(request: Request, application
     )
 
 
-@router.post("/applications/{application_id}/reset_token", response_class=HTMLResponse, include_in_schema=False)
-async def reset_dev_application_token(request: Request, application_id: str):
+@router.post("/applications/{application_id}/reset_token", include_in_schema=False)
+async def reset_dev_application_token(request: Request, application_id: str) -> HTMLResponse | RedirectResponse:
     """Request for resetting a developer application token from the dev application info page."""
     user_info = await user_info_from_me_response(request)
 
@@ -217,8 +220,8 @@ async def reset_dev_application_token(request: Request, application_id: str):
     )
 
 
-@router.get("/applications/{application_id}/delete_application", response_class=HTMLResponse, include_in_schema=False)
-async def delete_dev_application_confirmation(request: Request, application_id: str):
+@router.get("/applications/{application_id}/delete_application", include_in_schema=False)
+async def delete_dev_application_confirmation(request: Request, application_id: str) -> HTMLResponse | RedirectResponse:
     """Request for deleting a developer application."""
     user_info = await user_info_from_me_response(request)
 
@@ -235,8 +238,8 @@ async def delete_dev_application_confirmation(request: Request, application_id: 
     )
 
 
-@router.post("/applications/{application_id}/delete_application", response_class=HTMLResponse, include_in_schema=False)
-async def delete_dev_application(request: Request, application_id: str):
+@router.post("/applications/{application_id}/delete_application", include_in_schema=False)
+async def delete_dev_application(request: Request, application_id: str) -> RedirectResponse:
     """Request for deleting a developer application."""
     user_info = await user_info_from_me_response(request)
 
@@ -250,8 +253,11 @@ async def delete_dev_application(request: Request, application_id: str):
     return RedirectResponse("/ui/applications", status_code=HTTP_303_SEE_OTHER)
 
 
-@router.get("/applications/{application_id}/edit_callback_uris", response_class=HTMLResponse, include_in_schema=False)
-async def edit_dev_application_callback_uris_page(request: Request, application_id: str):
+@router.get("/applications/{application_id}/edit_callback_uris", include_in_schema=False)
+async def edit_dev_application_callback_uris_page(
+    request: Request,
+    application_id: str,
+) -> HTMLResponse | RedirectResponse:
     """Page for editing a developer application's callback URIs."""
     user_info = await user_info_from_me_response(request)
 
@@ -278,12 +284,12 @@ async def edit_dev_application_callback_uris_page(request: Request, application_
     )
 
 
-@router.post("/applications/{application_id}/edit_callback_uris", response_class=HTMLResponse, include_in_schema=False)
+@router.post("/applications/{application_id}/edit_callback_uris", include_in_schema=False)
 async def edit_dev_application_callback_uris(
-        request: Request,
-        application_id: str,
-        new_callback_uris: Annotated[str, Form()],
-):
+    request: Request,
+    application_id: str,
+    new_callback_uris: Annotated[str, Form()],
+) -> RedirectResponse:
     """Request for deleting a developer application."""
     user_info = await user_info_from_me_response(request)
 
@@ -303,8 +309,12 @@ async def edit_dev_application_callback_uris(
     return RedirectResponse(f"/ui/applications/{application_id}", status_code=HTTP_303_SEE_OTHER)
 
 
-@router.get("/login", response_class=HTMLResponse, include_in_schema=False)
-async def oauth_login(request: Request, application_id: UUID | None = None, callback_uri: str | None = None):
+@router.get("/login", include_in_schema=False)
+async def oauth_login(
+    request: Request,
+    application_id: UUID | None = None,
+    callback_uri: str | None = None,
+) -> HTMLResponse:
     """
     Login for initiating the OAuth flow.
 
@@ -349,7 +359,7 @@ async def oauth_login(request: Request, application_id: UUID | None = None, call
     )
 
 
-@router.get("/discord-callback", response_class=RedirectResponse)
+@router.get("/discord-callback")
 async def discord_callback(request: Request) -> RedirectResponse:
     """Discord callback endpoint for authenticating with Discord OAuth with AbandonAuth UI."""
     code = request.query_params.get("code")

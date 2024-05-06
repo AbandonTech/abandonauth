@@ -83,7 +83,7 @@ async def login_user(
 
 
 @router.post("/burn-token", status_code=200)
-async def burn_jwt(token: JwtDto):
+async def burn_jwt(token: JwtDto) -> Response:
     """
     Invalidate the given JWT.
 

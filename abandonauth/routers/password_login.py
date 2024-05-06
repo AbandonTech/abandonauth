@@ -15,7 +15,7 @@ router = APIRouter(tags=["Password Accounts"])
 
 
 @router.post("/create_test_user", summary="Creates User and PasswordAccount")
-async def create_test_user(user_data: PasswordAccountSchema):
+async def create_test_user(user_data: PasswordAccountSchema) -> UserDto:
     """Create the supplied test user."""
     user = await User.prisma().create({
         "username": user_data.username,
@@ -29,7 +29,7 @@ async def create_test_user(user_data: PasswordAccountSchema):
 
 
 @router.post("/login_test_user", summary="Login using password")
-async def login_test_user(user_data: PasswordLoginDto, res: Response):
+async def login_test_user(user_data: PasswordLoginDto, res: Response) -> JwtDto:
     """Login as the given test user."""
     password_account = await PasswordAccount.prisma().find_first(
         where={
