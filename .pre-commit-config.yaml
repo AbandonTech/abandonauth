@@ -18,8 +18,8 @@ repos:
         language: system
         'types_or': [python, pyi]
         require_serial: true
--   repo: local
-    hooks:
+        args: [--fix, --exit-non-zero-on-fix]
+
     -   id: prisma-format
         name: Prisma Format
         description: Run prisma formatter on schema
@@ -27,8 +27,7 @@ repos:
         language: system
         types: [python]
         require_serial: true
--   repo: local
-    hooks:
+
     -   id: prisma-generate
         name: Prisma Generate
         description: Generate Prisma client before static analysis (pyright)
@@ -36,8 +35,7 @@ repos:
         language: system
         types: [python]
         require_serial: true
--   repo: local
-    hooks:
+
     -   id: pyright
         name: Pyright
         description: Run pyright static analysis
