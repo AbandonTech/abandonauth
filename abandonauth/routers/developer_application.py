@@ -241,11 +241,11 @@ async def update_developer_application_callback_uris(
             callback_uris_to_create.append(to_create)
 
     # Gather URIs that already exist and were not specified in the request and stage them for deletion
-    uris_to_delete: list[CallbackUri] = []
-
-    for delete_uri in existing_callback_uris:
-        if delete_uri not in callback_uris:
-            uris_to_delete.append(existing_callback_uris[delete_uri])
+    uris_to_delete = [
+        existing_callback_uris[delete_uri]
+        for delete_uri in existing_callback_uris
+        if delete_uri not in callback_uris
+    ]
 
     # Batch the creation of new URIs and the deletion of URIs that were not given in the request
     # Only URIs that were passed into the request should exist after the entire exchange is done
