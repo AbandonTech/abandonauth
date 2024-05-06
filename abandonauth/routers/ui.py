@@ -1,4 +1,3 @@
-from http import HTTPStatus
 from typing import Annotated
 from uuid import UUID
 
@@ -136,9 +135,9 @@ async def list_developer_applications(request: Request) -> Response:
         "developer_apps.html",
         {
             "request": request,
-            "dev_apps": [x["id"] for x in dev_apps],
-            "authenticated": user_info.token is not None,
-        },
+            "dev_apps": [(x["name"], x["id"]) for x in dev_apps],
+            "authenticated": user_info.token is not None
+        }
     )
 
 

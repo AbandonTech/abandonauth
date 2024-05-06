@@ -7,6 +7,7 @@ class DeveloperApplicationDto(BaseModel):
     """Basic data for developer applications."""
 
     id: str
+    name: str
     owner_id: str
 
 
