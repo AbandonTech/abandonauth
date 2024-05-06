@@ -2,7 +2,7 @@ from fastapi import APIRouter, Response, HTTPException
 from starlette.status import HTTP_401_UNAUTHORIZED
 
 from abandonauth.dependencies.auth.hash import (
-    get_hashed_data, verify_data
+    get_hashed_data, verify_data,
 )
 from prisma.models import PasswordAccount, User
 from abandonauth.models.user import PasswordAccountSchema, PasswordLoginDto, UserDto
@@ -19,9 +19,9 @@ async def create_test_user(user_data: PasswordAccountSchema):
         "username": user_data.username,
         "password_account": {
             "create": {
-                "password": get_hashed_data(user_data.password)
-            }
-        }
+                "password": get_hashed_data(user_data.password),
+            },
+        },
     })
     return UserDto(id=user.id, username=user.username)
 
@@ -30,8 +30,8 @@ async def create_test_user(user_data: PasswordAccountSchema):
 async def login_test_user(user_data: PasswordLoginDto, res: Response):
     password_account = await PasswordAccount.prisma().find_first(
         where={
-            "user_id": str(user_data.user_id)
-        }
+            "user_id": str(user_data.user_id),
+        },
     )
     if password_account is None or not verify_data(user_data.password, password_account.password):
         raise HTTPException(

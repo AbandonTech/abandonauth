@@ -8,7 +8,7 @@ from abandonauth.dependencies.auth.jwt import JWTBearer, DeveloperAppJwtBearer, 
 from abandonauth.dependencies.auth.hash import (
     generate_refresh_token,
     get_hashed_data,
-    verify_data
+    verify_data,
 )
 from abandonauth.models import (
     CreateCallbackUriDto,
@@ -16,7 +16,7 @@ from abandonauth.models import (
     DeveloperApplicationDto,
     DeveloperApplicationWithCallbackUriDto,
     JwtDto,
-    LoginDeveloperApplicationDto
+    LoginDeveloperApplicationDto,
 )
 
 from prisma.models import CallbackUri, DeveloperApplication
@@ -26,7 +26,7 @@ from abandonauth.settings import settings
 
 router = APIRouter(
     prefix="/developer_application",
-    tags=["Developer Applications"]
+    tags=["Developer Applications"],
 )
 
 
@@ -34,10 +34,10 @@ router = APIRouter(
     "",
     summary="Create a new developer application and retrieve a refresh token. This token will never be visible again.",
     response_description="The refresh token for the new developer account.",
-    response_model=CreateDeveloperApplicationDto
+    response_model=CreateDeveloperApplicationDto,
 )
 async def create_developer_application(
-        token_data: JwtClaimsDataDto = Depends(JWTBearer())
+        token_data: JwtClaimsDataDto = Depends(JWTBearer()),
 ) -> CreateDeveloperApplicationDto:
     """Create a new developer application owned by the currently authenticated User.
 
@@ -48,7 +48,7 @@ async def create_developer_application(
 
     dev_app = await DeveloperApplication.prisma().create({
         "owner_id": token_data.user_id,
-        "refresh_token": hashed_token
+        "refresh_token": hashed_token,
     })
 
     return CreateDeveloperApplicationDto(id=dev_app.id, owner_id=dev_app.owner_id, token=refresh_token)
@@ -58,7 +58,7 @@ async def create_developer_application(
     "/login",
     summary="Exchange a developer application refresh token for a short-lived AbandonAuth JWT",
     response_description="A short-lived JWT to authenticate a developer application",
-    response_model=JwtDto
+    response_model=JwtDto,
 )
 async def login_developer_application(login_data: LoginDeveloperApplicationDto) -> JwtDto:
     """Authenticate a developer application given a long-term refresh token or raise a **401** response.
@@ -67,8 +67,8 @@ async def login_developer_application(login_data: LoginDeveloperApplicationDto) 
     """
     dev_app = await DeveloperApplication.prisma().find_unique(
         {
-            "id": str(login_data.id)
-        }
+            "id": str(login_data.id),
+        },
     )
 
     if not dev_app or not verify_data(login_data.refresh_token, dev_app.refresh_token):
@@ -84,20 +84,20 @@ async def login_developer_application(login_data: LoginDeveloperApplicationDto) 
     "/{application_id}",
     summary="Delete the developer application with the given id",
     response_description="The deleted application data",
-    response_model=DeveloperApplicationDto
+    response_model=DeveloperApplicationDto,
 )
 async def delete_developer_application(
         application_id: UUID,
-        token_data: JwtClaimsDataDto = Depends(JWTBearer())
+        token_data: JwtClaimsDataDto = Depends(JWTBearer()),
 ) -> DeveloperApplicationDto:
     """Delete the given developer application if the current user owns the application."""
     dev_app = await DeveloperApplication.prisma().find_unique({
-        "id": str(application_id)
+        "id": str(application_id),
     })
 
     if dev_app and token_data.user_id == dev_app.owner_id:
         deleted = await DeveloperApplication.prisma().delete({
-            "id": dev_app.id
+            "id": dev_app.id,
         })
 
         # It should not be possible for this condition to fail. Adding for Pyright
@@ -111,18 +111,18 @@ async def delete_developer_application(
     "/{application_id}/reset_token",
     summary="Change the refresh token on a developer application. This is not reversible.",
     response_description="The newly generated refresh token for the application.",
-    response_model=CreateDeveloperApplicationDto
+    response_model=CreateDeveloperApplicationDto,
 )
 async def change_application_refresh_token(
         application_id: UUID,
-        token_data: JwtClaimsDataDto = Depends(JWTBearer())
+        token_data: JwtClaimsDataDto = Depends(JWTBearer()),
 ) -> CreateDeveloperApplicationDto:
     """Generates and sets a new refresh token for the given developer application.
 
     This action is not reversible and destroys the existing refresh token for the application.
     """
     dev_app = await DeveloperApplication.prisma().find_unique({
-        "id": str(application_id)
+        "id": str(application_id),
     })
 
     if dev_app and token_data.user_id == dev_app.owner_id:
@@ -131,11 +131,11 @@ async def change_application_refresh_token(
 
         updated = await DeveloperApplication.prisma().update(
             where={
-                "id": dev_app.id
+                "id": dev_app.id,
             },
             data={
-                "refresh_token": hashed_token
-            }
+                "refresh_token": hashed_token,
+            },
         )
 
         # It should not be possible for this condition to fail. Adding for Pyright
@@ -149,17 +149,17 @@ async def change_application_refresh_token(
     "/me",
     summary="Verify and retrieve information for a developer application",
     response_description="General information about the authenticated developer application",
-    response_model=DeveloperApplicationDto
+    response_model=DeveloperApplicationDto,
 )
 async def current_developer_application_information(
-        token_data: JwtClaimsDataDto = Depends(DeveloperAppJwtBearer())
+        token_data: JwtClaimsDataDto = Depends(DeveloperAppJwtBearer()),
 ) -> DeveloperApplicationDto:
     """Get information about the developer application from a jwt.
 
     This function must be defined before other endpoints that use path params at the same path
     """
     dev_app = await DeveloperApplication.prisma().find_unique({
-        "id": token_data.user_id
+        "id": token_data.user_id,
     })
 
     if dev_app is None:
@@ -172,17 +172,17 @@ async def current_developer_application_information(
     "/{application_id}",
     summary="Retrieve the given application if it belongs to the currently authenticated user",
     response_description="General information about the developer application",
-    response_model=DeveloperApplicationWithCallbackUriDto
+    response_model=DeveloperApplicationWithCallbackUriDto,
 )
 async def get_developer_application(
     application_id: UUID,
-    token_data: JwtClaimsDataDto = Depends(JWTBearer())
+    token_data: JwtClaimsDataDto = Depends(JWTBearer()),
 ) -> DeveloperApplicationWithCallbackUriDto:
     """Get information about the given developer application if the requesting user owns the developer app."""
 
     dev_app = await DeveloperApplication.prisma().find_unique(
         where={"id": str(application_id)},
-        include={"callback_uris": True}
+        include={"callback_uris": True},
     )
 
     if not (dev_app and token_data.user_id == dev_app.owner_id):
@@ -196,7 +196,7 @@ async def get_developer_application(
     return DeveloperApplicationWithCallbackUriDto(
         id=dev_app.id,
         owner_id=dev_app.owner_id,
-        callback_uris=callbacks
+        callback_uris=callbacks,
     )
 
 
@@ -204,12 +204,12 @@ async def get_developer_application(
     "/{application_id}/callback_uris",
     summary="Update the callback URIs for the given developer application",
     response_description="The new list of callback URIs for the developer application",
-    response_model=DeveloperApplicationDto
+    response_model=DeveloperApplicationDto,
 )
 async def update_developer_application_callback_uris(
         application_id: UUID,
         callback_uris: list[str],
-        token_data: JwtClaimsDataDto = Depends(JWTBearer())
+        token_data: JwtClaimsDataDto = Depends(JWTBearer()),
 ) -> DeveloperApplicationDto:
     """Replace the valid callback URIs for the given developer application and return the given developer application
 
@@ -219,7 +219,7 @@ async def update_developer_application_callback_uris(
     """
     dev_app = await DeveloperApplication.prisma().find_unique(
         where={"id": str(application_id)},
-        include={"callback_uris": True}
+        include={"callback_uris": True},
     )
 
     if not (dev_app and token_data.user_id == dev_app.owner_id):

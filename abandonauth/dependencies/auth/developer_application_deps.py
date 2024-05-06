@@ -9,7 +9,7 @@ from abandonauth.models.developer_application import LoginDeveloperApplicationDt
 
 
 async def authenticate_developer_app_from_optional_app_id_and_secret(
-        login_data: LoginDeveloperApplicationDto | None = None
+        login_data: LoginDeveloperApplicationDto | None = None,
 ) -> DeveloperApplication | None:
     """Attempt to fetch login data from request body and authenticate the developer application with provided creds.
 
@@ -21,8 +21,8 @@ async def authenticate_developer_app_from_optional_app_id_and_secret(
 
     dev_app = await DeveloperApplication.prisma().find_unique(
         {
-            "id": str(login_data.id)
-        }
+            "id": str(login_data.id),
+        },
     )
 
     if not dev_app or not verify_data(login_data.refresh_token, dev_app.refresh_token):
@@ -36,5 +36,5 @@ async def authenticate_developer_app_from_optional_app_id_and_secret(
 
 LoginDevAppWithOptionalCredentialsDep = Annotated[
     DeveloperApplication | None,
-    Depends(authenticate_developer_app_from_optional_app_id_and_secret)
+    Depends(authenticate_developer_app_from_optional_app_id_and_secret),
 ]

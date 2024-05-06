@@ -8,7 +8,7 @@ from starlette.responses import RedirectResponse
 
 router = APIRouter(
     prefix="/github",
-    tags=["GitHub"]
+    tags=["GitHub"],
 )
 
 
@@ -32,7 +32,7 @@ async def login_with_github(code: str, state: str) -> RedirectResponse:
 
         response = await client.get(
             "https://api.github.com/user",
-            headers={"Authorization": f"Bearer {token}"}
+            headers={"Authorization": f"Bearer {token}"},
         )
 
         response.raise_for_status()
@@ -42,10 +42,10 @@ async def login_with_github(code: str, state: str) -> RedirectResponse:
         where={
             "github_account": {
                 "is": {
-                    "id": int(github_user["id"])
-                }
-            }
-        }
+                    "id": int(github_user["id"]),
+                },
+            },
+        },
     )
 
     if user is None:
@@ -53,9 +53,9 @@ async def login_with_github(code: str, state: str) -> RedirectResponse:
             "username": github_user["login"],
             "github_account": {
                 "create": {
-                    "id": int(github_user["id"])
-                }
-            }
+                    "id": int(github_user["id"]),
+                },
+            },
         })
 
     return RedirectResponse(f"{state}?authentication={generate_short_lived_jwt(user.id, 'fake_application_id')}")

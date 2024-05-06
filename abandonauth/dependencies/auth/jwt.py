@@ -40,13 +40,13 @@ def _generate_jwt(user_id: str, application_id_aud: str, long_lived: bool = Fals
         exp=expiration,
         scope=scope,
         aud=application_id_aud,
-        lifespan=LifespanEnum.long if long_lived else LifespanEnum.short
+        lifespan=LifespanEnum.long if long_lived else LifespanEnum.short,
     )
 
     token = jwt.encode(
         claims=dict(claims),
         key=settings.JWT_SECRET.get_secret_value(),
-        algorithm=settings.JWT_HASHING_ALGO
+        algorithm=settings.JWT_HASHING_ALGO,
     )
     if not long_lived:
         valid_token_cache.add(token)
@@ -57,7 +57,7 @@ def _generate_jwt(user_id: str, application_id_aud: str, long_lived: bool = Fals
 def decode_jwt(
         token: str,
         aud: str | None = None,
-        required_scope: ScopeEnum = ScopeEnum.abandonauth
+        required_scope: ScopeEnum = ScopeEnum.abandonauth,
 ) -> JwtClaimsDataDto:
     try:
         if aud:
@@ -70,24 +70,24 @@ def decode_jwt(
         token_data = jwt.decode(
             token,
             settings.JWT_SECRET.get_secret_value(),
-            **decode_kwargs  # pyright: ignore [reportArgumentType]
+            **decode_kwargs,  # pyright: ignore [reportArgumentType]
         )
     except JWTError:
         raise HTTPException(
             status_code=HTTP_403_FORBIDDEN,
-            detail="Invalid token format"
+            detail="Invalid token format",
         )
 
     if token_data["exp"] < datetime.utcnow().timestamp():
         raise HTTPException(
             status_code=HTTP_403_FORBIDDEN,
-            detail="Token has expired"
+            detail="Token has expired",
         )
 
     if required_scope != ScopeEnum.none and required_scope not in token_data["scope"]:
         raise HTTPException(
             status_code=HTTP_403_FORBIDDEN,
-            detail="JWT lacks the required scope to access this endpoint."
+            detail="JWT lacks the required scope to access this endpoint.",
         )
 
     # If token is short-lived/exchange token check if it currently exists in the token cache
@@ -115,7 +115,7 @@ class JWTBearer(HTTPBearer):
             self,
             scope: ScopeEnum = ScopeEnum.abandonauth,
             aud: str | None = None,
-            **kwargs: Any
+            **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
 
@@ -148,12 +148,12 @@ class DeveloperAppJwtBearer(JWTBearer):
     """JWTBearer class for authorizing developer application tokens"""
     def __init__(
             self,
-            **kwargs: Any
+            **kwargs: Any,
     ) -> None:
         super().__init__(
             scope=ScopeEnum.abandonauth,
             aud=settings.ABANDON_AUTH_DEVELOPER_APP_ID,
-            **kwargs
+            **kwargs,
         )
 
 
@@ -166,11 +166,11 @@ class OptionalDeveloperAppJwtBearer(HTTPBearer):
 
     def __init__(
             self,
-            **kwargs: Any
+            **kwargs: Any,
     ) -> None:
         super().__init__(
             auto_error=False,
-            **kwargs
+            **kwargs,
         )
 
         self.token_data: dict[str, Any]

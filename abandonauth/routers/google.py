@@ -9,7 +9,7 @@ from abandonauth.settings import settings
 
 router = APIRouter(
     prefix="/google",
-    tags=["Google"]
+    tags=["Google"],
 )
 
 
@@ -35,7 +35,7 @@ async def login_with_google(code: str, state: str) -> RedirectResponse:
 
         response = await client.get(
             "https://openidconnect.googleapis.com/v1/userinfo",
-            headers={"Authorization": f"Bearer {token}"}
+            headers={"Authorization": f"Bearer {token}"},
         )
 
         response.raise_for_status()
@@ -46,10 +46,10 @@ async def login_with_google(code: str, state: str) -> RedirectResponse:
         where={
             "google_account": {
                 "is": {
-                    "id": google_user["sub"]
-                }
-            }
-        }
+                    "id": google_user["sub"],
+                },
+            },
+        },
     )
 
     if user is None:
@@ -57,9 +57,9 @@ async def login_with_google(code: str, state: str) -> RedirectResponse:
             "username": google_user["name"],
             "google_account": {
                 "create": {
-                    "id": google_user["sub"]
-                }
-            }
+                    "id": google_user["sub"],
+                },
+            },
         })
 
     return RedirectResponse(f"{state}?authentication={generate_short_lived_jwt(user.id, 'fake_application_id')}")

@@ -4,7 +4,7 @@ from .developer_application import (
     CreateDeveloperApplicationDto,
     DeveloperApplicationDto,
     DeveloperApplicationWithCallbackUriDto,
-    LoginDeveloperApplicationDto
+    LoginDeveloperApplicationDto,
 )
 from .discord import DiscordLoginDto
 from .auth import JwtDto

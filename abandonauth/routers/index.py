@@ -8,7 +8,7 @@ from abandonauth.dependencies.auth.developer_application_deps import LoginDevApp
 from abandonauth.dependencies.auth.jwt import (
     valid_token_cache,
     JWTBearer,
-    OptionalDeveloperAppJwtBearer
+    OptionalDeveloperAppJwtBearer,
 )
 from abandonauth.models import JwtDto, DeveloperApplicationDto, UserDto
 from prisma.models import DeveloperApplication
@@ -30,16 +30,16 @@ async def index() -> RedirectResponse:
     "/user/applications",
     summary="List all developer applications owned by the current user.",
     response_description="List of developer applications",
-    response_model=list[DeveloperApplicationDto]
+    response_model=list[DeveloperApplicationDto],
 )
 async def get_user_applications(
-        token_data: JwtClaimsDataDto = Depends(JWTBearer())
+        token_data: JwtClaimsDataDto = Depends(JWTBearer()),
 ) -> list[DeveloperApplicationDto]:
     """List all developer applications owned by the authenticated user."""
     dev_apps = await DeveloperApplication.prisma().find_many(
         where={
-            "owner_id": token_data.user_id
-        }
+            "owner_id": token_data.user_id,
+        },
     )
 
     return [DeveloperApplicationDto(id=x.id, owner_id=x.owner_id) for x in dev_apps]
@@ -47,7 +47,7 @@ async def get_user_applications(
 
 @router.get("/me", response_model=UserDto)
 async def current_user_information(
-        token_data: JwtClaimsDataDto = Depends(JWTBearer(scope=ScopeEnum.identify))
+        token_data: JwtClaimsDataDto = Depends(JWTBearer(scope=ScopeEnum.identify)),
 ) -> UserDto:
     """Get information about the user from a jwt token."""
     user = await identify_user(token_data.user_id)
@@ -59,12 +59,12 @@ async def current_user_information(
     "/login",
     summary="Exchange a temporary AbandonAuth token for a permanent user token.",
     response_description="A long-lived JWT to authenticate the user on AbandonAuth.",
-    response_model=JwtDto
+    response_model=JwtDto,
 )
 async def login_user(
         authenticated_dev_app: LoginDevAppWithOptionalCredentialsDep,
         dev_app_token: Annotated[JwtClaimsDataDto | None, Depends(OptionalDeveloperAppJwtBearer())],
-        exchange_token: Annotated[str, Header()]
+        exchange_token: Annotated[str, Header()],
 ) -> JwtDto:
     """Logs in a user using a short-term or long-term AbandonAuth JWT.
 
@@ -78,7 +78,7 @@ async def login_user(
         raise HTTPException(
             status_code=HTTP_401_UNAUTHORIZED,
             detail="Either a developer application JWT must be given in headers "
-                   "or the developer application credentials must be passed in the request body"
+                   "or the developer application credentials must be passed in the request body",
         )
     return get_new_token(exchange_token, app_id)
 

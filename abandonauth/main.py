@@ -9,7 +9,7 @@ from abandonauth.routers import routers
 
 app = FastAPI(
     title="AbandonAuth",
-    version=os.environ.get("VERSION", "local-dev")
+    version=os.environ.get("VERSION", "local-dev"),
 )
 
 app.mount("/static", StaticFiles(directory="./abandonauth/static"), name="static")

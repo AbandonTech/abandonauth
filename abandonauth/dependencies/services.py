@@ -34,7 +34,7 @@ async def user_info_from_me_response(request: Request) -> UserAuthInfo | None:
         return UserAuthInfo(
             id=user_uuid,
             username=username,
-            token=token
+            token=token,
         )
     return None
 
@@ -47,7 +47,7 @@ async def build_abandon_auth_redirect_url() -> str:
 async def identify_user(user_id: str) -> User:
     """Get the user with the given ID or raise an HTTP 404"""
     user = await User.prisma().find_unique({
-        "id": user_id
+        "id": user_id,
     })
 
     if user is None:

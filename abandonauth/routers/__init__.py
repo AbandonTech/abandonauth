@@ -13,7 +13,7 @@ routers = [
     github_router,
     google_router,
     index_router,
-    ui_router
+    ui_router,
 ]
 
 if settings.DEBUG:

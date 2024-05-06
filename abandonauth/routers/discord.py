@@ -7,7 +7,7 @@ from prisma.models import User
 
 router = APIRouter(
     prefix="/discord",
-    tags=["Discord"]
+    tags=["Discord"],
 )
 
 DISCORD_API_BASE = "https://discord.com/api/v10"
@@ -22,7 +22,7 @@ async def login_with_discord(login_data: DiscordLoginDto, application_id: str) -
         "client_secret": settings.DISCORD_CLIENT_SECRET.get_secret_value(),
         "grant_type": "authorization_code",
         "code": login_data.code,
-        "redirect_uri": login_data.redirect_uri
+        "redirect_uri": login_data.redirect_uri,
     }
 
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
@@ -34,7 +34,7 @@ async def login_with_discord(login_data: DiscordLoginDto, application_id: str) -
 
         response = await client.get(
             f"{DISCORD_API_BASE}/users/@me",
-            headers={"Authorization": f"Bearer {token}"}
+            headers={"Authorization": f"Bearer {token}"},
         )
 
         response.raise_for_status()
@@ -44,10 +44,10 @@ async def login_with_discord(login_data: DiscordLoginDto, application_id: str) -
         where={
             "discord_account": {
                 "is": {
-                    "id": int(discord_user["id"])
-                }
-            }
-        }
+                    "id": int(discord_user["id"]),
+                },
+            },
+        },
     )
 
     if user is None:
@@ -55,9 +55,9 @@ async def login_with_discord(login_data: DiscordLoginDto, application_id: str) -
             "username": discord_user["username"],
             "discord_account": {
                 "create": {
-                    "id": int(discord_user["id"])
-                }
-            }
+                    "id": int(discord_user["id"]),
+                },
+            },
         })
 
     return JwtDto(token=generate_short_lived_jwt(user.id, application_id))

@@ -27,11 +27,11 @@ async def index(request: Request, code: str | None = None):
     if code:
         login_body = {
             "id": settings.ABANDON_AUTH_DEVELOPER_APP_ID,
-            "refresh_token": settings.ABANDON_AUTH_DEVELOPER_APP_TOKEN
+            "refresh_token": settings.ABANDON_AUTH_DEVELOPER_APP_TOKEN,
         }
 
         login_headers = {
-            "exchange-token": code
+            "exchange-token": code,
         }
 
         async with httpx.AsyncClient() as client:
@@ -75,8 +75,8 @@ async def developer_dashboard(request: Request):
             "request": request,
             "authenticated": user_info.token is not None,
             "username": user_info.username,
-            "user_id": user_info.id
-        }
+            "user_id": user_info.id,
+        },
     )
 
 
@@ -92,8 +92,8 @@ async def create_new_developer_application_form(request: Request):
         "create_developer_app.html",
         {
             "request": request,
-            "authenticated": user_info.token is not None
-        }
+            "authenticated": user_info.token is not None,
+        },
     )
 
 
@@ -115,9 +115,9 @@ async def create_new_developer_applications(request: Request):
             "request": request,
             "dev_app_id": new_dev_app.get("id"),
             "dev_app_token": new_dev_app.get("token"),
-            "authenticated": user_info.token is not None
+            "authenticated": user_info.token is not None,
 
-        }
+        },
     )
 
 
@@ -138,15 +138,15 @@ async def list_developer_applications(request: Request):
         {
             "request": request,
             "dev_apps": [x["id"] for x in dev_apps],
-            "authenticated": user_info.token is not None
-        }
+            "authenticated": user_info.token is not None,
+        },
     )
 
 
 @router.get("/applications/{application_id}", response_class=HTMLResponse, include_in_schema=False)
 async def developer_application_detail(
         request: Request,
-        application_id: str
+        application_id: str,
 ):
     """Page for managing developer applications"""
     user_info = await user_info_from_me_response(request)
@@ -169,8 +169,8 @@ async def developer_application_detail(
             "dev_app_id": app_dto.id,
             "owner_id": app_dto.owner_id,
             "callback_uris": app_dto.callback_uris,
-            "authenticated": user_info.token is not None
-        }
+            "authenticated": user_info.token is not None,
+        },
     )
 
 
@@ -187,8 +187,8 @@ async def reset_dev_application_token_confirmation(request: Request, application
         {
             "request": request,
             "dev_app_id": application_id,
-            "authenticated": user_info.token is not None
-        }
+            "authenticated": user_info.token is not None,
+        },
     )
 
 
@@ -212,8 +212,8 @@ async def reset_dev_application_token(request: Request, application_id: str):
             "request": request,
             "dev_app_id": application_info.get("id"),
             "dev_app_token": application_info.get("token"),
-            "authenticated": user_info.token is not None
-        }
+            "authenticated": user_info.token is not None,
+        },
     )
 
 
@@ -231,7 +231,7 @@ async def delete_dev_application_confirmation(request: Request, application_id: 
             "request": request,
             "dev_app_id": application_id,
             "authenticated": user_info.token is not None,
-        }
+        },
     )
 
 
@@ -273,8 +273,8 @@ async def edit_dev_application_callback_uris_page(request: Request, application_
             "dev_app_id": app_dto.id,
             "callback_uris": app_dto.callback_uris,
             "callback_uris_form_value": ",".join(app_dto.callback_uris),
-            "authenticated": user_info.token is not None
-        }
+            "authenticated": user_info.token is not None,
+        },
     )
 
 
@@ -282,7 +282,7 @@ async def edit_dev_application_callback_uris_page(request: Request, application_
 async def edit_dev_application_callback_uris(
         request: Request,
         application_id: str,
-        new_callback_uris: Annotated[str, Form()]
+        new_callback_uris: Annotated[str, Form()],
 ):
     """Request for deleting a developer application."""
     user_info = await user_info_from_me_response(request)
@@ -297,7 +297,7 @@ async def edit_dev_application_callback_uris(
         await client.patch(
             f"{BASE_URL}/developer_application/{application_id}/callback_uris",
             headers=headers,
-            json=formatted_uris
+            json=formatted_uris,
         )
 
     return RedirectResponse(f"/ui/applications/{application_id}", status_code=HTTP_303_SEE_OTHER)
@@ -316,12 +316,12 @@ async def oauth_login(request: Request, application_id: UUID | None = None, call
     if not (application_id and callback_uri):
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
-            detail="Both application_id and callback_uri are required"
+            detail="Both application_id and callback_uri are required",
         )
     else:
         dev_app = await DeveloperApplication.prisma().find_unique(
             where={"id": str(application_id)},
-            include={"callback_uris": True}
+            include={"callback_uris": True},
         )
 
         # This check is a convenience in order to provide accurate and immediate feedback to users
@@ -344,8 +344,8 @@ async def oauth_login(request: Request, application_id: UUID | None = None, call
         {
             "request": request,
             "discord_redirect": discord_login_url,
-            "errors": errors
-        }
+            "errors": errors,
+        },
     )
 
 
@@ -361,7 +361,7 @@ async def discord_callback(request: Request) -> RedirectResponse:
 
         dev_app = await DeveloperApplication.prisma().find_unique(
             where={"id": app_id},
-            include={"callback_uris": True}
+            include={"callback_uris": True},
         )
 
         # This check is very important. application ID and callback URI must be validated
@@ -374,7 +374,7 @@ async def discord_callback(request: Request) -> RedirectResponse:
     else:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
-            detail="application_id and callback_uri are required in query param 'state'"
+            detail="application_id and callback_uri are required in query param 'state'",
         )
 
     if code:
