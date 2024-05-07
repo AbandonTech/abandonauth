@@ -1,4 +1,5 @@
-import os
+import tomllib
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -6,9 +7,12 @@ from fastapi.staticfiles import StaticFiles
 from abandonauth.database import prisma_db
 from abandonauth.routers import routers
 
+with Path("../pyproject.toml").open("rb") as f:
+    pyproject = tomllib.load(f)
+
 app = FastAPI(
     title="AbandonAuth",
-    version=os.environ.get("VERSION", "local-dev"),
+    version=pyproject["tool"]["poetry"]["version"],
 )
 
 app.mount("/static", StaticFiles(directory="./abandonauth/static"), name="static")
