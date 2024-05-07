@@ -3,6 +3,10 @@ from uuid import UUID
 from pydantic import BaseModel
 
 
+class DeveloperApplicationName(BaseModel):
+    name: str
+
+
 class DeveloperApplicationDto(BaseModel):
     """Basic data for developer applications."""
 
