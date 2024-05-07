@@ -4,7 +4,7 @@ from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from prisma.models import DeveloperApplication
 from starlette.status import HTTP_303_SEE_OTHER, HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
@@ -60,7 +60,7 @@ async def index(request: Request, code: str | None = None) -> RedirectResponse:
 
 
 @router.get("/developer_dashboard", include_in_schema=False)
-async def developer_dashboard(request: Request) -> HTMLResponse | RedirectResponse:
+async def developer_dashboard(request: Request) -> Response:
     """Developer dashboard page for AbandonAuth UI."""
     user_info = await user_info_from_me_response(request)
 
@@ -79,7 +79,7 @@ async def developer_dashboard(request: Request) -> HTMLResponse | RedirectRespon
 
 
 @router.get("/applications/new", include_in_schema=False)
-async def create_new_developer_application_form(request: Request) -> HTMLResponse | RedirectResponse:
+async def create_new_developer_application_form(request: Request) -> Response:
     """Page for managing developer applications."""
     user_info = await user_info_from_me_response(request)
 
@@ -96,7 +96,7 @@ async def create_new_developer_application_form(request: Request) -> HTMLRespons
 
 
 @router.post("/applications/new", include_in_schema=False)
-async def create_new_developer_applications(request: Request) -> HTMLResponse | RedirectResponse:
+async def create_new_developer_applications(request: Request) -> Response:
     """Page for managing developer applications."""
     user_info = await user_info_from_me_response(request)
 
@@ -120,7 +120,7 @@ async def create_new_developer_applications(request: Request) -> HTMLResponse | 
 
 
 @router.get("/applications", include_in_schema=False)
-async def list_developer_applications(request: Request) -> HTMLResponse | RedirectResponse:
+async def list_developer_applications(request: Request) -> Response:
     """Page for managing developer applications."""
     user_info = await user_info_from_me_response(request)
 
@@ -145,7 +145,7 @@ async def list_developer_applications(request: Request) -> HTMLResponse | Redire
 async def developer_application_detail(
     request: Request,
     application_id: str,
-) -> HTMLResponse | RedirectResponse:
+) -> Response:
     """Page for managing developer applications."""
     user_info = await user_info_from_me_response(request)
 
@@ -176,7 +176,7 @@ async def developer_application_detail(
 async def reset_dev_application_token_confirmation(
     request: Request,
     application_id: str,
-) -> HTMLResponse | RedirectResponse:
+) -> Response:
     """Request for resetting a developer application token from the dev application info page."""
     user_info = await user_info_from_me_response(request)
 
@@ -194,7 +194,7 @@ async def reset_dev_application_token_confirmation(
 
 
 @router.post("/applications/{application_id}/reset_token", include_in_schema=False)
-async def reset_dev_application_token(request: Request, application_id: str) -> HTMLResponse | RedirectResponse:
+async def reset_dev_application_token(request: Request, application_id: str) -> Response:
     """Request for resetting a developer application token from the dev application info page."""
     user_info = await user_info_from_me_response(request)
 
@@ -219,7 +219,7 @@ async def reset_dev_application_token(request: Request, application_id: str) -> 
 
 
 @router.get("/applications/{application_id}/delete_application", include_in_schema=False)
-async def delete_dev_application_confirmation(request: Request, application_id: str) -> HTMLResponse | RedirectResponse:
+async def delete_dev_application_confirmation(request: Request, application_id: str) -> Response:
     """Request for deleting a developer application."""
     user_info = await user_info_from_me_response(request)
 
@@ -255,7 +255,7 @@ async def delete_dev_application(request: Request, application_id: str) -> Redir
 async def edit_dev_application_callback_uris_page(
     request: Request,
     application_id: str,
-) -> HTMLResponse | RedirectResponse:
+) -> Response:
     """Page for editing a developer application's callback URIs."""
     user_info = await user_info_from_me_response(request)
 
