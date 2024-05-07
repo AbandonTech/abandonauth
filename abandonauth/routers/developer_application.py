@@ -18,6 +18,7 @@ from abandonauth.models import (
     DeveloperApplicationWithCallbackUriDto,
     JwtDto,
     LoginDeveloperApplicationDto,
+    DeveloperApplicationName,
 )
 from abandonauth.models.auth import JwtClaimsDataDto
 from abandonauth.settings import settings
@@ -35,7 +36,8 @@ router = APIRouter(
     response_model=CreateDeveloperApplicationDto,
 )
 async def create_developer_application(
-        token_data: JwtClaimsDataDto = Depends(JWTBearer()),
+        devapp: DeveloperApplicationName,
+        token_data: JwtClaimsDataDto = Depends(JWTBearer())
 ) -> CreateDeveloperApplicationDto:
     """
     Create a new developer application owned by the currently authenticated User.
@@ -48,9 +50,11 @@ async def create_developer_application(
     dev_app = await DeveloperApplication.prisma().create({
         "owner_id": token_data.user_id,
         "refresh_token": hashed_token,
+        "name": devapp.name
     })
 
-    return CreateDeveloperApplicationDto(id=dev_app.id, owner_id=dev_app.owner_id, token=refresh_token)
+    return CreateDeveloperApplicationDto(id=dev_app.id, owner_id=dev_app.owner_id, name=dev_app.name,
+                                         token=refresh_token)
 
 
 @router.post(
@@ -102,7 +106,7 @@ async def delete_developer_application(
 
         # It should not be possible for this condition to fail. Adding for Pyright
         if deleted:
-            return DeveloperApplicationDto(id=deleted.id, owner_id=deleted.owner_id)
+            return DeveloperApplicationDto(id=deleted.id, owner_id=deleted.owner_id, name=deleted.name)
 
     raise HTTPException(status_code=HTTP_404_NOT_FOUND)
 
@@ -141,7 +145,8 @@ async def change_application_refresh_token(
 
         # It should not be possible for this condition to fail. Adding for Pyright
         if updated:
-            return CreateDeveloperApplicationDto(id=updated.id, owner_id=updated.owner_id, token=refresh_token)
+            return CreateDeveloperApplicationDto(id=updated.id, owner_id=updated.owner_id, name=updated.name,
+                                                 token=refresh_token)
 
     raise HTTPException(status_code=HTTP_404_NOT_FOUND)
 
@@ -167,7 +172,7 @@ async def current_developer_application_information(
     if dev_app is None:
         raise HTTPException(status_code=HTTP_404_NOT_FOUND)
 
-    return DeveloperApplicationDto(id=dev_app.id, owner_id=dev_app.owner_id)
+    return DeveloperApplicationDto(id=dev_app.id, owner_id=dev_app.owner_id, name=dev_app.name)
 
 
 @router.get(
@@ -177,8 +182,8 @@ async def current_developer_application_information(
     response_model=DeveloperApplicationWithCallbackUriDto,
 )
 async def get_developer_application(
-    application_id: UUID,
-    token_data: JwtClaimsDataDto = Depends(JWTBearer()),
+        application_id: UUID,
+        token_data: JwtClaimsDataDto = Depends(JWTBearer())
 ) -> DeveloperApplicationWithCallbackUriDto:
     """Get information about the given developer application if the requesting user owns the developer app."""
     dev_app = await DeveloperApplication.prisma().find_unique(
@@ -194,7 +199,8 @@ async def get_developer_application(
     return DeveloperApplicationWithCallbackUriDto(
         id=dev_app.id,
         owner_id=dev_app.owner_id,
-        callback_uris=callbacks,
+        name=dev_app.name,
+        callback_uris=callbacks
     )
 
 
@@ -253,4 +259,4 @@ async def update_developer_application_callback_uris(
         for delete_uri in uris_to_delete:
             batcher.callbackuri.delete(where={"id": delete_uri.id})
 
-    return DeveloperApplicationDto(id=dev_app.id, owner_id=dev_app.owner_id)
+    return DeveloperApplicationDto(id=dev_app.id, owner_id=dev_app.owner_id, name=dev_app.name)
