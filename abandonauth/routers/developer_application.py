@@ -15,10 +15,10 @@ from abandonauth.models import (
     CreateCallbackUriDto,
     CreateDeveloperApplicationDto,
     DeveloperApplicationDto,
+    DeveloperApplicationName,
     DeveloperApplicationWithCallbackUriDto,
     JwtDto,
     LoginDeveloperApplicationDto,
-    DeveloperApplicationName,
 )
 from abandonauth.models.auth import JwtClaimsDataDto
 from abandonauth.settings import settings
@@ -37,7 +37,7 @@ router = APIRouter(
 )
 async def create_developer_application(
         devapp: DeveloperApplicationName,
-        token_data: JwtClaimsDataDto = Depends(JWTBearer())
+        token_data: JwtClaimsDataDto = Depends(JWTBearer()),
 ) -> CreateDeveloperApplicationDto:
     """
     Create a new developer application owned by the currently authenticated User.
@@ -50,7 +50,7 @@ async def create_developer_application(
     dev_app = await DeveloperApplication.prisma().create({
         "owner_id": token_data.user_id,
         "refresh_token": hashed_token,
-        "name": devapp.name
+        "name": devapp.name,
     })
 
     return CreateDeveloperApplicationDto(id=dev_app.id, owner_id=dev_app.owner_id, name=dev_app.name,
@@ -183,7 +183,7 @@ async def current_developer_application_information(
 )
 async def get_developer_application(
         application_id: UUID,
-        token_data: JwtClaimsDataDto = Depends(JWTBearer())
+        token_data: JwtClaimsDataDto = Depends(JWTBearer()),
 ) -> DeveloperApplicationWithCallbackUriDto:
     """Get information about the given developer application if the requesting user owns the developer app."""
     dev_app = await DeveloperApplication.prisma().find_unique(
@@ -200,7 +200,7 @@ async def get_developer_application(
         id=dev_app.id,
         owner_id=dev_app.owner_id,
         name=dev_app.name,
-        callback_uris=callbacks
+        callback_uris=callbacks,
     )
 
 
