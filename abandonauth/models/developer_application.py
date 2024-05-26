@@ -4,6 +4,8 @@ from pydantic import BaseModel
 
 
 class DeveloperApplicationName(BaseModel):
+    """Name of the application."""
+
     name: str
 
 
