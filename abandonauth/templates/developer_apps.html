@@ -6,7 +6,7 @@
 
         <div class="developerApps">
             {% for app in dev_apps %}
-                <a href="/ui/applications/{{ app[1] }}">{{ app[0] }}: {{ app[1] }}</a>
+                <a href="/ui/applications/{{ app['id'] }}">{{ app['name'] }}: {{ app['id'] }}</a>
             {% endfor %}
         </div>
     </div>
