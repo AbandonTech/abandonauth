@@ -135,7 +135,7 @@ async def list_developer_applications(request: Request) -> Response:
         "developer_apps.html",
         {
             "request": request,
-            "dev_apps": [(x["name"], x["id"]) for x in dev_apps],
+            "dev_apps": [{"name": x["name"], "id": x["id"])} for x in dev_apps],
             "authenticated": user_info.token is not None,
         },
     )
