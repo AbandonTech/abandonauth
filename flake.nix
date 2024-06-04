@@ -23,6 +23,7 @@
                     poetry
                     prisma-engines
                     openssl
+                    pyright
                 ];
             };
         });
