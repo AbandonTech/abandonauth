@@ -4,3 +4,7 @@
 .vscode
 
 __pycache__/
+
+# Nix + Direnv
+.direnv
+result
