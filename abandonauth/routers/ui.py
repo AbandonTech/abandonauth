@@ -13,6 +13,7 @@ from abandonauth import templates  # pyright: ignore [reportAttributeAccessIssue
 from abandonauth.dependencies.services import build_abandon_auth_redirect_url, user_info_from_me_response
 from abandonauth.models import DeveloperApplicationWithCallbackUriDto, DiscordLoginDto
 from abandonauth.routers.discord import login_with_discord
+from abandonauth.routers.github import login_with_github
 from abandonauth.settings import settings
 
 router = APIRouter(prefix="/ui")
@@ -346,12 +347,14 @@ async def oauth_login(
         )
 
     discord_login_url = f"{settings.ABANDON_AUTH_DISCORD_REDIRECT}&state={dev_app.id},{callback_uri}"
+    github_login_url = f"{settings.ABANDON_AUTH_GITHUB_REDIRECT}&state={dev_app.id},{callback_uri}"
 
     return jinja_templates.TemplateResponse(
         "login.html",
         {
             "request": request,
             "discord_redirect": discord_login_url,
+            "github_redirect": github_login_url,
             "errors": errors,
         },
     )
@@ -388,6 +391,42 @@ async def discord_callback(request: Request) -> RedirectResponse:
     if code:
         login_data = DiscordLoginDto(code=code, redirect_uri=settings.ABANDON_AUTH_DISCORD_CALLBACK)
         exchange_token = (await login_with_discord(login_data, app_id)).token
+
+        return RedirectResponse(f"{redirect_url}?code={exchange_token}")
+
+    return RedirectResponse(redirect_url)
+
+
+@router.get("/github-callback")
+async def github_callback(request: Request) -> RedirectResponse:
+    """GitHub callback endpoint for authenticating with GitHub OAuth with AbandonAuth UI."""
+    code = request.query_params.get("code")
+
+    # Application ID and callback URI are verified before being added to the discord callback URI
+    # The state param can be altered via user input on previous steps and must be verified here
+    if request_state := request.query_params.get("state"):
+        app_id, redirect_url = request_state.split(",")
+
+        dev_app = await DeveloperApplication.prisma().find_unique(
+            where={"id": app_id},
+            include={"callback_uris": True},
+        )
+
+        # This check is very important. application ID and callback URI must be validated
+        # The state in the github login URL cannot be trusted
+        if not dev_app or not dev_app.callback_uris or redirect_url not in [x.uri for x in dev_app.callback_uris]:
+            raise HTTPException(
+                status_code=HTTP_403_FORBIDDEN,
+                detail="Invalid application ID or callback_uri",
+            )
+    else:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail="application_id and callback_uri are required in query param 'state'",
+        )
+
+    if code:
+        exchange_token = (await login_with_github(code, app_id)).token
 
         return RedirectResponse(f"{redirect_url}?code={exchange_token}")
 
