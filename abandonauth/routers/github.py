@@ -1,7 +1,6 @@
 import httpx
 from fastapi import APIRouter
 from prisma.models import User
-from starlette.responses import RedirectResponse
 
 from abandonauth.dependencies.auth.jwt import generate_short_lived_jwt
 from abandonauth.models import JwtDto
@@ -13,12 +12,11 @@ router = APIRouter(
 )
 
 
-@router.get("", response_model=JwtDto)
-async def login_with_github(code: str, state: str) -> RedirectResponse:
+async def login_with_github(code: str, application_id: str) -> JwtDto:
     """Log a user in using GitHubs's OAuth2 as validation."""
     data = {
         "client_id": settings.GITHUB_CLIENT_ID,
-        "redirect_uri": settings.GITHUB_CALLBACK,
+        "redirect_uri": settings.ABANDON_AUTH_GITHUB_CALLBACK,
         "client_secret": settings.GITHUB_CLIENT_SECRET.get_secret_value(),
         "code": code,
     }
@@ -58,4 +56,4 @@ async def login_with_github(code: str, state: str) -> RedirectResponse:
             },
         })
 
-    return RedirectResponse(f"{state}?authentication={generate_short_lived_jwt(user.id, 'fake_application_id')}")
+    return JwtDto(token=generate_short_lived_jwt(user.id, application_id))
