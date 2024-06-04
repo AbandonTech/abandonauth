@@ -1,30 +1,30 @@
 {
-  description = "Authentic Auth Service... Provides identification of a user from multiple external services.";
-
-  inputs = {
-    flake-utils.url = "github:numtide/flake-utils";
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    poetry2nix = {
-      url = "github:nix-community/poetry2nix";
-      inputs.nixpkgs.follows = "nixpkgs";
+    outputs = { self, nixpkgs, ... }:
+    let
+        forAllSystems = function:
+            nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" ]
+            (system: function nixpkgs.legacyPackages.${system});
+    in {
+        devShells = forAllSystems (pkgs: {
+            default = pkgs.mkShell {
+                shellHook = ''
+                  export PRISMA_SCHEMA_ENGINE_BINARY="${pkgs.prisma-engines}/bin/schema-engine"
+                  export PRISMA_QUERY_ENGINE_BINARY="${pkgs.prisma-engines}/bin/query-engine"
+                  export PRISMA_QUERY_ENGINE_LIBRARY="${pkgs.prisma-engines}/lib/libquery_engine.node"
+                  export PRISMA_FMT_BINARY="${pkgs.prisma-engines}/bin/prisma-fmt"
+                  export PATH="$PWD/node_modules/.bin/:$PATH"
+                '';
+                packages = with pkgs; [
+                    nodejs_20
+                    nodePackages.yarn
+                    nodePackages.node-gyp
+                    vips
+                    python3
+                    poetry
+                    prisma-engines
+                    openssl
+                ];
+            };
+        });
     };
-  };
-
-  outputs = { self, nixpkgs, flake-utils, poetry2nix }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        # see https://github.com/nix-community/poetry2nix/tree/master#api for more functions and examples.
-        pkgs = nixpkgs.legacyPackages.${system};
-        inherit (import poetry2nix { inherit pkgs; }) mkPoetryApplication;
-      in
-      {
-        packages = {
-          abandonauth = mkPoetryApplication { projectDir = self; };
-          default = self.packages.${system}.abandonauth;
-        };
-
-        devShells.default = pkgs.mkShell {
-          packages = [ pkgs.poetry ];
-        };
-      });
 }
