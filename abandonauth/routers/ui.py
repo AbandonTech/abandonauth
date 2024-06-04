@@ -346,12 +346,14 @@ async def oauth_login(
         )
 
     discord_login_url = f"{settings.ABANDON_AUTH_DISCORD_REDIRECT}&state={dev_app.id},{callback_uri}"
+    github_login_url = f"{settings.ABANDON_AUTH_GITHUB_REDIRECT}&state={dev_app.id},{callback_uri}"
 
     return jinja_templates.TemplateResponse(
         "login.html",
         {
             "request": request,
             "discord_redirect": discord_login_url,
+            "github_redirect": github_login_url,
             "errors": errors,
         },
     )
