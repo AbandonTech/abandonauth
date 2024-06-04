@@ -413,7 +413,7 @@ async def github_callback(request: Request) -> RedirectResponse:
         )
 
         # This check is very important. application ID and callback URI must be validated
-        # The state in the discord login URL cannot be trusted
+        # The state in the github login URL cannot be trusted
         if not dev_app or not dev_app.callback_uris or redirect_url not in [x.uri for x in dev_app.callback_uris]:
             raise HTTPException(
                 status_code=HTTP_403_FORBIDDEN,
