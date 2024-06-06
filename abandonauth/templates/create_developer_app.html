@@ -2,8 +2,13 @@
 {% block content %}
 {% include "navbar.html" %}
     <div class="mainApp">
+        <h1>Create A New Developer Application</h1>
         <form method="post">
-            <button class="button" style="margin-top: 2em;">Create Application</button>
+            <div class="editCallbackForm">
+                <label for="developer_app_name">Dev App Name</label>
+                <input type="text" id="developer_app_name" name="dev_app_name">
+                <button class="button-submit">Submit</button>
+            </div>
         </form>
     </div>
 {% endblock %}
