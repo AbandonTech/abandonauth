@@ -41,7 +41,7 @@ async def get_user_applications(
         },
     )
 
-    return [DeveloperApplicationDto(id=x.id, owner_id=x.owner_id) for x in dev_apps]
+    return [DeveloperApplicationDto(name=x.name, id=x.id, owner_id=x.owner_id) for x in dev_apps]
 
 
 @router.get("/me", response_model=UserDto)

@@ -29,6 +29,7 @@ model CallbackUri {
 
 model DeveloperApplication {
   id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String        @default("Application")
   owner         User          @relation(fields: [owner_id], references: [id], onDelete: Cascade)
   owner_id      String        @db.Uuid
   refresh_token String

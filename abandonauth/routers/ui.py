@@ -1,4 +1,3 @@
-from http import HTTPStatus
 from typing import Annotated
 from uuid import UUID
 
@@ -7,7 +6,13 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from prisma.models import DeveloperApplication
-from starlette.status import HTTP_303_SEE_OTHER, HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
+from starlette.status import (
+    HTTP_200_OK,
+    HTTP_303_SEE_OTHER,
+    HTTP_400_BAD_REQUEST,
+    HTTP_403_FORBIDDEN,
+    HTTP_404_NOT_FOUND,
+)
 
 from abandonauth import templates  # pyright: ignore [reportAttributeAccessIssue]
 from abandonauth.dependencies.services import build_abandon_auth_redirect_url, user_info_from_me_response
@@ -40,7 +45,7 @@ async def index(request: Request, code: str | None = None) -> RedirectResponse:
             resp = await client.post(f"{BASE_URL}/login", headers=login_headers, json=login_body)
 
         # If login failed, set token to None so that the user will be redirected back to the login page
-        token = None if resp.status_code != HTTPStatus.OK else resp.json().get("token")
+        token = None if resp.status_code != HTTP_200_OK else resp.json().get("token")
     else:
         token = request.cookies.get("Authorization")
 
@@ -49,7 +54,7 @@ async def index(request: Request, code: str | None = None) -> RedirectResponse:
     if token:
         async with httpx.AsyncClient() as client:
             headers = {"Authorization": f"Bearer {token}"}
-            authenticated = (await client.get(f"{BASE_URL}/me", headers=headers)).status_code == HTTPStatus.OK
+            authenticated = (await client.get(f"{BASE_URL}/me", headers=headers)).status_code == HTTP_200_OK
 
     if authenticated is False:
         return RedirectResponse(build_abandon_auth_redirect_url())
@@ -97,7 +102,7 @@ async def create_new_developer_application_form(request: Request) -> Response:
 
 
 @router.post("/applications/new", include_in_schema=False)
-async def create_new_developer_applications(request: Request) -> Response:
+async def create_new_developer_applications(request: Request, dev_app_name: Annotated[str, Form()]) -> Response:
     """Page for managing developer applications."""
     user_info = await user_info_from_me_response(request)
 
@@ -106,7 +111,9 @@ async def create_new_developer_applications(request: Request) -> Response:
 
     async with httpx.AsyncClient() as client:
         headers = {"Authorization": f"Bearer {user_info.token}"}
-        new_dev_app = (await client.post(f"{BASE_URL}/developer_application", headers=headers)).json()
+        new_dev_app = (
+            await client.post(f"{BASE_URL}/developer_application", headers=headers, json={"name": dev_app_name})
+        ).json()
 
     return jinja_templates.TemplateResponse(
         "created_application_info.html",
@@ -136,7 +143,7 @@ async def list_developer_applications(request: Request) -> Response:
         "developer_apps.html",
         {
             "request": request,
-            "dev_apps": [x["id"] for x in dev_apps],
+            "dev_apps": [{"name": x["name"], "id": x["id"]} for x in dev_apps],
             "authenticated": user_info.token is not None,
         },
     )
