@@ -1,5 +1,5 @@
 <template>
-    <a :href="$props.redirectUrl" class='btn btn-lg w-96 px-16 btn-primary'>
+    <a :href="$props.redirectUrl + `&state=${config.public.abandonAuthApplicationId},${loginCallbackUri}`" class='btn btn-lg w-96 px-16 btn-primary'>
         <div class="flex flex-row items-center w-full">
             <svg :viewBox="$props.svgViewbox" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-10 h-10 text-white" height="1em" width="1em">
                 <path :d="$props.svgPathData" fill="#F7F7F7" />
@@ -10,6 +10,10 @@
 </template>
 
 <script setup lang="ts">
+const config = useRuntimeConfig();
+
+const loginCallbackUri = `${config.public.abandonAuthUrl}/ui`
+
 defineProps({
     title: {
         type: String,

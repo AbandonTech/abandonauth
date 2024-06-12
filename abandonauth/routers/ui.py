@@ -59,7 +59,7 @@ async def index(request: Request, code: str | None = None) -> RedirectResponse:
     if authenticated is False:
         return RedirectResponse(build_abandon_auth_redirect_url())
 
-    resp = RedirectResponse("/ui/developer_dashboard")
+    resp = RedirectResponse(settings.ABANDON_AUTH_SITE_URL)
     resp.set_cookie(key="Authorization", value=token)  # pyright: ignore [reportArgumentType]
 
     return resp

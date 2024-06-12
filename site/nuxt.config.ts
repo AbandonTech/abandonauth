@@ -22,6 +22,8 @@ export default defineNuxtConfig({
     public: {
         abandonAuthUrl: process.env.ABANDON_AUTH_URL,
         abandonAuthApplicationId: process.env.ABANDON_AUTH_DEVELOPER_APP_ID,
+        githubRedirect: process.env.GITHUB_REDIRECT,
+        discordRedirect: process.env.DISCORD_REDIRECT,
     }
   }
 })
