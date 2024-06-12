@@ -17,5 +17,11 @@ export default defineNuxtConfig({
     head: {
       title: "AbandonAuth",
     }
+  },
+  runtimeConfig: {
+    public: {
+        abandonAuthUrl: process.env.ABANDON_AUTH_URL,
+        abandonAuthApplicationId: process.env.ABANDON_AUTH_DEVELOPER_APP_ID,
+    }
   }
 })
