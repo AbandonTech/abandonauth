@@ -24,6 +24,7 @@ export default defineNuxtConfig({
         abandonAuthApplicationId: process.env.ABANDON_AUTH_DEVELOPER_APP_ID,
         githubRedirect: process.env.GITHUB_REDIRECT,
         discordRedirect: process.env.DISCORD_REDIRECT,
+        loginPath: `/login?application_id=${process.env.ABANDON_AUTH_DEVELOPER_APP_ID}&callback_uri=/login/abandonauth-callback`
     }
   }
 })

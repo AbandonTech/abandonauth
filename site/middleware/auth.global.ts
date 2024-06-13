@@ -4,9 +4,8 @@ export default defineNuxtRouteMiddleware((to, from) => {
     const auth = useCookie("Authorization");
     if (!auth.value) {
         const config = useRuntimeConfig();
-        const abandonAuthApplicationId = config.public.abandonAuthApplicationId;
+        const { loginPath }  = config.public;
 
-        console.log("redirecting to login")
-        return navigateTo(`/login?application_id=${abandonAuthApplicationId}&callback_uri=/login/abandonauth-callback`)
+        return navigateTo(loginPath)
     }
 })
