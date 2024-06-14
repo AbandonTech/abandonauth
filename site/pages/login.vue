@@ -1,5 +1,5 @@
 <template>
-    <div class='min-h-screen min-w-screen flex bg-repeat bg-base-200 lg:items-center lg:justify-center'>
+    <div class='min-h-screen min-w-screen flex lg:items-center lg:justify-center'>
         <div>
             <h1 v-if="!callbackUri" class="text-red-500">
                 callback_uri is required
@@ -9,9 +9,9 @@
             </h1>
         </div>
 
-      <div class='flex flex-col w-full text-center px-8 lg:w-3/5 lg:flex-row lg:rounded-xl lg:text-left'>
-        <div class='my-2 mx-auto lg:my-auto'>
-          <div>
+      <div class='flex flex-col text-center px-8 lg:flex-row lg:rounded-xl lg:text-left'>
+        <div class='my-2 lg:mx-40 lg:my-auto'>
+          <div class="text-center">
             <h1 class='select-none basis-1/4 text-4xl font-bold text-gray-900 dark:text-gray-100 md:text-5xl lg:text-6xl'>
               AbandonAuth
             </h1>
@@ -21,6 +21,10 @@
             <LoginButton title="Discord" :redirectUrl="config.public.discordRedirect" :svgPathData="discordSvgPath" svgViewbox="0 0 36 27" bgColorClass="bg-discord" />
             <LoginButton title="Github" :redirectUrl="config.public.githubRedirect" :svgPathData="githubSvgPath" svgViewbox="0 0 39 39" bgColorClass="bg-github" />
           </div>
+        </div>
+
+        <div>
+          <img src="/img/atLogoColor.svg" class="hidden lg:block w-full lg:w-[30rem]" alt="AbandonTech" />
         </div>
       </div>
     </div>
