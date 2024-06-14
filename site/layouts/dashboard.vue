@@ -7,27 +7,20 @@
           </div>
   
           <ul class='space-y-3'>
+
             <li class="px-4">
-              <a href='/' class='no-animation btn btn-primary w-full'>
-                <font-awesome-icon :icon="faHouse" class="w-6" />
-                <span class='ml-3'>Home</span>
-              </a>
+              <NavLinkButton title="Home" href="/" :linkIcon="faHouse" />
             </li>
-  
+
             <li class="px-4">
-              <a href='/developer-applications' class='no-animation btn btn-primary w-full'>
-                <font-awesome-icon :icon="faUsers" class="w-6" />
-                <span class='ml-3'>Developer Applications</span>
-              </a>
+              <NavLinkButton title="Applications" href="/developer-applications" :linkIcon="faUsers" />
             </li>
+            
           </ul>
   
           <ul class='pt-4 mt-4 space-y-2 border-t-2 border-primary/20'>
             <li class="px-4">
-              <a :href="abandonAuthUrl + '/docs'" target="_blank" class='no-animation btn btn-primary w-full'>
-                <font-awesome-icon :icon="faBookOpen" class="w-6" />
-                <span class='ml-3'>Api Docs</span>
-              </a>
+              <NavLinkButton title="Api Docs" :href="abandonAuthUrl + '/docs'" :linkIcon="faBookOpen" target="_blank" />
             </li>
           </ul>
   
@@ -35,7 +28,7 @@
             <li class="px-4">
               <button class='no-animation btn btn-primary w-full' @click="handleLogout">
                 <font-awesome-icon :icon="faCircleLeft" class="w-6" />
-                <span class='ml-3 text-primary-content'>Logout</span>
+                <span class='mx-4 text-xl font-semibold text-center flex-grow'>Logout</span>
               </button>
             </li>
           </ul>
