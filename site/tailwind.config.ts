@@ -6,6 +6,10 @@ module.exports = {
           "sans": ["Lato", "sans-serif"],
           "header": ["Atkinson Hyperlegible", "sans-serif"],
         },
+        colors: {
+          "discord": "#5865F2",
+          "github": "#333"
+        },
       },
     },
     daisyui: {
