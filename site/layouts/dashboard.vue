@@ -3,7 +3,7 @@
       <aside class='sticky top-0 left-0 z-40 min-w-64 h-screen '>
         <div class='h-full overflow-y-auto bg-base-200'>
           <div class='flex items-center pl-2.5 mb-5'>
-            <span class='self-center text-xl font-semibold whitespace-nowrap dark:text-white'>AbandonAuth</span>
+            <h3 class='text-2xl p-2 whitespace-nowrap text-center w-full dark:text-white'>AbandonAuth</h3>
           </div>
   
           <ul class='space-y-3'>
@@ -20,15 +20,17 @@
   
           <ul class='pt-4 mt-4 space-y-2 border-t-2 border-primary/20'>
             <li class="px-4">
-              <NavLinkButton title="Api Docs" :href="abandonAuthUrl + '/docs'" :linkIcon="faBookOpen" target="_blank" />
+              <NavLinkButton title="Documentation" :href="abandonAuthUrl + '/docs'" :linkIcon="faBookOpen" target="_blank" />
             </li>
           </ul>
   
           <ul class='pt-4 mt-4 space-y-2 border-t-2 border-primary/20'>
             <li class="px-4">
               <button class='no-animation btn btn-primary w-full' @click="handleLogout">
-                <font-awesome-icon :icon="faCircleLeft" class="w-6" />
-                <span class='mx-4 text-xl font-semibold text-center flex-grow'>Logout</span>
+                <div class="flex flex-row items-center w-full">
+                  <font-awesome-icon :icon="faCircleLeft" class="text-lg" />
+                  <span class='ml-4'>Logout</span>
+                </div>
               </button>
             </li>
           </ul>

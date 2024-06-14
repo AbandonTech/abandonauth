@@ -3,7 +3,6 @@ module.exports = {
     theme: {
       extend: {
         fontFamily: {
-          "sans": ["Lato", "sans-serif"],
           "header": ["Atkinson Hyperlegible", "sans-serif"],
         },
         colors: {
