@@ -8,24 +8,24 @@
   
           <ul class='space-y-3'>
 
-            <li class="px-4">
+            <li class="px-7">
               <NavLinkButton title="Home" href="/" :linkIcon="faHouse" />
             </li>
 
-            <li class="px-4">
+            <li class="px-7">
               <NavLinkButton title="Applications" href="/developer-applications" :linkIcon="faUsers" />
             </li>
             
           </ul>
   
           <ul class='pt-4 mt-4 space-y-2 border-t-2 border-primary/20'>
-            <li class="px-4">
+            <li class="px-7">
               <NavLinkButton title="Documentation" :href="abandonAuthUrl + '/docs'" :linkIcon="faBookOpen" target="_blank" />
             </li>
           </ul>
   
           <ul class='pt-4 mt-4 space-y-2 border-t-2 border-primary/20'>
-            <li class="px-4">
+            <li class="px-7">
               <button class='no-animation btn btn-primary w-full' @click="handleLogout">
                 <div class="flex flex-row items-center w-full">
                   <font-awesome-icon :icon="faCircleLeft" class="text-lg" />
