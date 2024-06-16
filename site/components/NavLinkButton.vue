@@ -12,7 +12,7 @@ import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 
 
 defineProps<{
-    title: String,
+    title: string,
     linkIcon: IconDefinition,
 }>()
 </script>
