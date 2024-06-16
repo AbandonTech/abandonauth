@@ -14,7 +14,7 @@ const props = defineProps<{
 }>()
 
 async function copyUserIdToClipboard(event) {
-  let copyContent = props.content !== undefined ? props.content : "Id failed to load"
+  let copyContent = props.content ?? "Id failed to load"
   const element = event.target;
 
   navigator.clipboard.writeText(copyContent);
