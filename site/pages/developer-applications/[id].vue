@@ -1,7 +1,24 @@
 <template>
+  <dialog class="modal modal-bottom sm:modal-middle" :class="{'modal-open': showAppModal}">
+  <div class="modal-box">
+    <h3 class="font-bold text-lg">{{ application?.name }}</h3>
+
+    <p class="text-lg"><span>Application ID: </span><CopyString :content="application?.id"/></p>
+    <p class="text-lg mt-4">Permanently Delete Application <span class="text-orange-500">{{ application?.name }}</span>?</p>
+    <div class="flex flex-row w-full gap-10 mt-4">
+      <button class="btn btn-warning w-28" @click="deleteDeveloperApplication">Yes</button>
+      <button class="btn btn-error w-28" @click="closeDeleteAppModal">No</button>
+    </div>
+  </div>
+</dialog>
+
     <div class="mx-auto my-10">
+      <div class="flex flex-col">
         <h1 class="text-4xl">{{ application?.name }}</h1>
-        <CopyString :content="application?.id" />
+        <CopyString class="mt-4" :content="application?.id" />
+
+        <button class="btn btn-error mt-4" @click="openDeleteAppModal">Delete Application</button>
+      </div>
 
         <h2 class="mt-10 text-lg  ">Add Callback Uri</h2>
         <div class="pt-2 w-96">
@@ -35,6 +52,9 @@ import { faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
 const config = useRuntimeConfig()
 const auth = useCookie("Authorization");
 const route = useRoute()
+const router = useRouter()
+
+const showAppModal = ref(false)
 
 const application_id = route.params.id
 
@@ -63,6 +83,29 @@ async function submitNewCallbackUris(newUris: string[]) {
       body: newUris
     })
   }
+}
+
+async function closeDeleteAppModal() {
+  showAppModal.value = false
+}
+
+async function openDeleteAppModal() {
+  showAppModal.value = true
+}
+
+async function deleteDeveloperApplication() {
+  await $fetch<DeveloperApplicationUpdateCallbackDto>(`${config.public.abandonAuthUrl}/developer_application/${application_id}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${auth.value}`
+      },
+    }).catch((err) => {
+      closeDeleteAppModal()
+    })
+
+    setTimeout(() => {
+      router.push("/developer-applications")
+    }, 500)
 }
 
 async function addCallbackUri(uri: string) {
