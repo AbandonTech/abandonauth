@@ -3,7 +3,7 @@
     <div class="modal-box">
       <h3 class="font-bold text-lg">{{ application?.name }}</h3>
 
-      <p class="text-lg"><span>Application ID: </span><CopyString :content="application?.id"/></p>
+      <p class="text-lg"><span>Application ID: </span><span>{{ application?.id }}</span></p>
       <p class="text-lg mt-4">Permanently Delete Application <span class="text-orange-500">{{ application?.name }}</span>?</p>
       <div class="flex flex-row w-full gap-10 mt-4">
         <button class="btn btn-warning w-28" @click="deleteDeveloperApplication">Yes</button>
@@ -16,7 +16,7 @@
     <div class="modal-box">
       <h3 class="font-bold text-lg">{{ application?.name }}</h3>
 
-      <p class="text-lg"><span>Application ID: </span><CopyString :content="application?.id"/></p>
+      <p class="text-lg"><span>Application ID: </span><span>{{ application?.id }}</span></p>
       <p class="text-lg mt-4">Destroy And Reset Existing Token For Application <span class="text-orange-500">{{ application?.name }}</span>?</p>
       <div class="flex flex-row w-full gap-10 mt-4">
         <button class="btn btn-warning w-28" @click="resetDeveloperApplicationToken">Yes</button>
