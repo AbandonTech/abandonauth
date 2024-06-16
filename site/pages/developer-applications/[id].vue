@@ -52,10 +52,10 @@
         <button class="btn btn-error mt-4" @click="openDeleteAppModal">Delete Application</button>
       </div>
 
-        <h2 class="mt-10 text-lg  ">Add Callback Uri</h2>
+        <h2 class="mt-10 text-lg  ">Add Callback URI</h2>
         <div class="pt-2 w-96">
           <label class="input input-bordered input-ghost flex items-center bg-base-200">
-            <input type="text" class="grow bg-inherit" placeholder="New Callback Uri" v-model="newCallbackUriName" @keydown.enter="addCallbackUri(newCallbackUriName)"/>
+            <input type="text" class="grow bg-inherit" placeholder="New Callback URI" v-model="newCallbackUriName" @keydown.enter="addCallbackUri(newCallbackUriName)"/>
             <font-awesome-icon
               :icon="faPlus"
               class="w-5 h-5 text-primary hover:cursor-pointer"
@@ -64,7 +64,7 @@
           </label>
         </div>
 
-      <h2 class="text-2xl mt-10">Callback Uris</h2>
+      <h2 class="text-2xl mt-10">Callback URIs</h2>
 
       <ul class="flex flex-col w-64 gap-2 py-4">
         <li v-for="uri in application?.callback_uris" :key="uri" class="w-fill mr-10 join">
