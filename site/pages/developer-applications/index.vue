@@ -7,7 +7,7 @@
     <p class="text-lg mt-2"><span>Token: </span><CopyString class="text-orange-500" :content="createdApplicationToken"/></p>
 
     <p class="text-xs">Your token will never be visible again!</p>
-    
+
     <div class="modal-action">
       <form method="dialog">
         <button class="btn" @click="closeCreateAppModal">Close</button>
@@ -23,8 +23,8 @@
     <div class="pt-2 w-96">
         <label class="input input-bordered input-ghost flex items-center bg-base-200">
           <input type="text" class="grow bg-inherit" placeholder="Application Name" v-model="newApplicationName" @keydown.enter="createApplication(newApplicationName)"/>
-          <font-awesome-icon 
-            :icon="faPlus" 
+          <font-awesome-icon
+            :icon="faPlus"
             class="w-5 h-5 text-primary hover:cursor-pointer"
             :class="{ 'animate-spin': spinAddButton }"
             @click="createApplication(newApplicationName)"/>
@@ -116,7 +116,7 @@ async function createApplication(name: string) {
 
   showAppModal.value = true
 
-  
+
   setTimeout(() => {
     refresh()
     resetApplicationField()

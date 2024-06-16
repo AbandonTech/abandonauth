@@ -7,7 +7,7 @@
     </div>
 
   </div>
-  
+
     <div class='min-h-screen min-w-screen flex lg:items-center lg:justify-center'>
 
       <div class='flex flex-col text-center px-8 lg:flex-row lg:rounded-xl lg:text-left'>
@@ -31,7 +31,7 @@
       </div>
     </div>
   </template>
-  
+
 <script setup lang="ts">
 import LoginButton from '~/components/LoginButton.vue';
 
@@ -46,7 +46,7 @@ interface ErrorMessage {
 }
 
 let errors: Ref<Array<ErrorMessage>>  = ref([]);
-  
+
 if (!applicationId) {
   errors.value.push({message: "application_id is required"})
 }
