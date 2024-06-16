@@ -181,8 +181,7 @@ async function addCallbackUri(uri: string) {
   if (application.value?.callback_uris !== undefined) {
     spinAddButton.value = true
 
-    let newUris = [...application.value.callback_uris]
-    newUris.push(uri)
+    let newUris = [...application.value.callback_uris, uri]
 
     await submitNewCallbackUris(newUris)
 
