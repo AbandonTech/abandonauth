@@ -10,14 +10,16 @@ const tooltipMessage = ref(initialTooltip);
 const highlightColor = "text-emerald-500";
 
 const props = defineProps<{
-    content: String | undefined,
+    content?: string,
 }>()
 
 async function copyUserIdToClipboard(event) {
   let copyContent = props.content !== undefined ? props.content : "Id failed to load"
-  navigator.clipboard.writeText(copyContent);  // Need to figure out how to type, copy content is String | string, which is an invalid type
   const element = event.target;
+
+  navigator.clipboard.writeText(copyContent);
   element.classList.add(highlightColor);
+
   tooltipMessage.value = "copied!"
 
   setTimeout(() => {
