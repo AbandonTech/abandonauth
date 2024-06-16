@@ -14,26 +14,11 @@ const config = useRuntimeConfig();
 
 const loginCallbackUri = `${config.public.abandonAuthUrl}/ui`
 
-defineProps({
-    title: {
-        type: String,
-        required: true
-    },
-    redirectUrl: {
-        type: String,
-        required: true
-    },
-    svgPathData: {
-        type: String,
-        required: true
-    },
-    svgViewbox: {
-        type: String,
-        required: true
-    },
-    bgColorClass: {
-        type: String,
-        required: true
-    }
-})
+defineProps<{
+    title: string,
+    redirectUrl: string,
+    svgPathData: string,
+    svgViewbox: string,
+    bgColorClass: string,
+}>();
 </script>
