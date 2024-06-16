@@ -42,7 +42,7 @@
     </div>
   </dialog>
 
-    <div class="mx-auto my-10">
+    <div class="m-10">
       <div class="flex flex-col">
         <h1 class="text-4xl">{{ application?.name }}</h1>
         <CopyString class="mt-4" :content="application?.id" />
