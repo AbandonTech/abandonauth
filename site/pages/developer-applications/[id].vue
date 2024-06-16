@@ -1,21 +1,53 @@
 <template>
-  <dialog class="modal modal-bottom sm:modal-middle" :class="{'modal-open': showAppModal}">
-  <div class="modal-box">
-    <h3 class="font-bold text-lg">{{ application?.name }}</h3>
+  <dialog id="deleteAppModal" class="modal modal-bottom sm:modal-middle" :class="{'modal-open': showAppModal}">
+    <div class="modal-box">
+      <h3 class="font-bold text-lg">{{ application?.name }}</h3>
 
-    <p class="text-lg"><span>Application ID: </span><CopyString :content="application?.id"/></p>
-    <p class="text-lg mt-4">Permanently Delete Application <span class="text-orange-500">{{ application?.name }}</span>?</p>
-    <div class="flex flex-row w-full gap-10 mt-4">
-      <button class="btn btn-warning w-28" @click="deleteDeveloperApplication">Yes</button>
-      <button class="btn btn-error w-28" @click="closeDeleteAppModal">No</button>
+      <p class="text-lg"><span>Application ID: </span><CopyString :content="application?.id"/></p>
+      <p class="text-lg mt-4">Permanently Delete Application <span class="text-orange-500">{{ application?.name }}</span>?</p>
+      <div class="flex flex-row w-full gap-10 mt-4">
+        <button class="btn btn-warning w-28" @click="deleteDeveloperApplication">Yes</button>
+        <button class="btn btn-error w-28" @click="closeDeleteAppModal">No</button>
+      </div>
     </div>
-  </div>
-</dialog>
+  </dialog>
+
+  <dialog id="resetTokenModal" class="modal modal-bottom sm:modal-middle" :class="{'modal-open': showResetTokenModal}">
+    <div class="modal-box">
+      <h3 class="font-bold text-lg">{{ application?.name }}</h3>
+
+      <p class="text-lg"><span>Application ID: </span><CopyString :content="application?.id"/></p>
+      <p class="text-lg mt-4">Destroy And Reset Existing Token For Application <span class="text-orange-500">{{ application?.name }}</span>?</p>
+      <div class="flex flex-row w-full gap-10 mt-4">
+        <button class="btn btn-warning w-28" @click="resetDeveloperApplicationToken">Yes</button>
+        <button class="btn btn-error w-28" @click="closeResetTokenAppModal">No</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="newTokenModal" class="modal modal-bottom sm:modal-middle" :class="{'modal-open': showNewTokenModal}">
+    <div class="modal-box">
+      <h3 class="font-bold text-lg">{{ application?.name }}</h3>
+
+      <p class="text-lg mt-2"><span>Application ID: </span><CopyString :content="application?.id"/></p>
+      <p class="text-lg mt-2"><span>Token: </span><CopyString class="text-orange-500" :content="newToken"/></p>
+
+      <p class="text-xs">Your token will never be visible again!</p>
+      
+      <div class="modal-action">
+        <form method="dialog">
+          <button class="btn" @click="closeNewTokenModal">Close</button>
+        </form>
+      </div>
+    </div>
+  </dialog>
 
     <div class="mx-auto my-10">
       <div class="flex flex-col">
         <h1 class="text-4xl">{{ application?.name }}</h1>
         <CopyString class="mt-4" :content="application?.id" />
+
+        <button class="btn btn-warning mt-4" @click="openResetTokenModal">Reset Token</button>
 
         <button class="btn btn-error mt-4" @click="openDeleteAppModal">Delete Application</button>
       </div>
@@ -46,7 +78,7 @@
 </template>
 
 <script setup lang="ts">
-import type { DeveloperApplicationDto, DeveloperApplicationUpdateCallbackDto } from '~/types/developerApplicationDto';
+import type { CreateDeveloperApplicationDto, DeveloperApplicationDto, DeveloperApplicationUpdateCallbackDto } from '~/types/developerApplicationDto';
 import { faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
 
 const config = useRuntimeConfig()
@@ -55,6 +87,10 @@ const route = useRoute()
 const router = useRouter()
 
 const showAppModal = ref(false)
+const showResetTokenModal = ref(false)
+const newToken = ref("*****")
+
+const showNewTokenModal = ref(false)
 
 const application_id = route.params.id
 
@@ -91,6 +127,39 @@ async function closeDeleteAppModal() {
 
 async function openDeleteAppModal() {
   showAppModal.value = true
+}
+
+async function openResetTokenModal() {
+  showResetTokenModal.value = true
+}
+
+async function closeResetTokenAppModal() {
+  showResetTokenModal.value = false
+}
+
+async function closeNewTokenModal() {
+  showNewTokenModal.value = false
+  newToken.value = "*****"
+}
+
+async function resetDeveloperApplicationToken() {
+  let resp = await $fetch<CreateDeveloperApplicationDto>(`${config.public.abandonAuthUrl}/developer_application/${application_id}/reset_token`, {
+      method: "patch",
+      headers: {
+        Authorization: `Bearer ${auth.value}`
+      },
+    }).catch((err) => {
+      closeDeleteAppModal()
+      return null
+    })
+
+    if (resp !== null) {
+      closeResetTokenAppModal()
+      setTimeout(() => {
+        newToken.value = resp.token
+        showNewTokenModal.value = true
+      }, 500)
+    }
 }
 
 async function deleteDeveloperApplication() {
