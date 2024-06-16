@@ -4,7 +4,7 @@
     <h3 class="font-bold text-lg">{{ createdApplicationName }}</h3>
 
     <p class="text-lg mt-2"><span>Application ID: </span><CopyString :content="createdApplicationId"/></p>
-    <p class="text-lg mt-2"><span>Token: </span><CopyString class="text-orange-500" :content="createdApplicationToken"/></p>
+    <p class="text-lg font-mono mt-2"><span>Token: </span><CopyString class="text-orange-500" :content="createdApplicationToken"/></p>
 
     <p class="text-xs">Your token will never be visible again!</p>
 
