@@ -19,7 +19,7 @@
   <div class="m-10">
     <h1 class="text-4xl">My Applications</h1>
 
-    <h2 class="mt-10">Create New Application</h2>
+    <h2 class="mt-10 text-lg">Create New Application</h2>
     <div class="pt-2 w-96">
         <label class="input input-bordered input-ghost flex items-center bg-base-200">
           <input type="text" class="grow bg-inherit" placeholder="Application Name" v-model="newApplicationName" @keydown.enter="createApplication(newApplicationName)"/>
@@ -76,8 +76,8 @@ async function resetApplicationField() {
   newApplicationName.value = ""
   if (applicationSubmitError.value.length >= 1) {
     setTimeout(() => {
-    applicationSubmitError.value = ""
-  }, 7000)
+      applicationSubmitError.value = ""
+    }, 7000)
   }
 }
 
