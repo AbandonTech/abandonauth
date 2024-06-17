@@ -6,8 +6,8 @@
       <p class="text-lg"><span>Application ID: </span><span>{{ application?.id }}</span></p>
       <p class="text-lg mt-4">Permanently Delete Application <span class="text-orange-500">{{ application?.name }}</span>?</p>
       <div class="flex flex-row w-full gap-10 mt-4">
-        <button class="btn btn-warning w-28" @click="deleteDeveloperApplication">Yes</button>
-        <button class="btn btn-error w-28" @click="closeDeleteAppModal">No</button>
+        <button class="btn btn-error w-28" @click="deleteDeveloperApplication">Delete</button>
+        <button class="btn btn-neutral w-28" @click="closeDeleteAppModal">Cancel</button>
       </div>
     </div>
   </dialog>
@@ -19,8 +19,8 @@
       <p class="text-lg"><span>Application ID: </span><span>{{ application?.id }}</span></p>
       <p class="text-lg mt-4">Destroy And Reset Existing Token For Application <span class="text-orange-500">{{ application?.name }}</span>?</p>
       <div class="flex flex-row w-full gap-10 mt-4">
-        <button class="btn btn-warning w-28" @click="resetDeveloperApplicationToken">Yes</button>
-        <button class="btn btn-error w-28" @click="closeResetTokenAppModal">No</button>
+        <button class="btn btn-error w-28" @click="resetDeveloperApplicationToken">Reset</button>
+        <button class="btn btn-neutral w-28" @click="closeResetTokenAppModal">Cancel</button>
       </div>
     </div>
   </dialog>
