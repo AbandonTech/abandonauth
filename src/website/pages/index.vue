@@ -2,8 +2,8 @@
   <div class="m-10">
     <div class="card w-96 bg-base-300 shadow-xl">
       <div class="card-body">
-        <h2 class="card-title">{{ user.username }}</h2>
-        <CopyString :content="user.id" />
+        <h2 class="card-title">{{ user?.username ?? "Failed To Fetch User" }}</h2>
+        <CopyString :content="user?.id" />
       </div>
     </div>
   </div>

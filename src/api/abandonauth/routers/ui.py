@@ -353,8 +353,8 @@ async def oauth_login(
             detail="Invalid application ID or callback_uri",
         )
 
-    discord_login_url = f"{settings.ABANDON_AUTH_DISCORD_REDIRECT}&state={dev_app.id},{callback_uri}"
-    github_login_url = f"{settings.ABANDON_AUTH_GITHUB_REDIRECT}&state={dev_app.id},{callback_uri}"
+    discord_login_url = f"{settings.DISCORD_REDIRECT}&state={dev_app.id},{callback_uri}"
+    github_login_url = f"{settings.GITHUB_REDIRECT}&state={dev_app.id},{callback_uri}"
 
     return jinja_templates.TemplateResponse(
         "login.html",
