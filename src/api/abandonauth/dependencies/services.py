@@ -8,8 +8,6 @@ from abandonauth.dependencies.auth.jwt import (
 )
 from abandonauth.models.auth import JwtClaimsDataDto, JwtDto, ScopeEnum
 
-BASE_URL = "http://localhost"
-
 
 async def identify_user(user_id: str) -> User:
     """Get the user with the given ID or raise an HTTP 404."""
