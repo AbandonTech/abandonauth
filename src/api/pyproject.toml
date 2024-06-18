@@ -1,0 +1,68 @@
+[tool.poetry]
+name = "abandonauth"
+version = "0.0.1"
+description = ""
+authors = [
+    "GDWR <gdwr@abandontech.cloud>",
+    "Fisher60 <kyler@abandontech.cloud>",
+]
+
+[tool.pyright]
+reportMissingParameterType = true
+reportMissingTypeArgument = true
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+fastapi = "^0.111.0"
+httpx = "^0.27.0"
+uvicorn = "^0.30.1"
+prisma = "^0.13.1"
+pydantic = {extras = ["dotenv"], version = "^2.7.3"}
+pydantic-settings = "^2.3.2"
+python-jose = "^3.3.0"
+python-multipart = "^0.0.9"
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.4.8"
+pre-commit = "^3.7.1"
+pyright = "^1.1.366"
+
+[tool.ruff]
+target-version = "py311"
+extend-exclude = ["constants.py", ".cache", "tests"]
+line-length = 120
+unsafe-fixes = true
+preview = true
+output-format = "concise"
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "ANN002", "ANN003", "ANN101", "ANN102", "ANN401",
+    "B008",
+    "C901",
+    "COM812",
+    "CPY001",
+    "D100", "D104", "D105", "D107", "D203", "D212", "D214", "D215", "D416",
+]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.isort]
+order-by-type = false
+case-sensitive = true
+combine-as-imports = true
+known-third-party = ["prisma"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F401"]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+dev = "abandonauth.__main__:main"

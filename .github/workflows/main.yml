@@ -8,8 +8,16 @@ jobs:
   linting:
     uses: ./.github/workflows/linting.yml
 
-  build:
-    uses: ./.github/workflows/build.yml
+  build_api:
+    uses: ./.github/workflows/build_api.yml
+    needs:
+      - linting
+    with:
+      latest: true
+      push: true
+
+  build_frontend:
+    uses: ./.github/workflows/build_frontend.yml
     needs:
       - linting
     with:
