@@ -21,6 +21,7 @@ repos:
         language: system
         require_serial: true
         pass_filenames: false
+        files: '^src/api/'
 
       - id: ruff
         name: Api    | Run Ruff via Poetry
@@ -28,18 +29,21 @@ repos:
         language: system
         require_serial: true
         pass_filenames: false
+        files: '^src/api/'
 
       - id: prisma format
         name: Api    | Run Prisma Format via Poetry
         entry: poetry -C src/api run prisma format --schema=src/api/prisma/schema.prisma
         language: system
         require_serial: true
+        files: '^src/api/'
 
       - id: prisma generate
         name: Api    | Run Prisma Generate via Poetry
         entry: poetry -C src/api run prisma generate --schema=src/api/prisma/schema.prisma
         language: system
         require_serial: true
+        files: '^src/api/'
 
       - id: pyright
         name: Api    | Run Pyright via Poetry
@@ -47,3 +51,4 @@ repos:
         language: system
         types: [python]
         require_serial: true
+        files: '^src/api/'
