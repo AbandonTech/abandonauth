@@ -16,7 +16,7 @@ repos:
   - repo: local
     hooks:
       - id: poetry
-        name: Api    | Install Poetry
+        name: Api    | Installing Project Dependencies via Poetry
         entry: poetry -C src/api install --no-root
         language: system
         require_serial: true
