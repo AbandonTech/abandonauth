@@ -2,8 +2,8 @@ version: 2
 
 updates:
   - package-ecosystem: "pip"
-    directory: "/"
+    directory: "/src/api"
     schedule:
-      interval: "daily"
+      interval: "weekly"
     labels:
       - "dependencies"
