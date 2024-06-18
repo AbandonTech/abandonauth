@@ -2,11 +2,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from prisma.models import DeveloperApplication
-from starlette.status import (
-    HTTP_200_OK,
-    HTTP_400_BAD_REQUEST,
-    HTTP_403_FORBIDDEN
-)
+from starlette.status import HTTP_200_OK, HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN
 
 from abandonauth.models import DiscordLoginDto
 from abandonauth.routers.discord import login_with_discord

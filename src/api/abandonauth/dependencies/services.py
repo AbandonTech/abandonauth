@@ -8,7 +8,6 @@ from abandonauth.dependencies.auth.jwt import (
 )
 from abandonauth.models.auth import JwtClaimsDataDto, JwtDto, ScopeEnum
 
-
 BASE_URL = "http://localhost"
 
 
