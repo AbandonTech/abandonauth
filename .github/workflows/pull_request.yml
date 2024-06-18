@@ -19,5 +19,5 @@ jobs:
 
   build_frontend:
     uses: ./.github/workflows/build_frontend.yml
-      needs:
-        - linting
+    needs:
+      - linting
