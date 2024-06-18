@@ -1,4 +1,4 @@
-name: Build
+name: Build Api
 
 on:
   workflow_call:
@@ -42,9 +42,9 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: src/api
           file: ./Dockerfile
           push: ${{ inputs.push }}
           tags: |
-            ghcr.io/abandontech/abandonauth:${{ steps.sha_tag.outputs.tag }}
-            ${{ inputs.latest && 'ghcr.io/abandontech/abandonauth:latest' || '' }}
+            ghcr.io/abandontech/abandonauth-api:${{ steps.sha_tag.outputs.tag }}
+            ${{ inputs.latest && 'ghcr.io/abandontech/abandonauth-api:latest' || '' }}

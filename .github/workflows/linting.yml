@@ -14,12 +14,15 @@ jobs:
       - name: Install Python Dependencies
         uses: HassanAbouelela/actions/setup-python@setup-python_v1.5.0
         with:
+          working_dir: src/api
           python_version: "3.11"
           install_args: "--with=dev"
 
       - name: Run pre-commit hooks
+        working-directory: src/api
         run: SKIP=ruff-lint pre-commit run --all-files
 
       # Run `ruff` using github formatting to enable automatic inline annotations.
       - name: Run ruff
+        working-directory: src/api
         run: "ruff check --output-format=github ."
