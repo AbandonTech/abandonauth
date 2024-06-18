@@ -2,9 +2,9 @@
 
 Authentic Auth Service... Provides identification of a user from multiple external services.
 
-Currently supported;
-- Discord
-
+Currently supported:
+    - Discord
+    - GitHub
 
 # Using AbandonAuth
 
