@@ -1,51 +1,15 @@
-from http import HTTPStatus
-
-import httpx
-from fastapi import HTTPException, Request
+from fastapi import HTTPException
 from prisma.models import User
-from starlette.status import HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
+from starlette.status import HTTP_404_NOT_FOUND
 
 from abandonauth.dependencies.auth.jwt import (
     decode_jwt,
     generate_long_lived_jwt,
 )
 from abandonauth.models.auth import JwtClaimsDataDto, JwtDto, ScopeEnum
-from abandonauth.models.user import UserAuthInfo
-from abandonauth.settings import settings
+
 
 BASE_URL = "http://localhost"
-
-
-async def user_info_from_me_response(request: Request) -> UserAuthInfo | None:
-    """Return the user's info auth info."""
-    if token := request.cookies.get("Authorization"):
-        async with httpx.AsyncClient() as client:
-            headers = {"Authorization": f"Bearer {token}"}
-            me_response = await client.get(f"{BASE_URL}/me", headers=headers)
-
-        me_response_data = me_response.json()
-
-        if me_response.status_code == HTTPStatus.OK:
-            user_uuid = me_response_data.get("id")
-            username = me_response_data.get("username")
-        else:
-            raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail="User ID and/or username was missing")
-
-        if None in {user_uuid, username}:
-            raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail="User ID and/or username was missing")
-
-        return UserAuthInfo(
-            id=user_uuid,
-            username=username,
-            token=token,
-        )
-    return None
-
-
-def build_abandon_auth_redirect_url() -> str:
-    """Return the redirect URL to be used for auth."""
-    callback_uri = "/ui"
-    return f"/ui/login?application_id={settings.ABANDON_AUTH_DEVELOPER_APP_ID}&callback_uri={callback_uri}"
 
 
 async def identify_user(user_id: str) -> User:

@@ -3,7 +3,6 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from abandonauth.database import prisma_db
 from abandonauth.routers import routers
@@ -29,8 +28,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-app.mount("/static", StaticFiles(directory="./abandonauth/static"), name="static")
 
 for router in routers:
     app.include_router(router)
