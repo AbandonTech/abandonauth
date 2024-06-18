@@ -15,21 +15,16 @@ services:
     volumes:  # mount the source code as a volume, so we can use hot reloading
       - "./src/api/abandonauth:/app/abandonauth:ro"
       - "./prisma:/app/prisma:ro"
-  
+
   website:
     build:
       context: ./src/website
       dockerfile: Dockerfile
       args:
-        - ABANDON_AUTH_URL=${ABANDON_AUTH_URL}
-        - ABANDON_AUTH_DEVELOPER_APP_ID=${ABANDON_AUTH_DEVELOPER_APP_ID}
-        - GITHUB_REDIRECT=${GITHUB_REDIRECT}
-        - DISCORD_REDIRECT${DISCORD_REDIRECT}
-    environment:
-      - ABANDON_AUTH_URL=${ABANDON_AUTH_URL}
-      - ABANDON_AUTH_DEVELOPER_APP_ID=${ABANDON_AUTH_DEVELOPER_APP_ID}
-      - GITHUB_REDIRECT=${GITHUB_REDIRECT}
-      - DISCORD_REDIRECT${DISCORD_REDIRECT}
+        ABANDON_AUTH_URL: ${ABANDON_AUTH_URL}
+        ABANDON_AUTH_DEVELOPER_APP_ID: ${ABANDON_AUTH_DEVELOPER_APP_ID}
+        GITHUB_REDIRECT: ${GITHUB_REDIRECT}
+        DISCORD_REDIRECT: ${DISCORD_REDIRECT}
     ports:
         - "3000:3000"
 
