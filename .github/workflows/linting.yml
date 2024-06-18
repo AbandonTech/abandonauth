@@ -20,7 +20,7 @@ jobs:
 
       - name: Run pre-commit hooks
         working-directory: src/api
-        run: SKIP=ruff-lint pre-commit run --all-files
+        run: SKIP=ruff-lint pre-commit run --files src/api
 
       # Run `ruff` using github formatting to enable automatic inline annotations.
       - name: Run ruff
