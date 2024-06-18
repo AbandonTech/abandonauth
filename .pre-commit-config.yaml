@@ -1,0 +1,49 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-yaml
+        name: Global | Check Yaml
+      - id: check-toml
+        name: Global | Check Toml
+      - id: end-of-file-fixer
+        name: Global | End of File Fixer
+      - id: trailing-whitespace
+        name: Global | Trailing Whitespace
+      - id: check-added-large-files
+        name: Global | Check Added Large Files
+
+  - repo: local
+    hooks:
+      - id: poetry
+        name: Api    | Installing Project Dependencies via Poetry
+        entry: poetry -C src/api install --no-root
+        language: system
+        require_serial: true
+        pass_filenames: false
+
+      - id: ruff
+        name: Api    | Run Ruff via Poetry
+        entry: poetry -C src/api run ruff check --fix --exit-non-zero-on-fix
+        language: system
+        require_serial: true
+        pass_filenames: false
+
+      - id: prisma format
+        name: Api    | Run Prisma Format via Poetry
+        entry: poetry -C src/api run prisma format --schema=src/api/prisma/schema.prisma
+        language: system
+        require_serial: true
+
+      - id: prisma generate
+        name: Api    | Run Prisma Generate via Poetry
+        entry: poetry -C src/api run prisma generate --schema=src/api/prisma/schema.prisma
+        language: system
+        require_serial: true
+
+      - id: pyright
+        name: Api    | Run Pyright via Poetry
+        entry: poetry -C src/api run pyright
+        language: system
+        types: [python]
+        require_serial: true
