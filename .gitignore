@@ -5,6 +5,3 @@
 
 __pycache__/
 
-# Nix + Direnv
-.direnv
-result
