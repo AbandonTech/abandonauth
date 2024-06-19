@@ -16,7 +16,7 @@ router = APIRouter(prefix="/ui")
 BASE_URL = "http://localhost"
 
 
-COOKIE_DOMAIN_URL = "." + urlparse(settings.ABANDON_AUTH_SITE_URL).netloc
+COOKIE_DOMAIN_URL = "." + ".".join(urlparse(settings.ABANDON_AUTH_SITE_URL).netloc.split(".")[-2:])
 
 
 @router.get("/", include_in_schema=False)
