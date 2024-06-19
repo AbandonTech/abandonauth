@@ -1,3 +1,5 @@
+from urllib.parse import urlparse
+
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -12,6 +14,9 @@ from abandonauth.settings import settings
 router = APIRouter(prefix="/ui")
 
 BASE_URL = "http://localhost"
+
+
+COOKIE_DOMAIN_URL = "." + urlparse(settings.ABANDON_AUTH_SITE_URL).netloc
 
 
 @router.get("/", include_in_schema=False)
@@ -47,12 +52,19 @@ async def index(request: Request, code: str | None = None) -> RedirectResponse:
     if authenticated is False:
         return resp
 
-    resp.set_cookie(
-        key="Authorization",
-        value=token,  # pyright: ignore [reportArgumentType]
-        domain=settings.ABANDON_AUTH_SITE_URL,
-        httponly=True
-    )
+    if settings.DEBUG:
+        resp.set_cookie(
+            key="Authorization",
+            value=token,  # pyright: ignore [reportArgumentType]
+        )
+    else:
+        resp.set_cookie(
+            key="Authorization",
+            value=token,  # pyright: ignore [reportArgumentType]
+            domain=COOKIE_DOMAIN_URL,
+            httponly=True,
+            secure=True
+        )
 
     return resp
 
