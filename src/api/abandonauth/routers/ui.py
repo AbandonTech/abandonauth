@@ -47,7 +47,12 @@ async def index(request: Request, code: str | None = None) -> RedirectResponse:
     if authenticated is False:
         return resp
 
-    resp.set_cookie(key="Authorization", value=token)  # pyright: ignore [reportArgumentType]
+    resp.set_cookie(
+        key="Authorization",
+        value=token,  # pyright: ignore [reportArgumentType]
+        domain=settings.ABANDON_AUTH_SITE_URL,
+        httponly=True
+    )
 
     return resp
 
