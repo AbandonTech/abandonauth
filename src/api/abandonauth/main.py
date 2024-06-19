@@ -14,6 +14,7 @@ with Path("../pyproject.toml").open("rb") as f:
 app = FastAPI(
     title="AbandonAuth",
     version=pyproject["tool"]["poetry"]["version"],
+    root_path="/api"
 )
 
 allowed_origins = [settings.ABANDON_AUTH_SITE_URL]
