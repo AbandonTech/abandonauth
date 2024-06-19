@@ -43,5 +43,5 @@ async def login_test_user(user_data: PasswordLoginDto, res: Response) -> JwtDto:
         )
 
     access_token = generate_long_lived_jwt(str(password_account.user_id), settings.ABANDON_AUTH_DEVELOPER_APP_ID)
-    res.set_cookie("Authorization", access_token, secure=True, httponly=True)
+    res.set_cookie("Authorization", access_token, domain=settings.ABANDON_AUTH_SITE_URL, secure=True, httponly=True)
     return JwtDto(token=access_token)
