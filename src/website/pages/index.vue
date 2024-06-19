@@ -13,10 +13,9 @@
 <script setup lang="ts">
 import type { UserDto } from '~/types/userDto';
 
-const config = useRuntimeConfig()
 const auth = useCookie("Authorization");
 
-const { data: user } = await useFetch<UserDto>(`${config.public.abandonAuthUrl}/me`, {
+const { data: user } = await useFetch<UserDto>('/api/me', {
   lazy: true,
   headers: {
     Authorization: `Bearer ${auth.value}`

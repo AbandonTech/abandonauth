@@ -20,7 +20,7 @@
 
           <ul class='pt-4 mt-4 space-y-2 border-t-2 border-primary/20'>
             <li class="px-7">
-              <NavLinkButton title="Documentation" :href="abandonAuthUrl + '/docs'" :linkIcon="faBookOpen" target="_blank" />
+              <NavLinkButton title="Documentation" href="/api/docs" :linkIcon="faBookOpen" target="_blank" />
             </li>
           </ul>
 
@@ -49,10 +49,8 @@
   const router = useRouter()
   const authCookie = useCookie("Authorization")
 
-  const { abandonAuthUrl, loginPath } = config.public;
-
   async function handleLogout() {
     authCookie.value = null
-    await router.push(loginPath)
+    await router.push(config.public.loginPath)
   }
   </script>

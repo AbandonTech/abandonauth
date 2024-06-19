@@ -81,7 +81,6 @@
 import type { CreateDeveloperApplicationDto, DeveloperApplicationDto, DeveloperApplicationUpdateCallbackDto } from '~/types/developerApplicationDto';
 import { faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
 
-const config = useRuntimeConfig()
 const auth = useCookie("Authorization");
 const route = useRoute()
 const router = useRouter()
@@ -94,7 +93,7 @@ const showNewTokenModal = ref(false)
 
 const application_id = route.params.id
 
-const { data: application, refresh } = await useFetch<DeveloperApplicationDto>(`${config.public.abandonAuthUrl}/developer_application/${application_id}`, {
+const { data: application, refresh } = await useFetch<DeveloperApplicationDto>(`/api/developer_application/${application_id}`, {
   lazy: true,
   headers: {
     Authorization: `Bearer ${auth.value}`
@@ -111,7 +110,7 @@ async function resetCallbackUriField() {
 
 async function submitNewCallbackUris(newUris: string[]) {
   if (application.value?.callback_uris !== undefined){
-    await $fetch<DeveloperApplicationUpdateCallbackDto>(`${config.public.abandonAuthUrl}/developer_application/${application_id}/callback_uris`, {
+    await $fetch<DeveloperApplicationUpdateCallbackDto>(`/api/developer_application/${application_id}/callback_uris`, {
       method: "patch",
       headers: {
         Authorization: `Bearer ${auth.value}`
@@ -143,7 +142,7 @@ async function closeNewTokenModal() {
 }
 
 async function resetDeveloperApplicationToken() {
-  let resp = await $fetch<CreateDeveloperApplicationDto>(`${config.public.abandonAuthUrl}/developer_application/${application_id}/reset_token`, {
+  let resp = await $fetch<CreateDeveloperApplicationDto>(`/api/developer_application/${application_id}/reset_token`, {
       method: "patch",
       headers: {
         Authorization: `Bearer ${auth.value}`
@@ -163,7 +162,7 @@ async function resetDeveloperApplicationToken() {
 }
 
 async function deleteDeveloperApplication() {
-  await $fetch<DeveloperApplicationUpdateCallbackDto>(`${config.public.abandonAuthUrl}/developer_application/${application_id}`, {
+  await $fetch<DeveloperApplicationUpdateCallbackDto>(`/api/developer_application/${application_id}`, {
       method: "DELETE",
       headers: {
         Authorization: `Bearer ${auth.value}`
