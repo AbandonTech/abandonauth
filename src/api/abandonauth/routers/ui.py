@@ -62,7 +62,6 @@ async def index(request: Request, code: str | None = None) -> RedirectResponse:
             key="Authorization",
             value=token,  # pyright: ignore [reportArgumentType]
             domain=COOKIE_DOMAIN_URL,
-            httponly=True,
             secure=True
         )
 
