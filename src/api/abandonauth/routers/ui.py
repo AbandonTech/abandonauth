@@ -13,7 +13,7 @@ from abandonauth.settings import settings
 
 router = APIRouter(prefix="/ui")
 
-BASE_URL = "http://localhost"
+BASE_URL = "http://localhost:8000"
 
 
 COOKIE_DOMAIN_URL = "." + ".".join(urlparse(settings.ABANDON_AUTH_SITE_URL).netloc.split(".")[-2:])
