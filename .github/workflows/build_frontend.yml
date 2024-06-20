@@ -43,7 +43,7 @@ jobs:
         with:
           context: src/website
           build-args: |
-            ABANDON_AUTH_URL=https://auth.abandontech.cloud/api
+            ABANDON_AUTH_URL=https://auth.abandontech.cloud
             ABANDON_AUTH_DEVELOPER_APP_ID=cd022be1-35af-4248-8d70-4205ed1c20c6
             GITHUB_REDIRECT=https://github.com/login/oauth/authorize?client_id=e2e4eac6e97af84d9f69&redirect_uri=https://auth.abandontech.cloud/api/ui/github-callback&scope=user:email
             DISCORD_REDIRECT=https://discord.com/api/oauth2/authorize?client_id=1002962140640067725&redirect_uri=https%3A%2F%2Fauth.abandontech.cloud%2F/api%2Fui%2Fdiscord-callback&response_type=code&scope=identify
