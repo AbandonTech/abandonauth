@@ -1,6 +1,7 @@
 services:
 
   abandonauth:
+    network_mode: "host"
     build:
       context: src/api
       dockerfile: Dockerfile
@@ -10,13 +11,12 @@ services:
       - ".env"
     depends_on:
       - database
-    ports:
-      - "8000:80"
     volumes:  # mount the source code as a volume, so we can use hot reloading
       - "./src/api/abandonauth:/app/abandonauth:ro"
       - "./prisma:/app/prisma:ro"
 
   website:
+    network_mode: "host"
     build:
       context: ./src/website
       dockerfile: Dockerfile
@@ -25,11 +25,10 @@ services:
         ABANDON_AUTH_DEVELOPER_APP_ID: ${ABANDON_AUTH_DEVELOPER_APP_ID}
         GITHUB_REDIRECT: ${GITHUB_REDIRECT}
         DISCORD_REDIRECT: ${DISCORD_REDIRECT}
-    ports:
-        - "3000:3000"
 
   database:
     image: "postgres:${POSTGRES_VERSION:-15-alpine}"
+    network_mode: "host"
     volumes:
       - postgres_data:/var/lib/postgresql/data/
     healthcheck:
@@ -37,8 +36,6 @@ services:
       interval: 2s
       timeout: 1s
       retries: 5
-    ports:
-      - "127.0.0.1:5432:5432"
     environment:
       - "POSTGRES_HOST=${POSTGRES_HOST}"
       - "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}"

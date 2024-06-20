@@ -16,9 +16,6 @@ CREATE TABLE "TestUser" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "CallbackUri_developer_application_id_uri_key" ON "CallbackUri"("developer_application_id", "uri");
-
--- CreateIndex
 CREATE UNIQUE INDEX "User_id_username_key" ON "User"("id", "username");
 
 -- AddForeignKey

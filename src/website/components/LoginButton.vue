@@ -10,10 +10,6 @@
 </template>
 
 <script setup lang="ts">
-const config = useRuntimeConfig();
-
-const loginCallbackUri = `${config.public.abandonAuthUrl}/ui`
-
 defineProps<{
     title: string,
     redirectUrl: string,

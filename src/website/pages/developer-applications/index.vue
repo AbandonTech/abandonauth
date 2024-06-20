@@ -52,7 +52,6 @@
 import { faPlus } from '@fortawesome/free-solid-svg-icons'
 import type { CreateDeveloperApplicationDto, DeveloperApplicationDto } from '~/types/developerApplicationDto';
 
-const config = useRuntimeConfig()
 const auth = useCookie("Authorization");
 
 const spinAddButton = ref(false)
@@ -63,7 +62,7 @@ const createdApplicationId = ref("")
 const createdApplicationName = ref("")
 const createdApplicationToken = ref("")
 
-const { data: applications, refresh } = await useFetch<DeveloperApplicationDto[]>(`${config.public.abandonAuthUrl}/user/applications`, {
+const { data: applications, refresh } = await useFetch<DeveloperApplicationDto[]>('/api/user/applications', {
   lazy: true,
   headers: {
     Authorization: `Bearer ${auth.value}`
@@ -97,7 +96,7 @@ async function createApplication(name: string) {
     return resetApplicationField()
   }
 
-  const resp = await $fetch<CreateDeveloperApplicationDto>(`${config.public.abandonAuthUrl}/developer_application`, {
+  const resp = await $fetch<CreateDeveloperApplicationDto>('/api/developer_application', {
     method: 'POST',
     body: { name: name },
     headers: {
