@@ -1,4 +1,3 @@
-from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
@@ -14,7 +13,6 @@ from abandonauth.settings import settings
 router = APIRouter(prefix="/ui")
 
 BASE_URL = settings.ABANDON_AUTH_URL
-
 
 
 @router.get("/", include_in_schema=False)
