@@ -13,10 +13,8 @@ from abandonauth.settings import settings
 
 router = APIRouter(prefix="/ui")
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = settings.ABANDON_AUTH_URL
 
-
-COOKIE_DOMAIN_URL = "." + ".".join(urlparse(settings.ABANDON_AUTH_SITE_URL).netloc.split(".")[-2:])
 
 
 @router.get("/", include_in_schema=False)
@@ -61,7 +59,7 @@ async def index(request: Request, code: str | None = None) -> RedirectResponse:
         resp.set_cookie(
             key="Authorization",
             value=token,  # pyright: ignore [reportArgumentType]
-            domain=COOKIE_DOMAIN_URL,
+            httponly=True,
             secure=True
         )
 
