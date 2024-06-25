@@ -57,7 +57,6 @@ async def index(request: Request, code: str | None = None) -> RedirectResponse:
         resp.set_cookie(
             key="Authorization",
             value=token,  # pyright: ignore [reportArgumentType]
-            httponly=True,
             secure=True
         )
 
