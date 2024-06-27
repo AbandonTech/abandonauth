@@ -27,7 +27,7 @@ passlib = {extras = ["bcrypt"], version = "^1.7.4"}
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.4.10"
 pre-commit = "^3.7.1"
-pyright = "^1.1.366"
+pyright = "^1.1.369"
 
 [tool.ruff]
 target-version = "py311"
