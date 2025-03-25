@@ -8,8 +8,9 @@ RUN wget --https-only "https://go.dev/dl/go${GOLANG_VERSION}.linux-amd64.tar.gz"
     sha256sum /tmp/golang.tar.gz | grep "${GOLANG_CHECKSUM}" && \
     tar -C /usr/local -xf /tmp/golang.tar.gz && \
     rm /tmp/golang.tar.gz
-ENV PATH="${PATH}:/usr/local/go/bin"
-ENV GOPATH="/usr/local/go"
+ENV GOROOT="/usr/local/go"
+ENV GOPATH="/home/vscode/go"
+ENV PATH="${PATH}:${GOROOT}/bin:${GOPATH}/bin"
 
 # Install golang tooling
 RUN go install github.com/pressly/goose/v3/cmd/goose@latest && \
