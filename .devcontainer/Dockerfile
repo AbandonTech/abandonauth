@@ -9,6 +9,12 @@ RUN wget --https-only "https://go.dev/dl/go${GOLANG_VERSION}.linux-amd64.tar.gz"
     tar -C /usr/local -xf /tmp/golang.tar.gz && \
     rm /tmp/golang.tar.gz
 ENV PATH="${PATH}:/usr/local/go/bin"
+ENV GOPATH="/usr/local/go"
+
+# Install golang tooling
+RUN go install github.com/pressly/goose/v3/cmd/goose@latest && \
+    go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest && \
+    go install -v github.com/go-delve/delve/cmd/dlv@latest
 
 # Install node
 # https://nodejs.org/en/download/prebuilt-binaries
@@ -21,10 +27,3 @@ RUN wget --https-only "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VER
     corepack enable && \
     corepack install --global pnpm@9.8.0
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
-
-
-USER vscode
-RUN go install github.com/pressly/goose/v3/cmd/goose@latest && \
-    go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest && \
-    go install -v github.com/go-delve/delve/cmd/dlv@latest
-USER root
