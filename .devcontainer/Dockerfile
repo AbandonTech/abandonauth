@@ -25,5 +25,6 @@ ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 
 USER vscode
 RUN go install github.com/pressly/goose/v3/cmd/goose@latest && \
-    go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+    go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest && \
+    go install -v github.com/go-delve/delve/cmd/dlv@latest
 USER root
