@@ -14,7 +14,8 @@ ENV GOPATH="/usr/local/go"
 # Install golang tooling
 RUN go install github.com/pressly/goose/v3/cmd/goose@latest && \
     go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest && \
-    go install -v github.com/go-delve/delve/cmd/dlv@latest
+    go install github.com/go-delve/delve/cmd/dlv@latest && \
+    go install golang.org/x/tools/gopls@latest
 
 # Install node
 # https://nodejs.org/en/download/prebuilt-binaries
