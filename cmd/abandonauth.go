@@ -28,7 +28,7 @@ func main() {
 			},
 			&cli.UintFlag{
 				Name:        "port",
-				Value:       8080,
+				Value:       8000,
 				Usage:       "bind listener socket to this port",
 				Destination: &port,
 			},
