@@ -1,24 +1,8 @@
 services:
-
-  abandonauth:
-    network_mode: "host"
-    build:
-      context: src/api
-      dockerfile: Dockerfile
-      args: # Enables hot reloading
-        - uvicorn_extras=--reload
-    env_file:
-      - ".env"
-    depends_on:
-      - database
-    volumes:  # mount the source code as a volume, so we can use hot reloading
-      - "./src/api/abandonauth:/app/abandonauth:ro"
-      - "./prisma:/app/prisma:ro"
-
   website:
     network_mode: "host"
     build:
-      context: ./src/website
+      context: ./ui
       dockerfile: Dockerfile
       args:
         ABANDON_AUTH_URL: ${ABANDON_AUTH_URL}
