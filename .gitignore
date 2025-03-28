@@ -4,3 +4,8 @@
 
 abandonauth
 __debug_bin*
+
+# sqlc
+/internal/database/db.go
+/internal/database/models.go
+/internal/database/*.sql.go
