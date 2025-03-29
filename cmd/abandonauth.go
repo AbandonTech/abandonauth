@@ -1,9 +1,9 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
+	"github.com/abandontech/abandonauth/internal/config"
 	"github.com/abandontech/abandonauth/internal/database"
 	"github.com/abandontech/abandonauth/internal/http"
 	"github.com/rs/zerolog"
@@ -12,11 +12,10 @@ import (
 )
 
 func main() {
-	var host string
-	var port uint
-
-	var dbHost, dbUser, dbPassword, dbName string
-	var dbPort uint
+	// Note: we can make this be populated from a file, overwriten by arguments.
+	//    as we have alot of configuration, for oauth services, it may make configruation
+	//    more managable for an abandonauth admin.
+	var config config.Config
 
 	app := &cli.App{
 		Name:                 "abandonauth",
@@ -26,40 +25,64 @@ func main() {
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:        "host",
-				Value:       "0.0.0.0",
+				Value:       "0.0.0.0:8000",
 				Usage:       "bind listener socket to this host",
-				Destination: &host,
-			},
-			&cli.UintFlag{
-				Name:        "port",
-				Value:       8000,
-				Usage:       "bind listener socket to this port",
-				Destination: &port,
+				Destination: &config.Server.Host,
 			},
 			&cli.StringFlag{
 				Name:        "dbHost",
 				Value:       "127.0.0.1",
-				Destination: &dbHost,
+				Destination: &config.Database.Host,
 			},
 			&cli.UintFlag{
 				Name:        "dbPort",
 				Value:       uint(5432),
-				Destination: &dbPort,
+				Destination: &config.Database.Port,
 			},
 			&cli.StringFlag{
 				Name:        "dbUser",
 				Value:       "postgres",
-				Destination: &dbUser,
+				Destination: &config.Database.User,
 			},
 			&cli.StringFlag{
 				Name:        "dbPassword",
 				Value:       "postgres",
-				Destination: &dbPassword,
+				Destination: &config.Database.Password,
 			},
 			&cli.StringFlag{
 				Name:        "dbName",
 				Value:       "postgres",
-				Destination: &dbName,
+				Destination: &config.Database.Database,
+			},
+			&cli.StringFlag{
+				Name:        "gitHubClientID",
+				Destination: &config.GitHub.ClientID,
+				EnvVars:     []string{"GITHUB_CLIENT_ID"},
+			},
+			&cli.StringFlag{
+				Name:        "gitHubClientSecret",
+				Destination: &config.GitHub.ClientSecret,
+				EnvVars:     []string{"GITHUB_CLIENT_SECRET"},
+			},
+			&cli.StringFlag{
+				Name:        "gitHubClientRedirectURL",
+				Destination: &config.GitHub.RedirectURL,
+				EnvVars:     []string{"GITHUB_REDIRECT_URL"},
+			},
+			&cli.StringFlag{
+				Name:        "discordClientID",
+				Destination: &config.Discord.ClientID,
+				EnvVars:     []string{"DISCORD_CLIENT_ID"},
+			},
+			&cli.StringFlag{
+				Name:        "discordClientSecret",
+				Destination: &config.Discord.ClientSecret,
+				EnvVars:     []string{"DISCORD_CLIENT_SECRET"},
+			},
+			&cli.StringFlag{
+				Name:        "discordClientRedirectURL",
+				Destination: &config.Discord.RedirectURL,
+				EnvVars:     []string{"DISCORD_REDIRECT_URL"},
 			},
 			&cli.BoolFlag{
 				Name:    "verbose",
@@ -93,15 +116,8 @@ func main() {
 			return nil
 		},
 		Action: func(ctx *cli.Context) error {
-			database.InitializeDatabase(dbHost, dbPort, dbUser, dbPassword, dbName)
-
-			hostAddress := fmt.Sprintf("%s:%d", host, port)
-			log.Info().
-				Str("address", hostAddress).
-				Msg("Server starting")
-
-			server := http.NewServer(hostAddress)
-			return server.ListenAndServe()
+			database.InitializeDatabase(config.Database)
+			return http.NewServer(config).ListenAndServe()
 		},
 	}
 

@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"fmt"
 
+	"github.com/abandontech/abandonauth/internal/config"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
@@ -24,17 +25,17 @@ func createConnString(host string, port uint, user, password, dbName string) str
 	)
 }
 
-func InitializeDatabase(host string, port uint, user, password, dbName string) {
+func InitializeDatabase(conf config.Database) {
 	log.Info().
-		Str("host", host).
-		Uint("port", port).
-		Str("user", user).
-		Str("dbname", dbName).
+		Str("host", conf.Host).
+		Uint("port", conf.Port).
+		Str("user", conf.User).
+		Str("dbname", conf.Database).
 		Msg("Opening database connection")
 
 	ctx := context.Background()
 
-	pool, err := pgxpool.New(ctx, createConnString(host, port, user, password, dbName))
+	pool, err := pgxpool.New(ctx, createConnString(conf.Host, conf.Port, conf.User, conf.Password, conf.Database))
 	if err != nil {
 		log.Fatal().
 			Err(err).
