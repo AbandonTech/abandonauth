@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/abandontech/abandonauth/internal/database"
 	"github.com/abandontech/abandonauth/internal/http"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -13,6 +14,9 @@ import (
 func main() {
 	var host string
 	var port uint
+
+	var dbHost, dbUser, dbPassword, dbName string
+	var dbPort uint
 
 	app := &cli.App{
 		Name:                 "abandonauth",
@@ -31,6 +35,31 @@ func main() {
 				Value:       8000,
 				Usage:       "bind listener socket to this port",
 				Destination: &port,
+			},
+			&cli.StringFlag{
+				Name:        "dbHost",
+				Value:       "127.0.0.1",
+				Destination: &dbHost,
+			},
+			&cli.UintFlag{
+				Name:        "dbPort",
+				Value:       uint(5432),
+				Destination: &dbPort,
+			},
+			&cli.StringFlag{
+				Name:        "dbUser",
+				Value:       "postgres",
+				Destination: &dbUser,
+			},
+			&cli.StringFlag{
+				Name:        "dbPassword",
+				Value:       "postgres",
+				Destination: &dbPassword,
+			},
+			&cli.StringFlag{
+				Name:        "dbName",
+				Value:       "postgres",
+				Destination: &dbName,
 			},
 			&cli.BoolFlag{
 				Name:    "verbose",
@@ -64,6 +93,8 @@ func main() {
 			return nil
 		},
 		Action: func(ctx *cli.Context) error {
+			database.InitializeDatabase(dbHost, dbPort, dbUser, dbPassword, dbName)
+
 			hostAddress := fmt.Sprintf("%s:%d", host, port)
 			log.Info().
 				Str("address", hostAddress).
