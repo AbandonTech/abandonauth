@@ -1,11 +1,15 @@
 package ui
 
 import (
+	"encoding/json"
 	"math"
 	"net/http"
+	"time"
 
 	"github.com/abandontech/abandonauth/internal/config"
 	"github.com/abandontech/abandonauth/internal/database"
+	"github.com/abandontech/abandonauth/internal/services"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/go-github/v70/github"
 	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog/log"
@@ -17,11 +21,13 @@ type UiRouter struct {
 
 	discordConf oauth2.Config
 	gitHubConf  oauth2.Config
+	jwtService  services.JwtService
 }
 
-func NewUiRouter(discordConf config.DiscordOAuth, githubConf config.GitHubOAuth) UiRouter {
+func NewUiRouter(discordConf config.DiscordOAuth, githubConf config.GitHubOAuth, jwtService services.JwtService) UiRouter {
 	r := UiRouter{
-		ServeMux: http.NewServeMux(),
+		ServeMux:   http.NewServeMux(),
+		jwtService: jwtService,
 		discordConf: oauth2.Config{
 			ClientID:     discordConf.ClientID,
 			ClientSecret: discordConf.ClientSecret,
@@ -70,14 +76,14 @@ func (u UiRouter) discordCallback(w http.ResponseWriter, r *http.Request) {
 func (u UiRouter) gitHubCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 
-	token, err := u.gitHubConf.Exchange(r.Context(), code)
+	gitHubToken, err := u.gitHubConf.Exchange(r.Context(), code)
 	if err != nil {
 		log.Err(err).Msg("Failed to exchange token")
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
-	client := github.NewClient(nil).WithAuthToken(token.AccessToken)
+	client := github.NewClient(nil).WithAuthToken(gitHubToken.AccessToken)
 	gitHubUser, _, err := client.Users.Get(r.Context(), "")
 	if err != nil {
 		log.Err(err).Msg("Failed to retrieve user using token")
@@ -121,6 +127,23 @@ func (u UiRouter) gitHubCallback(w http.ResponseWriter, r *http.Request) {
 		Interface("UserID", userID).
 		Msg("Logged in user")
 
-	// TODO: Generate JWT and return to requester.
-	http.Error(w, http.StatusText(http.StatusNotImplemented), http.StatusNotImplemented)
+	token, err := u.jwtService.CreateSignedToken(jwt.MapClaims{
+		"user_id":  userID,
+		"exp":      time.Now().Add(120 * time.Second),
+		"scope":    "identify",
+		"lifespan": "short",
+	})
+	if err != nil {
+		log.Err(err).
+			Msg("Failed to create JWT")
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(struct {
+		Token string `json:"token"`
+	}{
+		Token: token,
+	})
 }

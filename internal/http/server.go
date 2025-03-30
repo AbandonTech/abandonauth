@@ -7,14 +7,17 @@ import (
 	"github.com/abandontech/abandonauth/internal/http/routers/developer_application"
 	"github.com/abandontech/abandonauth/internal/http/routers/index"
 	"github.com/abandontech/abandonauth/internal/http/routers/ui"
+	"github.com/abandontech/abandonauth/internal/services"
 	"github.com/rs/zerolog/log"
 )
 
 func NewServer(conf config.Config) *http.Server {
 	mux := http.NewServeMux()
 
+	jwtService := services.NewJwtService(conf.Jwt)
+
 	mux.Handle("/developer_application/", Middleware(developer_application.NewDeveloperApplicationRouter()))
-	mux.Handle("/ui/", Middleware(ui.NewUiRouter(conf.Discord, conf.GitHub)))
+	mux.Handle("/ui/", Middleware(ui.NewUiRouter(conf.Discord, conf.GitHub, jwtService)))
 	mux.Handle("/", Middleware(index.NewIndexRouter()))
 
 	server := &http.Server{
