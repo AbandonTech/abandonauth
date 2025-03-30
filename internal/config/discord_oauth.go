@@ -1,6 +1,6 @@
 package config
 
-type DiscordOAuth = struct {
+type DiscordOAuth struct {
 	ClientID     string
 	ClientSecret string
 	RedirectURL  string

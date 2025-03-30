@@ -1,5 +1,5 @@
 package config
 
-type Server = struct {
+type Server struct {
 	Host string
 }

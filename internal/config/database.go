@@ -1,6 +1,6 @@
 package config
 
-type Database = struct {
+type Database struct {
 	Host     string
 	Port     uint
 	User     string

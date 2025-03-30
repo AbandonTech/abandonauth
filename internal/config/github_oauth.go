@@ -1,6 +1,6 @@
 package config
 
-type GitHubOAuth = struct {
+type GitHubOAuth struct {
 	ClientID     string
 	ClientSecret string
 	RedirectURL  string
