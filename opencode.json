@@ -1,0 +1,32 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "abandonauth-planner",
+  "share": "disabled",
+  "autoupdate": "notify",
+  "formatter": false,
+  "lsp": true,
+  "instructions": [
+    "CLAUDE.md",
+    ".agents/abandonauth-agent-workflow.md"
+  ],
+  "permission": {
+    "read": {
+      "*": "allow",
+      ".env": "deny",
+      "**/.env": "deny",
+      ".env.*": "deny",
+      "**/.env.*": "deny",
+      ".env.sample": "allow",
+      "**/.env.sample": "allow",
+      "*.pem": "deny",
+      "**/*.pem": "deny",
+      "*.key": "deny",
+      "**/*.key": "deny",
+      "*.p12": "deny",
+      "**/*.p12": "deny",
+      "*.pfx": "deny",
+      "**/*.pfx": "deny"
+    },
+    "external_directory": "deny"
+  }
+}
