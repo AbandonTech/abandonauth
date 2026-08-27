@@ -21,13 +21,8 @@ permission:
   edit:
     "*": deny
     ".plans/**": allow
-  grep: deny
-  bash: deny
-  external_directory: deny
   question: allow
-  skill: deny
   task:
-    "*": deny
     "abandonauth-security-reviewer": allow
 ---
 
