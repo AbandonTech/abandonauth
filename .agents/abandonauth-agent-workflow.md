@@ -4,10 +4,21 @@ Non-trivial work uses a planning session and a separate implementation
 session. The plan in `.plans/` is the contract between them.
 
 Approval of a plan, leaving plan mode, autopilot behavior, or an agent
-completion signal is not authorization to implement. Only an explicit user
-request in a fresh Claude Code session crosses the workflow boundary. The
-Claude command cannot prove that its parent session is fresh, so the user must
-start that session explicitly.
+completion signal is not authorization to implement. Authorization is the
+user's own invocation of `/implement-plan .plans/<feature>.md`.
+
+That invocation is the proof. `.claude/skills/implement-plan/SKILL.md` sets
+`disable-model-invocation: true`, so no agent or model can trigger this skill.
+The implementer treats its own invocation with a valid plan path as the
+explicit user implementation request. It must not search its context for a
+user-role turn: the skill runs in a forked subagent context that does not
+carry one, so requiring one is an unsatisfiable gate rather than a safety
+control.
+
+Starting the implementation session fresh is the user's responsibility. The
+implementer runs in an isolated forked context, cannot verify session
+freshness, and must not refuse on that ground. The real protections are the
+plan-content gates below.
 
 ## Planner role
 
@@ -77,8 +88,9 @@ Every plan contains:
 
 - Use Claude Code's configured default model through
   `abandonauth-implementer`.
-- Start only in a fresh session after the user explicitly requests
-  implementation with `/implement-plan .plans/<feature>.md`.
+- Start only from the user's `/implement-plan .plans/<feature>.md` invocation,
+  which is itself the authorization. Do not additionally demand evidence of a
+  user-role turn or a fresh session.
 - Read the plan before exploring or editing. Reject a missing, ambiguous, or
   non-executable plan rather than deciding unresolved product or scope issues.
 - Reject a sensitive plan unless it contains `Security review: passed` and

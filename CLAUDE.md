@@ -30,10 +30,13 @@ Non-trivial work uses two separate sessions:
    `/implement-plan .plans/<feature>.md`.
 
 Planning and implementation are mandatory workflow boundaries. Plan approval,
-agent completion, or leaving plan mode does not authorize implementation.
-OpenCode permissions enforce its planning role; Claude's fresh-session handoff
-also depends on the user invoking the documented command. Detailed rules live
-in `.agents/abandonauth-agent-workflow.md`.
+agent completion, or leaving plan mode does not authorize implementation. The
+user's own `/implement-plan` invocation does, and the implementer must accept
+it as such rather than demanding further proof of user intent or session
+freshness, which its forked context cannot show. OpenCode permissions enforce
+the planning role; `disable-model-invocation` on the skill enforces that only
+the user can start implementation. Detailed rules live in
+`.agents/abandonauth-agent-workflow.md`.
 
 ## Security rules
 
