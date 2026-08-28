@@ -36,6 +36,11 @@ plan-content gates below.
   placeholders, or assumptions awaiting confirmation.
 - Record the base commit and identify worktree changes that the implementer
   must preserve. Never include secret values.
+- Follow the naming and documentation rules in `CLAUDE.md`. Do not prescribe
+  package, file, symbol, or fixture names that refer to a framework, language,
+  or implementation being replaced, and do not specify behavior by reference to
+  code the change deletes. Describe required behavior in the application's own
+  terms.
 - Classify security impact as `none` or `sensitive`. Any change involving
   authentication, authorization, OAuth/OIDC, provider callbacks, redirect
   URIs, JWTs, credentials, sessions, cookies, account linking or recovery,

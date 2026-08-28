@@ -88,3 +88,26 @@ the missing infrastructure; manual requests are not a substitute for tests.
   and migrations instead.
 - Keep comments focused on non-obvious security or design reasons.
 - Preserve unrelated user changes and ignored local configuration.
+
+## Naming and documentation
+
+These rules apply to source, file and directory names, identifiers, comments,
+docstrings, tests, fixtures, commit messages, plans, and repository docs.
+
+- Never name a thing after the framework, language, or implementation it came
+  from or is replacing. There is no `fastapi`, `prisma`, `python`, `legacy`,
+  `old`, `new`, `v2`, or `compat` in a name unless that string is a literal
+  external identifier the code must match.
+- Never describe current behavior by reference to a removed or replaced
+  implementation. Describe what the code does and why, in terms of this
+  application's own domain. Code that is being deleted must not survive as a
+  reference point in the code that replaces it.
+- Name a file after the concept it defines. Vague names such as `contract.go`,
+  `helpers.go`, `utils.go`, `common.go`, or `misc.go` are not acceptable.
+- Comments and docstrings exist to tell the next developer something the code
+  does not already say. Do not restate the signature and do not narrate
+  migration history.
+- Referencing an outside system is allowed only when it is an operational fact
+  the code or an operator must act on, such as a provider's published endpoint,
+  a database object that physically exists in production, or a wire format
+  third-party callers already send.
