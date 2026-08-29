@@ -86,7 +86,6 @@ the missing infrastructure; manual requests are not a substitute for tests.
   package-manager lockfile unless the user first chooses a package manager.
 - Do not edit generated Prisma client code. Read `src/api/prisma/schema.prisma`
   and migrations instead.
-- Keep comments focused on non-obvious security or design reasons.
 - Preserve unrelated user changes and ignored local configuration.
 
 ## Naming and documentation
@@ -117,6 +116,31 @@ docstrings, tests, fixtures, commit messages, plans, and repository docs.
   A copied fixture is a second source of truth that drifts and outlives the
   thing it was copied from.
 
+## Comments
+
+A comment earns its place only by saying something the code cannot. The default
+is no comment. This applies to source, configuration, Dockerfiles, compose
+files, shell scripts, and workflow files alike.
+
+- Write a comment only for a `why` a reader cannot recover from the code: a
+  non-obvious constraint, a subtle failure mode, a security rule, a line that
+  looks wrong until it is explained. Never restate what the line, the
+  signature, the flag, or the file name already says.
+- Configuration describes itself. A compose service, a Dockerfile stage, a
+  workflow step, or an ignore rule does not get a comment saying what it
+  configures, and a file that starts a database does not get a comment
+  explaining that it starts a database.
+- One or two lines. Rationale that needs a paragraph belongs in `.claude/docs/`
+  or in a plan, not in the file.
+- Do not write orientation prose: no header summarising the file, no narration
+  of what the next block does, no note describing what is absent.
+- Go doc comments on exported identifiers are required by revive. Keep them to
+  one sentence unless a security constraint needs the second.
+- Do not narrate migration history, and do not describe current behaviour by
+  reference to a removed implementation.
+- A comment that is no longer true is worse than no comment. When the code
+  moves, the comment moves or goes.
+
 ## Testing
 
 Tests state the exact behaviour this service is required to have. They never
@@ -136,9 +160,6 @@ only exists because of a change in progress.
   the cutover completes.
 - Name a file after the concept it defines. Vague names such as `contract.go`,
   `helpers.go`, `utils.go`, `common.go`, or `misc.go` are not acceptable.
-- Comments and docstrings exist to tell the next developer something the code
-  does not already say. Do not restate the signature and do not narrate
-  migration history.
 - Referencing an outside system is allowed only when it is an operational fact
   the code or an operator must act on, such as a provider's published endpoint,
   a database object that physically exists in production, or a wire format
