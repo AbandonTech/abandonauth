@@ -12,6 +12,9 @@ jobs:
   linting:
     uses: ./.github/workflows/linting.yml
 
+  lint_and_test_api:
+    uses: ./.github/workflows/lint_and_test.yml
+
   build_api:
     uses: ./.github/workflows/build_api.yml
     needs:

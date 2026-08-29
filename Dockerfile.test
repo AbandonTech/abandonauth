@@ -1,0 +1,31 @@
+# Debian, not Alpine: `go test -race` links ThreadSanitizer, a C library, and
+# golang:1.27-alpine ships no compiler to link it with.
+FROM golang:1.27
+
+WORKDIR /repo/src/api
+
+COPY src/api/go.mod src/api/go.sum ./
+RUN go mod download
+
+COPY src/api/ ./
+COPY scripts/ /repo/scripts/
+
+# Tool versions come from the tool directives in go.mod.
+RUN go tool sqlc generate && \
+    go tool swag init \
+        --v3.1 \
+        --generalInfo cmd/abandonauth.go \
+        --dir . \
+        --output docs \
+        --outputTypes go,json \
+        --parseDependency=false \
+        --quiet
+
+# Each check runs in a fresh container, so without this the race-instrumented
+# dependency tree is rebuilt on all three passes, costing about three and a half
+# minutes per run. -run NONE matches no test, so nothing is executed here.
+RUN go test -race -count=1 -run NONE ./... && \
+    go test -race -count=1 -run NONE -tags=devtools ./... && \
+    go test -race -count=1 -run NONE -tags=integration ./...
+
+CMD ["sh", "/repo/scripts/containercheck.sh"]

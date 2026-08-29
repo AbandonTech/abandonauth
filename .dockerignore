@@ -1,0 +1,14 @@
+# Build context for Dockerfile.test.
+**
+
+!src/api/**
+!scripts/**
+
+# Generated in the image; copying a host-built copy in would let a stale one be tested.
+src/api/internal/database/query/**
+src/api/docs/**
+
+# Not read by the Go service or its tests.
+src/api/abandonauth/**
+src/api/prisma/**
+src/api/.ruff_cache/**
