@@ -40,7 +40,8 @@ plan-content gates below.
   package, file, symbol, or fixture names that refer to a framework, language,
   or implementation being replaced, and do not specify behavior by reference to
   code the change deletes. Describe required behavior in the application's own
-  terms.
+  terms. This includes temporal framing: `prior`, `previous`, `earlier` and
+  `former` name a replaced implementation just as plainly as `legacy` does.
 - Classify security impact as `none` or `sensitive`. Any change involving
   authentication, authorization, OAuth/OIDC, provider callbacks, redirect
   URIs, JWTs, credentials, sessions, cookies, account linking or recovery,

@@ -98,10 +98,42 @@ docstrings, tests, fixtures, commit messages, plans, and repository docs.
   from or is replacing. There is no `fastapi`, `prisma`, `python`, `legacy`,
   `old`, `new`, `v2`, or `compat` in a name unless that string is a literal
   external identifier the code must match.
+- Temporal framing is the same violation wearing a different word. `prior`,
+  `previous`, `earlier`, `former`, `original`, and `pre-<anything>` are not
+  permitted either. There is one schema, one set of migrations, one API: this
+  application's. A name that implies a second, older one asserts that this code
+  is a successor rather than the thing itself, and that framing becomes
+  permanent.
 - Never describe current behavior by reference to a removed or replaced
   implementation. Describe what the code does and why, in terms of this
   application's own domain. Code that is being deleted must not survive as a
   reference point in the code that replaces it.
+- Name the state of an external system after the operation this application
+  performs on it, not after whatever produced that state. A database this
+  service has not taken ownership of is `unadopted`, because `adopt` is this
+  application's own operation; it is not a "prior" or "legacy" database.
+- Do not add a test fixture that duplicates something the application already
+  produces. If a test needs a schema the migrations build, run the migrations.
+  A copied fixture is a second source of truth that drifts and outlives the
+  thing it was copied from.
+
+## Testing
+
+Tests state the exact behaviour this service is required to have. They never
+state that it matches something else, and they never describe a scenario that
+only exists because of a change in progress.
+
+- Integration tests drive endpoints. They send requests, in the order a client
+  sends them, and assert the responses, how the request data was handled, and
+  the state the database is left in. Use `internal/web/servertest`.
+- No test asserts a schema shape, a query shape, or a generated struct. Those
+  are how the behaviour is achieved today, not what is promised. Prove a
+  cascade, a uniqueness rule, or an ordering through the endpoint whose
+  contract depends on it.
+- No test exercises a replaced implementation, or the act of migrating to this
+  one. `internal/database/adoption` is the single bounded exception: it is the
+  one-time cutover procedure, its tests live with it, and both are deleted when
+  the cutover completes.
 - Name a file after the concept it defines. Vague names such as `contract.go`,
   `helpers.go`, `utils.go`, `common.go`, or `misc.go` are not acceptable.
 - Comments and docstrings exist to tell the next developer something the code
