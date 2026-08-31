@@ -71,9 +71,11 @@ fmt_stage() {
     exit 1
 }
 
-# go.mod and go.sum are tracked and must not move under a check.
-tidy_is_clean() {
-    git -C "$REPO_ROOT" diff --quiet -- src/api/go.mod src/api/go.sum
+# go.mod and go.sum record what the module needs, so tidying must not change
+# them. Compared against a copy taken just before, not against the last commit:
+# a dependency added by work in progress is not a stale one.
+tidy_left_it_alone() {
+    cmp -s "$1" "$API_DIR/go.mod" && cmp -s "$2" "$API_DIR/go.sum"
 }
 
 if [ "$quick" -eq 0 ]; then
@@ -88,8 +90,19 @@ if [ "$quick" -eq 0 ]; then
         --outputTypes go,json \
         --parseDependency=false \
         --quiet
+    recorded_modules=$(mktemp)
+    recorded_sums=$(mktemp)
+    cp "$API_DIR/go.mod" "$recorded_modules"
+    cp "$API_DIR/go.sum" "$recorded_sums"
+
     run_stage "go mod tidy" go mod tidy
-    tidy_is_clean || die "go mod tidy changed go.mod or go.sum; commit the result"
+
+    if ! tidy_left_it_alone "$recorded_modules" "$recorded_sums"; then
+        rm -f "$recorded_modules" "$recorded_sums"
+        die "go mod tidy changed go.mod or go.sum; keep the result"
+    fi
+
+    rm -f "$recorded_modules" "$recorded_sums"
 fi
 
 if [ "$gen_only" -eq 1 ]; then
@@ -106,6 +119,8 @@ run_stage "go vet (-tags=$DEVTOOLS_TAG)" go vet -tags="$DEVTOOLS_TAG" ./...
 # Not gated on --integration: this type-checks the integration files without a
 # database, so a break in one does not stay invisible until the container runs.
 run_stage "go vet (-tags=integration)" go vet -tags=integration ./...
+run_stage "go vet (-tags='integration $DEVTOOLS_TAG')" \
+    go vet -tags="integration $DEVTOOLS_TAG" ./...
 
 # -count=1 disables the test cache, which can conceal a failure caused by state
 # outside a package's compiled Go inputs.

@@ -8,8 +8,6 @@ import "github.com/abandontech/abandonauth/src/api/internal/config"
 const (
 	// SigningSecret is the root the per-purpose signing keys are derived from.
 	SigningSecret = "placeholder-signing-secret-placeholder-signing-secret-placeholder"
-	// InternalApplicationID is the developer application representing the site.
-	InternalApplicationID = "6f5902ac-237a-4ba0-8a51-1ed0b6c1c0f0"
 	// SiteOrigin is where the browser-facing site is served from.
 	SiteOrigin = "https://auth.example.test"
 	// APIOrigin is where this service is reached, and the issuer of its tokens.
@@ -30,7 +28,8 @@ func placeholderSettings() config.Settings {
 		ExchangeCodeSeconds:   120,
 		BrowserSessionSeconds: 2592000,
 
-		InternalApplicationID: InternalApplicationID,
+		// InternalApplicationID is filled in by New, from the application it
+		// registers for the site.
 
 		SiteURL: SiteOrigin,
 		APIURL:  APIOrigin,

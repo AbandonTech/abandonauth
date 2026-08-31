@@ -8,6 +8,15 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/abandontech/abandonauth/src/api/internal/config"
+	"github.com/abandontech/abandonauth/src/api/internal/services/accounts"
+	"github.com/abandontech/abandonauth/src/api/internal/services/applications"
+	"github.com/abandontech/abandonauth/src/api/internal/services/authority"
+	"github.com/abandontech/abandonauth/src/api/internal/services/keyring"
+	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
+	"github.com/abandontech/abandonauth/src/api/internal/services/providers"
+	"github.com/abandontech/abandonauth/src/api/internal/services/ratelimit"
+	"github.com/abandontech/abandonauth/src/api/internal/services/sessions"
+	"github.com/abandontech/abandonauth/src/api/internal/services/tokens"
 	"github.com/abandontech/abandonauth/src/api/internal/web/response"
 )
 
@@ -27,17 +36,122 @@ const (
 	ShutdownGracePeriod = 20 * time.Second
 )
 
+// Dependencies are what a server is built around.
+//
+// The provider addresses and transport exist so a test can answer provider
+// requests locally. A deployment leaves them empty and gets the real providers,
+// which are constants in the provider clients and cannot be moved by a setting.
+type Dependencies struct {
+	Pool   *pgxpool.Pool
+	Logger zerolog.Logger
+
+	// Now is the clock. Only tests set it.
+	Now func() time.Time
+
+	DiscordEndpoints providers.Endpoints
+	GitHubEndpoints  providers.Endpoints
+	GoogleEndpoints  providers.GoogleEndpoints
+
+	ProviderTransport http.RoundTripper
+}
+
 // Server holds what the request handlers need. It is built once at start-up and
 // is read-only afterwards, so handlers can run concurrently without locking.
 type Server struct {
 	config config.Config
 	logger zerolog.Logger
 	pool   *pgxpool.Pool
+	now    func() time.Time
+
+	accounts     *accounts.Accounts
+	applications *applications.Applications
+	authority    *authority.Authority
+	sessions     *sessions.Store
+	logins       *oauth.Store
+	codes        *oauth.ExchangeCodes
+	limiter      *ratelimit.Limiter
+	signer       *tokens.Signer
+
+	discord *providers.Discord
+	github  *providers.GitHub
+	google  *providers.Google
 }
 
 // NewServer builds the service from its validated configuration.
-func NewServer(configuration config.Config, logger zerolog.Logger, pool *pgxpool.Pool) *Server {
-	return &Server{config: configuration, logger: logger, pool: pool}
+//
+// Everything that can fail does so here rather than on a request: a key that
+// cannot be derived or a cipher that cannot be prepared means the service
+// cannot answer safely, so it does not start.
+func NewServer(configuration config.Config, dependencies Dependencies) (*Server, error) {
+	now := dependencies.Now
+	if now == nil {
+		now = time.Now
+	}
+
+	keys, err := keyring.New(configuration.SigningSecret.Reveal())
+	if err != nil {
+		return nil, err
+	}
+
+	signer, err := tokens.NewSigner(tokens.Options{
+		Issuer:                configuration.API.String(),
+		InternalApplicationID: configuration.InternalApplicationID,
+		Keys:                  keys,
+		Now:                   now,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	logins, err := oauth.NewStore(dependencies.Pool, keys.VerifierEncryption())
+	if err != nil {
+		return nil, err
+	}
+
+	codes, err := oauth.NewExchangeCodes(dependencies.Pool, configuration.ExchangeCodeLifetime)
+	if err != nil {
+		return nil, err
+	}
+
+	browserSessions, err := sessions.NewStore(dependencies.Pool, sessions.Options{
+		Lifetime: configuration.BrowserSessionLifetime,
+		Now:      now,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	limiter, err := ratelimit.New(dependencies.Pool, ratelimit.Options{
+		Key: keys.RateLimitPseudonym(),
+		Now: now,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &Server{
+		config:       configuration,
+		logger:       dependencies.Logger,
+		pool:         dependencies.Pool,
+		now:          now,
+		accounts:     accounts.New(dependencies.Pool),
+		applications: applications.New(dependencies.Pool),
+		authority:    authority.New(dependencies.Pool),
+		sessions:     browserSessions,
+		logins:       logins,
+		codes:        codes,
+		limiter:      limiter,
+		signer:       signer,
+		discord: providers.NewDiscord(
+			configuration.Discord, dependencies.DiscordEndpoints, dependencies.ProviderTransport,
+		),
+		github: providers.NewGitHub(
+			configuration.GitHub, dependencies.GitHubEndpoints, dependencies.ProviderTransport,
+		),
+		google: providers.NewGoogle(
+			configuration.Google, dependencies.GoogleEndpoints, dependencies.ProviderTransport, now,
+		),
+	}, nil
 }
 
 // Handler returns the routed HTTP handler.
@@ -54,13 +168,20 @@ func (s *Server) Handler() http.Handler {
 
 	for _, route := range Routes() {
 		if handler, defined := handlers[route.Name]; defined {
-			mux.Handle(route.Method+" "+route.Pattern, handler)
+			mux.Handle(route.Method+" "+route.Pattern, recordRoute(handler))
 		}
 	}
 
 	mux.Handle("/", unmatchedRequests())
 
-	return mux
+	return s.surround(mux)
+}
+
+// surround wraps the router in the concerns every request shares, outermost
+// first: a panic must not escape, every answer carries its request identifier,
+// and a browser is told what it may do before anything reads the request.
+func (s *Server) surround(handler http.Handler) http.Handler {
+	return s.recoverPanics(s.identifyRequest(s.logRequest(s.answerCORS(handler))))
 }
 
 // unmatchedRequests answers a request no route claimed.

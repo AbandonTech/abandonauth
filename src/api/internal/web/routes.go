@@ -31,7 +31,7 @@ const (
 	RouteApplicationCallback RouteName = "application-callback-uris"
 	RouteGoogleCallback      RouteName = "google-callback"
 	RouteSiteEntry           RouteName = "site-entry"
-	RouteSiteEntrySlash      RouteName = "site-entry-redirect"
+	RouteSiteEntryBare       RouteName = "site-entry-bare"
 	RouteDiscordCallback     RouteName = "discord-callback"
 	RouteGitHubCallback      RouteName = "github-callback"
 	RouteProviderAuthorize   RouteName = "provider-authorize"
@@ -86,7 +86,7 @@ var baseRoutes = []Route{
 
 	{Name: RouteGoogleCallback, Method: "GET", Pattern: "/google", Documented: true},
 
-	{Name: RouteSiteEntrySlash, Method: "GET", Pattern: "/ui"},
+	{Name: RouteSiteEntryBare, Method: "GET", Pattern: "/ui"},
 	{Name: RouteSiteEntry, Method: "GET", Pattern: "/ui/{$}"},
 	{Name: RouteDiscordCallback, Method: "GET", Pattern: "/ui/discord-callback", Documented: true},
 	{Name: RouteGitHubCallback, Method: "GET", Pattern: "/ui/github-callback", Documented: true},

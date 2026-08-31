@@ -15,9 +15,19 @@ run_stage "go test -race" go test -race -count=1 -timeout "$TEST_TIMEOUT" ./...
 run_stage "go test -race (-tags=devtools)" \
     go test -race -count=1 -timeout "$TEST_TIMEOUT" -tags=devtools ./...
 
+# The password routes and the documentation UI are only compiled into this
+# variant, so the endpoints that drive them need both tags and a database.
+run_stage "go test -race (-tags='integration devtools')" \
+    go test -race -count=1 -timeout "$TEST_TIMEOUT" -tags='integration devtools' ./...
+
 # -covermode=atomic is required whenever coverage and -race are combined. The
 # output is captured rather than run through run_stage because it is also the
 # evidence, checked below, that the suite did not skip itself.
+#
+# -coverpkg covers the whole module from every test binary. The suite drives
+# endpoints, so the services and the persistence behind them are reached through
+# internal/web; measuring each package only from its own tests would score that
+# work zero and push the suite towards testing units nobody calls.
 info "go test -race (-tags=integration, with coverage)"
 if ! integration_output=$(go test \
     -race \
@@ -25,6 +35,7 @@ if ! integration_output=$(go test \
     -timeout "$TEST_TIMEOUT" \
     -tags=integration \
     -covermode=atomic \
+    -coverpkg=./... \
     -coverprofile="$COVERAGE_PROFILE" \
     ./... 2>&1); then
     printf '==> go test -race (-tags=integration) ... FAILED\n' >&2
@@ -47,18 +58,28 @@ ok "go test -race (-tags=integration, with coverage)"
 # Sums the profile's real statement counts per package. Averaging the
 # per-function percentages that `go tool cover -func` prints is not equivalent:
 # a one-statement function would weigh as much as a fifty-statement one.
+#
+# Every test binary reports on the whole module, so a block appears once per
+# binary. It is counted once, and as reached if any binary reached it.
 package_coverage() {
     awk '
         NR > 1 {
-            split($1, location, ":")
-            package = location[1]
-            sub(/\/[^\/]*$/, "", package)
-            statements[package] += $2
+            block = $1
+            size[block] = $2
             if ($3 > 0) {
-                covered[package] += $2
+                reached[block] = 1
             }
         }
         END {
+            for (block in size) {
+                package = block
+                sub(/:.*$/, "", package)
+                sub(/\/[^\/]*$/, "", package)
+                statements[package] += size[block]
+                if (block in reached) {
+                    covered[package] += size[block]
+                }
+            }
             for (package in statements) {
                 printf "%s %.1f\n", package, 100 * covered[package] / statements[package]
             }

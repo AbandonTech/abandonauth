@@ -30,9 +30,14 @@ type Failure struct {
 	Type     string `json:"type"`
 }
 
-// detailPayload is the object a failing request receives.
-type detailPayload struct {
-	Detail any `json:"detail"`
+// Failed is the body of a request the service refused, with one explanation.
+type Failed struct {
+	Detail string `json:"detail"`
+}
+
+// Invalidated is the body of a request refused for its inputs, listing each one.
+type Invalidated struct {
+	Detail []Failure `json:"detail"`
 }
 
 // JSON writes a value as the body of a response.
@@ -57,7 +62,7 @@ func Empty(writer http.ResponseWriter, status int) {
 // The detail is written by the service, never assembled from request input, so
 // it cannot be used to reflect a caller's value back to a browser.
 func Error(writer http.ResponseWriter, status int, detail string) {
-	JSON(writer, status, detailPayload{Detail: detail})
+	JSON(writer, status, Failed{Detail: detail})
 }
 
 // NotFound reports that no route matched, or that the caller may not know
@@ -77,7 +82,7 @@ func Invalid(writer http.ResponseWriter, failures []Failure) {
 		failures = []Failure{}
 	}
 
-	JSON(writer, http.StatusUnprocessableEntity, detailPayload{Detail: failures})
+	JSON(writer, http.StatusUnprocessableEntity, Invalidated{Detail: failures})
 }
 
 // TooManyRequests refuses a request that exceeded a limit and says how long to

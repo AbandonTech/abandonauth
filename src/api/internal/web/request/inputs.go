@@ -116,7 +116,8 @@ func (i *Inputs) DecodeObjectBody() {
 // DecodeOptionalObjectBody reads a JSON object body that the request need not
 // carry. It reports whether one was present.
 //
-// An empty body is not a refusal; a body that is present and malformed is.
+// An empty body is not a refusal, and neither is an explicit null, which is how
+// a client says it is sending nothing. A body that is present and malformed is.
 func (i *Inputs) DecodeOptionalObjectBody() bool {
 	raw, ok := i.readBody()
 	if !ok {
@@ -132,6 +133,10 @@ func (i *Inputs) DecodeOptionalObjectBody() bool {
 	if err := decodeExactlyOneValue(raw, &members); err != nil {
 		i.refuseDecodeError(err, typeObjectType, "Input should be a valid dictionary or object")
 
+		return false
+	}
+
+	if members == nil {
 		return false
 	}
 
@@ -268,6 +273,23 @@ func (i *Inputs) Query(name string) string {
 	}
 
 	return values[0]
+}
+
+// QueryUUID reads a required query parameter that must be a UUID.
+func (i *Inputs) QueryUUID(name string) uuid.UUID {
+	value := i.Query(name)
+	if value == "" {
+		return uuid.Nil
+	}
+
+	parsed, err := uuid.Parse(value)
+	if err != nil {
+		i.record([]any{locationQuery, name}, "Input should be a valid UUID", typeUUIDParsing)
+
+		return uuid.Nil
+	}
+
+	return parsed
 }
 
 // OptionalQuery reads a query parameter that need not be present.

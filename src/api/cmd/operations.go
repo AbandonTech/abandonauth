@@ -35,7 +35,10 @@ func (service) Serve(ctx context.Context, configuration config.Config) error {
 		return err
 	}
 
-	server := web.NewServer(configuration, logger, pool)
+	server, err := web.NewServer(configuration, web.Dependencies{Pool: pool, Logger: logger})
+	if err != nil {
+		return err
+	}
 
 	// Fail closed: a declared route with nothing behind it would answer with a
 	// surprise instead of its contract.

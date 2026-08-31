@@ -12,6 +12,7 @@ package servertest
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/abandontech/abandonauth/src/api/internal/config"
 	"github.com/abandontech/abandonauth/src/api/internal/database/testdatabase"
+	"github.com/abandontech/abandonauth/src/api/internal/services/providers/providertest"
 	"github.com/abandontech/abandonauth/src/api/internal/web"
 )
 
@@ -39,34 +41,64 @@ type Service struct {
 	// name the site origin or the internal application without repeating them.
 	Config config.Config
 
+	// Site is the developer application the service was configured to treat as
+	// its own.
+	Site Site
+
+	// Providers answers the identity providers, so a sign-in completes without
+	// leaving the machine.
+	Providers *providertest.Providers
+
 	// Logs holds everything the service wrote while the test ran, so a test can
 	// assert that a credential never reached them.
 	Logs *strings.Builder
 
-	server *httptest.Server
-	client *http.Client
+	service *web.Server
+	server  *httptest.Server
+	client  *http.Client
 }
 
 // New starts the service against a database of its own.
-func New(t *testing.T, options ...Option) *Service {
+func New(t *testing.T, choices ...Option) *Service {
 	t.Helper()
 
 	pool := testdatabase.NewMigrated(t)
+	site := registerSite(t, pool)
 
-	settings := placeholderSettings()
-	for _, option := range options {
-		option(&settings)
+	chosen := options{settings: placeholderSettings()}
+	chosen.settings.InternalApplicationID = site.ApplicationID.String()
+
+	for _, choose := range choices {
+		choose(&chosen)
 	}
 
-	configuration, err := config.Load(settings)
+	configuration, err := config.Load(chosen.settings)
 	if err != nil {
 		t.Fatalf("the test configuration is not valid: %v", err)
 	}
 
+	identityProviders := providertest.New(t, providertest.Options{
+		GoogleClientID: chosen.settings.GoogleClientID,
+	})
+
+	dependencies := chosen.dependencies
+
 	logs := &strings.Builder{}
 	logger := zerolog.New(logs).With().Timestamp().Logger()
 
-	server := httptest.NewServer(web.NewServer(configuration, logger, pool).Handler())
+	dependencies.Pool = pool
+	dependencies.Logger = logger
+
+	if dependencies.ProviderTransport == nil {
+		dependencies.ProviderTransport = identityProviders.Transport()
+	}
+
+	service, err := web.NewServer(configuration, dependencies)
+	if err != nil {
+		t.Fatalf("building the service: %v", err)
+	}
+
+	server := httptest.NewServer(service.Handler())
 	t.Cleanup(server.Close)
 
 	jar, err := cookiejar.New(nil)
@@ -75,11 +107,14 @@ func New(t *testing.T, options ...Option) *Service {
 	}
 
 	return &Service{
-		t:      t,
-		Pool:   pool,
-		Config: configuration,
-		Logs:   logs,
-		server: server,
+		t:         t,
+		Pool:      pool,
+		Config:    configuration,
+		Site:      site,
+		Providers: identityProviders,
+		Logs:      logs,
+		service:   service,
+		server:    server,
 		client: &http.Client{
 			Jar: jar,
 			// Redirects are part of what these endpoints promise, so they are
@@ -91,13 +126,35 @@ func New(t *testing.T, options ...Option) *Service {
 	}
 }
 
-// Option adjusts the configuration the service runs with.
-type Option func(*config.Settings)
+// SessionCookieName is the name of the cookie a signed-in browser carries.
+func (s *Service) SessionCookieName() string { return s.service.SessionCookieName() }
+
+// CSRFCookieName is the name of the cookie the site reads and echoes back.
+func (s *Service) CSRFCookieName() string { return s.service.CSRFCookieName() }
+
+// LoginCookieName is the name of the cookie that ties a login in progress to
+// the browser that started it.
+func (s *Service) LoginCookieName() string { return s.service.LoginCookieName() }
+
+// options are what a test service is built from.
+type options struct {
+	settings     config.Settings
+	dependencies web.Dependencies
+}
+
+// Option adjusts how the service under test is built.
+type Option func(*options)
 
 // WithSetting overrides one setting for a test that needs the service
 // configured differently.
 func WithSetting(apply func(*config.Settings)) Option {
-	return Option(apply)
+	return func(chosen *options) { apply(&chosen.settings) }
+}
+
+// WithDependencies points the service at test doubles: local servers standing
+// in for the providers, and a clock the test controls.
+func WithDependencies(apply func(*web.Dependencies)) Option {
+	return func(chosen *options) { apply(&chosen.dependencies) }
 }
 
 // URL is the address of the running service.
@@ -134,6 +191,13 @@ func (s *Service) PATCHJSON(path string, body any, prepare ...func(*http.Request
 	s.t.Helper()
 
 	return s.doJSON(http.MethodPatch, path, body, prepare...)
+}
+
+// OPTIONS asks what a browser may do with a path.
+func (s *Service) OPTIONS(path string, prepare ...func(*http.Request)) *Response {
+	s.t.Helper()
+
+	return s.do(http.MethodOptions, path, nil, prepare...)
 }
 
 // DELETE removes the thing a path names.
@@ -239,6 +303,47 @@ func (r *Response) ExpectDetail(want string) *Response {
 	}
 
 	return r
+}
+
+// ExpectRejectedInput fails the test unless the request was refused for the
+// input at the given location, such as ("query", "callback_uri").
+func (r *Response) ExpectRejectedInput(location ...any) *Response {
+	r.t.Helper()
+
+	r.ExpectStatus(http.StatusUnprocessableEntity)
+
+	var body struct {
+		Detail []struct {
+			Location []any  `json:"loc"`
+			Message  string `json:"msg"`
+			Type     string `json:"type"`
+		} `json:"detail"`
+	}
+
+	r.DecodeInto(&body)
+
+	wanted := describeLocation(location)
+
+	for _, failure := range body.Detail {
+		if describeLocation(failure.Location) == wanted {
+			return r
+		}
+	}
+
+	r.t.Errorf("no input at %s was refused (body: %s)", wanted, r.Body)
+
+	return r
+}
+
+// describeLocation names where in a request an input was found, in the order
+// the service reports it.
+func describeLocation(parts []any) string {
+	named := make([]string, 0, len(parts))
+	for _, part := range parts {
+		named = append(named, fmt.Sprintf("%v", part))
+	}
+
+	return strings.Join(named, "/")
 }
 
 // ExpectRedirectTo fails the test unless the response sends a browser to the

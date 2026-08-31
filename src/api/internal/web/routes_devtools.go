@@ -19,7 +19,7 @@ var devtoolsRoutes = []Route{
 	{Name: RouteLoginTestUser, Method: "POST", Pattern: "/login_test_user", Documented: true},
 
 	{Name: RouteSwaggerUI, Method: "GET", Pattern: "/docs"},
-	{Name: RouteSwaggerUIIndex, Method: "GET", Pattern: "/docs/{$}"},
+	{Name: RouteSwaggerUIIndex, Method: "GET", Pattern: "/docs/"},
 	{Name: RouteSwaggerOAuth2, Method: "GET", Pattern: "/docs/oauth2-redirect"},
 	{Name: RouteAPISchema, Method: "GET", Pattern: "/openapi.json"},
 }

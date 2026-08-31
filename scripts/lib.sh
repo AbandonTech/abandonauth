@@ -15,8 +15,8 @@ MINIMUM_COVERAGE=80
 # Reproduced on every run and not committed, so not held to the coverage rule.
 GENERATED_PACKAGES='/internal/database/query$|/docs$'
 
-# Constants only, so there are no statements to cover.
-STATEMENT_FREE_PACKAGES='/internal/buildmode$'
+# Constants and type declarations only, so there are no statements to cover.
+STATEMENT_FREE_PACKAGES='/internal/buildmode$|/internal/web/models$'
 
 info() { printf '==> %s\n' "$*"; }
 ok() { printf '==> %s ... ok\n' "$*"; }

@@ -26,6 +26,7 @@ RUN go tool sqlc generate && \
 # minutes per run. -run NONE matches no test, so nothing is executed here.
 RUN go test -race -count=1 -run NONE ./... && \
     go test -race -count=1 -run NONE -tags=devtools ./... && \
-    go test -race -count=1 -run NONE -tags=integration ./...
+    go test -race -count=1 -run NONE -tags=integration ./... && \
+    go test -race -count=1 -run NONE -tags='integration devtools' ./...
 
 CMD ["sh", "/repo/scripts/containercheck.sh"]

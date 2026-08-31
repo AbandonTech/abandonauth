@@ -11,7 +11,28 @@ import (
 // can only be written once, in the route table.
 func (s *Server) handlers() map[RouteName]http.Handler {
 	handlers := map[RouteName]http.Handler{
-		RouteIndex: s.index(),
+		RouteIndex:            s.index(),
+		RouteCurrentUser:      s.currentUser(),
+		RouteUserApplications: s.userApplications(),
+		RouteLogin:            s.login(),
+		RouteBurnToken:        s.burnToken(),
+
+		RouteApplicationCreate:   s.createApplication(),
+		RouteApplicationLogin:    s.applicationLogin(),
+		RouteApplicationCurrent:  s.currentApplication(),
+		RouteApplicationGet:      s.getApplication(),
+		RouteApplicationDelete:   s.deleteApplication(),
+		RouteApplicationReset:    s.resetApplicationCredential(),
+		RouteApplicationCallback: s.replaceCallbackURIs(),
+
+		RouteGoogleCallback:  s.googleCallback(),
+		RouteDiscordCallback: s.discordCallback(),
+		RouteGitHubCallback:  s.githubCallback(),
+
+		RouteProviderAuthorize: s.providerAuthorize(),
+		RouteSiteEntry:         s.siteEntry(),
+		RouteSiteEntryBare:     s.siteEntry(),
+		RouteLogout:            s.logout(),
 	}
 
 	maps.Copy(handlers, s.devtoolsHandlers())

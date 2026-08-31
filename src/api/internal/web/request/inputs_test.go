@@ -165,6 +165,22 @@ func TestAnOptionalBodyMayBeAbsent(t *testing.T) {
 	}
 }
 
+// A client that sends null is saying it has nothing to send, which is the same
+// as sending nothing.
+func TestAnOptionalBodyThatIsNullIsAbsent(t *testing.T) {
+	t.Parallel()
+
+	inputs := request.New(post("null"))
+
+	if inputs.DecodeOptionalObjectBody() {
+		t.Error("a null optional body was reported as present")
+	}
+
+	if !inputs.OK() {
+		t.Errorf("a null optional body was refused: %v", inputs.Failures())
+	}
+}
+
 // Optional does not mean unchecked. A body that is present and malformed is
 // refused rather than silently treated as absent, which would let a caller skip
 // credential checks by sending broken JSON.

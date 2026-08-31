@@ -4,10 +4,9 @@
 // @version                    0.0.1
 // @description                Identity provider and OAuth application broker.
 // @servers.url                /api
-// @securityDefinitions.apikey BearerAuth
+// @securityDefinitions.apikey JWTBearer
 // @in                         header
 // @name                       Authorization
-// @description.BearerAuth     An AbandonAuth access token, sent as "Bearer <token>".
 package main
 
 import (
