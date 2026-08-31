@@ -1,75 +1,30 @@
-# Nuxt 3 Minimal Starter
+# AbandonAuth website
 
-Look at the [Nuxt 3 documentation](https://nuxt.com/docs/getting-started/introduction) to learn more.
+The administration and login site. It is a Nuxt application that talks to the
+AbandonAuth API through the `/api` prefix on its own origin, so the browser
+session cookie the API sets is returned on every call.
 
-## Setup
+npm and `package-lock.json` are canonical. Do not add a lockfile for another
+package manager.
 
-Make sure to install the dependencies:
+## Commands
 
 ```bash
-# npm
 npm install
-
-# pnpm
-pnpm install
-
-# yarn
-yarn install
-
-# bun
-bun install
-```
-
-## Development Server
-
-Start the development server on `http://localhost:3000`:
-
-```bash
-# npm
-npm run dev
-
-# pnpm
-pnpm run dev
-
-# yarn
-yarn dev
-
-# bun
-bun run dev
-```
-
-## Production
-
-Build the application for production:
-
-```bash
-# npm
+npm run dev      # http://localhost:3000
+npm test
 npm run build
-
-# pnpm
-pnpm run build
-
-# yarn
-yarn build
-
-# bun
-bun run build
-```
-
-Locally preview production build:
-
-```bash
-# npm
 npm run preview
-
-# pnpm
-pnpm run preview
-
-# yarn
-yarn preview
-
-# bun
-bun run preview
 ```
 
-Check out the [deployment documentation](https://nuxt.com/docs/getting-started/deployment) for more information.
+`npm run dev` proxies `/api` to `ABANDON_AUTH_URL`. A deployment serves the site
+and the API from one origin instead, with the reverse proxy stripping `/api`.
+
+## Settings
+
+| Name | Used for |
+| --- | --- |
+| `ABANDON_AUTH_URL` | Where `/api` calls are sent |
+| `ABANDON_AUTH_DEVELOPER_APP_ID` | The application this site signs people in to |
+
+Both are read at build time.

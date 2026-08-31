@@ -23,8 +23,6 @@ services:
       args:
         ABANDON_AUTH_URL: ${ABANDON_AUTH_URL}
         ABANDON_AUTH_DEVELOPER_APP_ID: ${ABANDON_AUTH_DEVELOPER_APP_ID}
-        GITHUB_REDIRECT: ${GITHUB_REDIRECT}
-        DISCORD_REDIRECT: ${DISCORD_REDIRECT}
 
   database:
     image: "postgres:${POSTGRES_VERSION:-15-alpine}"

@@ -13,13 +13,9 @@
 <script setup lang="ts">
 import type { UserDto } from '~/types/userDto';
 
-const auth = useCookie("Authorization");
-
-const { data: user } = await useFetch<UserDto>('/api/me', {
+const { data: user } = await useFetch<UserDto>(currentUserPath, {
   lazy: true,
-  headers: {
-    Authorization: `Bearer ${auth.value}`
-  }
+  headers: useRequestHeaders(['cookie'])
 })
 
 definePageMeta({

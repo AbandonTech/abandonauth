@@ -20,8 +20,8 @@
           </div>
 
           <div class='flex flex-col items-center gap-4 mt-16 lg:mt-20'>
-            <LoginButton title="Discord" :redirectUrl="config.public.discordRedirect + `&state=${applicationId},${callbackUri}`" :svgPathData="discordSvgPath" svgViewbox="0 0 36 27" bgColorClass="bg-discord" />
-            <LoginButton title="Github" :redirectUrl="config.public.githubRedirect + `&state=${applicationId},${callbackUri}`" :svgPathData="githubSvgPath" svgViewbox="0 0 39 39" bgColorClass="bg-github" />
+            <LoginButton title="Discord" :redirectUrl="providerLoginUrl('discord', applicationId, callbackUri)" :svgPathData="discordSvgPath" svgViewbox="0 0 36 27" bgColorClass="bg-discord" />
+            <LoginButton title="Github" :redirectUrl="providerLoginUrl('github', applicationId, callbackUri)" :svgPathData="githubSvgPath" svgViewbox="0 0 39 39" bgColorClass="bg-github" />
           </div>
         </div>
 
@@ -35,11 +35,10 @@
 <script setup lang="ts">
 import LoginButton from '~/components/LoginButton.vue';
 
-const config = useRuntimeConfig();
 const route = useRoute();
 
-const applicationId = route.query.application_id;
-const callbackUri = route.query.callback_uri;
+const applicationId = String(route.query.application_id ?? "");
+const callbackUri = String(route.query.callback_uri ?? "");
 
 interface ErrorMessage {
   message: String

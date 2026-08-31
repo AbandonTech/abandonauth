@@ -81,7 +81,6 @@
 import type { CreateDeveloperApplicationDto, DeveloperApplicationDto, DeveloperApplicationUpdateCallbackDto } from '~/types/developerApplicationDto';
 import { faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
 
-const auth = useCookie("Authorization");
 const route = useRoute()
 const router = useRouter()
 
@@ -95,9 +94,7 @@ const application_id = route.params.id
 
 const { data: application, refresh } = await useFetch<DeveloperApplicationDto>(`/api/developer_application/${application_id}`, {
   lazy: true,
-  headers: {
-    Authorization: `Bearer ${auth.value}`
-  }
+  headers: useRequestHeaders(['cookie'])
 })
 
 const spinAddButton = ref(false)
@@ -112,9 +109,7 @@ async function submitNewCallbackUris(newUris: string[]) {
   if (application.value?.callback_uris !== undefined){
     await $fetch<DeveloperApplicationUpdateCallbackDto>(`/api/developer_application/${application_id}/callback_uris`, {
       method: "patch",
-      headers: {
-        Authorization: `Bearer ${auth.value}`
-      },
+      headers: siteRequestHeaders(),
       body: newUris
     })
   }
@@ -144,9 +139,7 @@ async function closeNewTokenModal() {
 async function resetDeveloperApplicationToken() {
   let resp = await $fetch<CreateDeveloperApplicationDto>(`/api/developer_application/${application_id}/reset_token`, {
       method: "patch",
-      headers: {
-        Authorization: `Bearer ${auth.value}`
-      },
+      headers: siteRequestHeaders(),
     }).catch((err) => {
       closeDeleteAppModal()
       return null
@@ -164,9 +157,7 @@ async function resetDeveloperApplicationToken() {
 async function deleteDeveloperApplication() {
   await $fetch<DeveloperApplicationUpdateCallbackDto>(`/api/developer_application/${application_id}`, {
       method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${auth.value}`
-      },
+      headers: siteRequestHeaders(),
     }).catch((err) => {
       closeDeleteAppModal()
     })

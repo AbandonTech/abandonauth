@@ -47,10 +47,11 @@
   import { faBookOpen, faCircleLeft, faHouse, faUsers } from '@fortawesome/free-solid-svg-icons'
   const config = useRuntimeConfig()
   const router = useRouter()
-  const authCookie = useCookie("Authorization")
 
   async function handleLogout() {
-    authCookie.value = null
+    // The API deletes the session. Clearing the cookie here instead would leave
+    // a copy taken beforehand working until it expired.
+    await $fetch(logoutPath, { method: "POST", headers: siteRequestHeaders() }).catch(() => {})
     await router.push(config.public.loginPath)
   }
   </script>

@@ -52,8 +52,6 @@
 import { faPlus } from '@fortawesome/free-solid-svg-icons'
 import type { CreateDeveloperApplicationDto, DeveloperApplicationDto } from '~/types/developerApplicationDto';
 
-const auth = useCookie("Authorization");
-
 const spinAddButton = ref(false)
 const applicationSubmitError = ref("")
 
@@ -64,9 +62,7 @@ const createdApplicationToken = ref("")
 
 const { data: applications, refresh } = await useFetch<DeveloperApplicationDto[]>('/api/user/applications', {
   lazy: true,
-  headers: {
-    Authorization: `Bearer ${auth.value}`
-  }
+  headers: useRequestHeaders(['cookie'])
 })
 
 const newApplicationName = ref("")
@@ -99,9 +95,7 @@ async function createApplication(name: string) {
   const resp = await $fetch<CreateDeveloperApplicationDto>('/api/developer_application', {
     method: 'POST',
     body: { name: name },
-    headers: {
-      Authorization: `Bearer ${auth.value}`
-    }
+    headers: siteRequestHeaders()
   }).catch((err) =>{
     applicationSubmitError.value = err.value.statusCode ? `Error: HTTP ${err.value.statusCode}` : "An unkown error occurred"
     resetApplicationField()

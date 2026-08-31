@@ -97,17 +97,30 @@ sign-in and the documentation UI. A deployment does not contain them.
 
 | Path | Holds |
 | --- | --- |
-| `src/website/package.json` | Nuxt scripts and dependencies; npm is represented by the tracked lockfile |
-| `src/website/package-lock.json` | canonical tracked frontend lockfile |
-| `src/website/nuxt.config.ts` | dev proxy and public OAuth/login runtime configuration |
-| `src/website/server/api/[...].ts` | Nitro proxy from `/api/**` to the API |
-| `src/website/middleware/auth.global.ts` | client-side route gate |
-| `src/website/pages/login.vue` | the provider sign-in buttons |
-| `src/website/pages/developer-applications/` | developer application and callback URI administration |
-| `src/website/layouts/dashboard.vue` | authenticated site layout |
-| `src/website/components/` | shared Vue components |
-| `src/website/types/` | frontend user and developer application DTOs |
-| `src/website/assets/css/main.css` | Tailwind CSS entrypoint |
+Paths are relative to `src/website/`. Everything the browser runs lives under
+`app/`, which is what `~` names.
+
+| Path | Holds |
+| --- | --- |
+| `package.json` | scripts and dependencies; npm and `package-lock.json` are canonical |
+| `nuxt.config.ts` | dev proxy, Tailwind, and the public runtime settings |
+| `vitest.config.ts` | test settings; `// @vitest-environment nuxt` opts a file into a real Nuxt runtime |
+| `test/` | the site's tests |
+| `server/api/[...].ts` | proxy from `/api/**` to the API |
+| `server/utils/apiProxy.ts` | where that proxy sends a call, and why it hands redirects back to the browser |
+| `app/utils/providerLogin.ts` | the address that asks the API to start a sign-in |
+| `app/utils/browserSession.ts` | the CSRF header, the session paths, and whether a browser is signed in |
+| `app/middleware/auth.global.ts` | route gate; asks `/api/me` |
+| `app/pages/login.vue` | the provider sign-in buttons |
+| `app/pages/developer-applications/` | developer application and callback URI administration |
+| `app/layouts/dashboard.vue` | authenticated site layout, including logout |
+| `app/components/` | shared Vue components |
+| `app/types/` | user and developer application DTOs |
+| `app/assets/css/main.css` | stylesheet entrypoint, theme tokens, and daisyUI themes |
+
+The site holds no access token. It sends the session cookie the API set, copies
+the readable CSRF cookie into `X-CSRF-Token` on writes, and builds no provider
+address of its own.
 
 ## Data
 
