@@ -8,8 +8,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/abandontech/abandonauth/src/api/docs"
 )
 
 // generatedSchema is the document produced from the handler annotations, which
@@ -22,7 +20,7 @@ func generatedSchema(t *testing.T) apiSchema {
 
 	// Unlike the checked-in reference, this document carries fields the service
 	// does not commit to, so unknown ones are ignored rather than refused.
-	if err := json.Unmarshal([]byte(docs.SwaggerInfo.ReadDoc()), &schema); err != nil {
+	if err := json.Unmarshal([]byte(generatedAPISchema()), &schema); err != nil {
 		t.Fatalf("the generated schema is not an OpenAPI document: %v", err)
 	}
 
@@ -87,7 +85,7 @@ func TestTheGeneratedSchemaHoldsNoCredentials(t *testing.T) {
 		regexp.MustCompile(`(?i)\bset-cookie\b`),
 	}
 
-	generated := []byte(docs.SwaggerInfo.ReadDoc())
+	generated := []byte(generatedAPISchema())
 
 	for _, pattern := range forbidden {
 		if pattern.Match(generated) {

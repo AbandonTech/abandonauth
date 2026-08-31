@@ -9,6 +9,7 @@ RUN go mod download
 
 COPY src/api/ ./
 COPY scripts/ /repo/scripts/
+COPY .env.sample /repo/.env.sample
 
 # Tool versions come from the tool directives in go.mod.
 RUN go tool sqlc generate && \

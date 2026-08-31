@@ -4,6 +4,10 @@
 !src/api/**
 !scripts/**
 
+# A placeholder file, and the only .env the tests read. `.env` itself stays
+# excluded by the `**` above.
+!.env.sample
+
 # Generated in the image; copying a host-built copy in would let a stale one be tested.
 src/api/internal/database/query/**
 src/api/docs/**

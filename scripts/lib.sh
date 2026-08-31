@@ -41,12 +41,17 @@ run_stage() {
         return 0
     fi
     # The `if` wrapper is load-bearing: under `set -e` a bare `out=$(...)` exits
-    # the shell the instant the command fails, losing the captured output.
+    # the shell the instant the command fails, losing the captured output. The
+    # `else` is load-bearing too: an `if` whose condition is false and which has
+    # no else branch is itself a success, so reading $? after `fi` would report
+    # the failed stage as having exited 0.
     if out=$("$@" 2>&1); then
         ok "$name"
         return 0
+    else
+        status=$?
     fi
-    status=$?
+
     printf '==> %s ... FAILED\n' "$name" >&2
     printf '%s\n' "$out" >&2
     exit $status

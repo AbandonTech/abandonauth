@@ -51,7 +51,7 @@ type Service struct {
 
 	// Logs holds everything the service wrote while the test ran, so a test can
 	// assert that a credential never reached them.
-	Logs *strings.Builder
+	Logs *RecordedLogs
 
 	service *web.Server
 	server  *httptest.Server
@@ -83,7 +83,7 @@ func New(t *testing.T, choices ...Option) *Service {
 
 	dependencies := chosen.dependencies
 
-	logs := &strings.Builder{}
+	logs := &RecordedLogs{}
 	logger := zerolog.New(logs).With().Timestamp().Logger()
 
 	dependencies.Pool = pool

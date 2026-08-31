@@ -1,0 +1,49 @@
+name: Check
+
+on:
+  workflow_call
+
+jobs:
+  api:
+    name: Runs the check pipeline
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: src/api/go.mod
+          cache-dependency-path: src/api/go.sum
+
+      # No service block and no TEST_DATABASE_URL: the script brings its own
+      # database up, which is what keeps this identical to a local run.
+      - name: Check
+        run: ./scripts/check.sh --integration --images
+
+  website:
+    name: Tests and builds the site
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # Matches the version src/website/Dockerfile builds with.
+          node-version: "24.13.0"
+          cache: npm
+          cache-dependency-path: src/website/package-lock.json
+
+      - name: Install dependencies
+        run: npm --prefix src/website ci
+
+      - name: Test
+        run: npm --prefix src/website test
+
+      - name: Build
+        run: npm --prefix src/website run build

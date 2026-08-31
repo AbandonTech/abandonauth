@@ -5,6 +5,7 @@ package web
 import (
 	"net/http"
 	"strings"
+	"sync"
 
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 
@@ -20,6 +21,13 @@ const externalPrefix = "/api"
 
 // APISchemaPath is where the published schema is served.
 const APISchemaPath = "/openapi.json"
+
+// generatedAPISchema renders the annotations into the published document.
+//
+// Rendering writes back to the package-level value it renders from, so two
+// callers at once race on it. The result is the same every time, so it is
+// produced once.
+var generatedAPISchema = sync.OnceValue(docs.SwaggerInfo.ReadDoc)
 
 // documentationHandlers are the routes only the development build serves.
 func (s *Server) devtoolsHandlers() map[RouteName]http.Handler {
@@ -107,7 +115,7 @@ func (s *Server) apiSchema() http.Handler {
 		}
 
 		writer.Header().Set("Content-Type", response.ContentTypeJSON)
-		_, _ = writer.Write([]byte(docs.SwaggerInfo.ReadDoc()))
+		_, _ = writer.Write([]byte(generatedAPISchema()))
 	})
 }
 

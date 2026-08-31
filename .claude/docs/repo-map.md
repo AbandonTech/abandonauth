@@ -141,6 +141,7 @@ rewrite live data for no functional gain and is deliberately out of scope.
 | --- | --- |
 | `./scripts/check.sh` | codegen, formatting, tidiness, both builds, revive, vet on every tag set, and the unit tests |
 | `./scripts/check.sh --integration` | the above, then the race, database, and coverage checks in a container |
+| `./scripts/check.sh --images` | builds both API images and checks what they hold and refuse |
 | `./scripts/db.sh up` / `down` | the throwaway database |
 
 `go test -race` links a C runtime, so the race, integration, and coverage checks
@@ -150,16 +151,23 @@ run only in the container. Nothing here requires a C compiler on the host.
 
 | Path | Holds |
 | --- | --- |
+| `src/api/Dockerfile` | one build, two runtime targets: `deployment` (the default) and `development` |
 | `Dockerfile.test` | the image the container checks run in |
-| `.pre-commit-config.yaml` | whitespace checks; the API hooks are replaced at plan step 26 |
-| `.github/workflows/` | lint, image build and publish, and pull-request workflows |
+| `.pre-commit-config.yaml` | whitespace checks and `scripts/check.sh` |
+| `.github/workflows/check.yml` | the check pipeline and the site's tests and build |
+| `.github/workflows/linting.yml` | pre-commit, skipping the hook `check.yml` already runs |
+| `.github/workflows/` | image build and publish, and the push and pull-request entry points |
 | `.github/dependabot.yml` | dependency updates |
+
+The deployment image is what is published. It carries neither password sign-in
+nor the documentation UI, refuses `DEBUG=true`, runs as an account that is not
+root, and holds nothing but the binary and a certificate bundle. Compose builds
+the `development` target, which is the variant those routes are compiled into.
 
 ## Work in progress
 
 `src/api/abandonauth/`, `src/api/pyproject.toml`, `src/api/poetry.lock`,
-`src/api/prisma/`, the root `prisma/` directory, and the API entries in
-`compose.yml`, `src/api/Dockerfile` and `.pre-commit-config.yaml` describe the
-service being replaced. They are removed at plan steps 26 and 27. Read
+`src/api/prisma/`, and the root `prisma/` directory describe the service being
+replaced. They are removed at plan step 27. Read
 `.plans/migrate-fastapi-backend-to-go.progress.md` for what is done and what is
 next; do not read them as a description of what the service now does.

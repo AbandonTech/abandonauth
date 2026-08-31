@@ -5,15 +5,15 @@ services:
     build:
       context: src/api
       dockerfile: Dockerfile
-      args: # Enables hot reloading
-        - uvicorn_extras=--reload
+      target: development
     env_file:
-      - ".env"
+      # Absent on a checkout that has not been configured yet, which keeps
+      # `docker compose config` usable as a validation step.
+      - path: ".env"
+        required: false
     depends_on:
-      - database
-    volumes:  # mount the source code as a volume, so we can use hot reloading
-      - "./src/api/abandonauth:/app/abandonauth:ro"
-      - "./prisma:/app/prisma:ro"
+      database:
+        condition: service_healthy
 
   website:
     network_mode: "host"
