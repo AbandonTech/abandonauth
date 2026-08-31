@@ -5,6 +5,7 @@ Authentic Auth Service... Provides identification of a user from multiple extern
 Currently supported:
 - Discord
 - GitHub
+- Google
 
 # Using AbandonAuth
 
@@ -22,42 +23,99 @@ Currently supported:
    ![Callback URIs](./docs/imgs/callback-uris-example.png)
 4. Configure *your* application to use your developer application ID and secret to authenticate users from AbandonAuth.
 
-For a quick example of how to log a user in using AbandonAuth, please see [AbandonAuth's login UI](./abandonauth/routers/ui.py)
+For a quick example of how a browser is signed in, see the site's login page,
+[`src/website/app/pages/login.vue`](./src/website/app/pages/login.vue).
 
+# Local Development Guide
 
-## Local Development Guide
+## Prerequisites
 
-## First Time Install
+| Needed for | Install |
+| --- | --- |
+| Everything | [Docker](https://docs.docker.com/get-docker/) |
+| The API checks on your own machine | [Go](https://go.dev/dl/) 1.21 or newer |
+| The site's tests and build | [Node](https://nodejs.org/) 24 |
+| The commit hooks | [pre-commit](https://pre-commit.com/#install) |
 
-Create your `.env` file in the root project directory, you can copy `.env.sample` as the base for this.
+`src/api/go.mod` asks for Go 1.27, and `GOTOOLCHAIN` defaults to `auto`, so a
+newer toolchain is fetched for you if the one you have is older. Nothing here
+needs a C compiler: the checks that do, the race detector among them, run inside
+a container.
 
-Read how to setup [Discord OAuth2 here.](./docs/DISCORD-OAUTH2.md)
+## First time install
 
-`docker compose up --build`
+Create your `.env` in the root of the project; copy `.env.sample` as the base.
+It carries every setting the API reads, with placeholders. Fill in the provider
+registrations you want:
 
-A sample User schema has been created to allow the prisma client to generate upon project creation. This should be
-modified or deleted to fit your app's needs prior to creating any migrations.
+- [Discord](./docs/DISCORD-OAUTH2.md)
+- [GitHub](./docs/GITHUB-OAUTH2.md)
+
+Then:
+
+```shell
+docker compose up --build
+```
+
+The site is on port 3000 and the API on 8000. Reach the API through the site,
+at `/api`: that is the origin the sign-in cookies belong to, and a provider that
+returns a browser straight to port 8000 sends none of them.
+
+Compose builds the API's `development` image, which is the variant carrying
+password sign-in and the API documentation. Both need `DEBUG=true`, which
+`.env.sample` sets. The published image is a separate build that contains
+neither and refuses to start with `DEBUG` set at all.
+
+The documentation is at <http://localhost:3000/api/docs>.
+
+## Checks
+
+One script, and CI runs the same one, so the two cannot drift.
+
+```shell
+./scripts/check.sh                # codegen, formatting, lint, build, unit tests
+./scripts/check.sh --quick        # the same, skipping codegen and go mod tidy
+./scripts/check.sh --fix-fmt      # format the source, then check
+./scripts/check.sh --integration  # also the race, database and coverage checks
+./scripts/check.sh --images       # also build both images and check what they hold
+./scripts/db.sh down              # remove the test database when you are done
+
+npm --prefix src/website test
+npm --prefix src/website run build
+```
+
+`--integration` and `--images` need Docker; the rest runs on your machine.
+`./scripts/check.sh` reports formatting rather than correcting it, so that a
+check never rewrites your work; `--fix-fmt` is how you correct it.
+
+The sqlc and Swagger output is generated on every run and is not committed.
+Never edit it.
 
 ## Migrations
-This project is using [prisma](https://www.prisma.io/) as the ORM
 
-### Pushing migrations to the database
-The migrations can be pushed to the running postgresql container using the
-[schema](./prisma/schema.prisma) and migrations found in `./prisma/migrations`.
+The schema is `.sql` files under
+[`src/api/internal/database/migrations/`](./src/api/internal/database/migrations),
+run by [goose](https://github.com/pressly/goose). They are compiled into the
+binary, so a deployment needs no schema file alongside it.
 
-```shell
-prisma db push --schema prisma/schema.prisma
-```
+`abandonauth serve` applies anything outstanding before it accepts a request, so
+`docker compose up` migrates a development database for you.
 
-### Creating migrations
-Migrations can be created by using this command, while the database is running.
+To add one, write a new file named `<UTC timestamp>_<what it does>.sql` with
+`-- +goose Up` and `-- +goose Down` sections. Down is for tests only; a
+deployment never runs it. Queries live in
+[`src/api/internal/database/queries/`](./src/api/internal/database/queries) and
+`sqlc` turns them into Go on the next check.
 
-```shell
-prisma migrate dev --schema prisma/schema.prisma --name "what this change does"
-```
+A database that already holds the tables without a record of this service having
+migrated them is taken over once, deliberately, with
+`abandonauth database adopt-existing-schema`. Run it with `--verify-only` first:
+it reports what it would do and changes nothing.
 
 ## Pre-commit
-Install pre-commit to make sure you never fail linting in CI
+
+Install the hooks so you never fail linting in CI:
+
 ```shell
-poetry run pre-commit install
+pre-commit install
 ```

@@ -1,17 +1,17 @@
 # AbandonAuth
 
-AbandonAuth is an identity provider and OAuth application broker. It runs a
-FastAPI API, a Nuxt administration and login site, and PostgreSQL through
-Prisma. Authentication, authorization, token, session, redirect, credential,
-and account changes are security-critical.
+AbandonAuth is an identity provider and OAuth application broker. It runs a Go
+API, a Nuxt administration and login site, and PostgreSQL. Authentication,
+authorization, token, session, redirect, credential, and account changes are
+security-critical.
 
 ## Read before changing code
 
 | Work | Read first |
 | --- | --- |
 | Finding code | `.claude/docs/repo-map.md` |
-| Architecture or data flow | `.claude/docs/architecture.md` |
-| Auth, OAuth, tokens, sessions, or secrets | `.claude/docs/security.md` |
+| Architecture or data flow | `.claude/docs/architecture.md` (stale; see below) |
+| Auth, OAuth, tokens, sessions, or secrets | `.claude/docs/security.md` (stale; see below) |
 | Tests or validation | `.claude/docs/testing.md` |
 | Agent phase boundaries | `.agents/abandonauth-agent-workflow.md` |
 
@@ -19,6 +19,10 @@ Read the repo map before searching or launching an exploration agent. Use
 targeted Glob, Grep, or direct reads after the map as tool permissions allow.
 Update the map in the same change when files, routes, packages, or agent
 workflow components move or change.
+
+`architecture.md` and `security.md` still describe an implementation this
+service no longer has. Read the code, not them, until they are rewritten;
+`.plans/migrate-fastapi-backend-to-go.progress.md` says when that happens.
 
 ## Workflow
 
@@ -53,39 +57,58 @@ the user can start implementation. Detailed rules live in
   reachable through production configuration mistakes.
 - Use exact authorization and scope comparisons. Keep user, developer
   application, exchange, access, refresh, and session credentials distinct.
-- Use database migrations for schema changes. Never use `prisma db push`
-  against production or assume an empty database.
+- Use database migrations for schema changes. Never push a schema at a
+  production database, never run a migration down there, and never assume the
+  database is empty.
 - Add negative, abuse-case, and regression tests before changing security
   semantics. Mock provider HTTP calls; never use live OAuth credentials in
   tests.
 
 ## Current validation
 
-There is no tracked automated test suite or frontend lint/typecheck command.
-Do not claim those checks passed. For relevant changes, run the checks that
-exist and report the gap:
+One script covers the API, and CI runs the same one, so local and CI cannot
+drift. Run what a change could have broken and report exactly what you ran:
 
 ```text
-poetry -C src/api run ruff check .
-poetry -C src/api run pyright
+./scripts/check.sh                 codegen, formatting, lint, both builds, unit tests
+./scripts/check.sh --integration   also the race, database and coverage checks
+./scripts/check.sh --images        also both images and the composed stack
+./scripts/db.sh down               remove the test database afterwards
+
+npm --prefix src/website test
 npm --prefix src/website run build
-docker compose config
 ```
 
-The pre-commit hooks run Ruff with fixes and run Prisma format/generate. They
-can modify files, so inspect the worktree before and after using them. New
-behavior requires a real automated test suite or an explicit plan to establish
-the missing infrastructure; manual requests are not a substitute for tests.
+`--integration` and `--images` need Docker and take minutes; the default run
+does not. `./scripts/check.sh` reports formatting rather than correcting it, and
+`--fix-fmt` corrects it, so a check never rewrites the worktree unannounced.
+
+The 80% per-package coverage gate is not currently met. Do not describe a run as
+passing when it failed there.
+
+There is still no frontend lint or typecheck command. Do not claim one passed;
+Vitest and the production build are the site's validation.
+
+New behavior requires tests. A manual request is not a substitute for one.
 
 ## Repository constraints
 
-- Python is 3.11 with absolute imports, Ruff, and Pyright settings in
-  `src/api/pyproject.toml`.
-- The frontend is Nuxt 3, Vue 3, TypeScript, Tailwind, and DaisyUI.
+- The API is Go, with the toolchain, dependency and tool versions pinned in
+  `src/api/go.mod`. Lint rules are in `src/api/revive.toml`.
+- The frontend is Nuxt 4, Vue 3, TypeScript, Tailwind, and DaisyUI.
 - `src/website/package-lock.json` is tracked. Do not add or update another
   package-manager lockfile unless the user first chooses a package manager.
-- Do not edit generated Prisma client code. Read `src/api/prisma/schema.prisma`
-  and migrations instead.
+- Generated code is not committed and is never edited: the sqlc output under
+  `src/api/internal/database/query/` and the Swagger output under
+  `src/api/docs/`. Change the SQL in `internal/database/queries/` or the handler
+  annotations instead, and regenerate.
+- The schema is the goose migrations under
+  `src/api/internal/database/migrations/`, embedded in the binary. Do not add a
+  second description of it.
+- Two API builds come from one Dockerfile. The `deployment` target is what is
+  published and carries neither password sign-in nor the documentation UI; the
+  `development` target is built with `-tags=devtools` and carries both. Code that
+  must not exist in a deployment lives in a file guarded by that tag.
 - Preserve unrelated user changes and ignored local configuration.
 
 ## Naming and documentation
