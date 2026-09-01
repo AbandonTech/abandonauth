@@ -95,6 +95,149 @@ func TestReplacingCallbacksLeavesExactlyWhatWasSubmitted(t *testing.T) {
 	}
 }
 
+// An application may have no callbacks at all. Submitting an empty set is how
+// it says so, and no login can be started for it afterwards.
+func TestAnApplicationCanClearItsCallbacks(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	service.SignIn(service.Providers.Someone(oauth.Discord, "the owner"))
+
+	application := service.RegisterApplication("an application", externalCallbackURI)
+
+	service.GET(authorizePath(application.ID, externalCallbackURI)).
+		ExpectStatus(http.StatusTemporaryRedirect)
+
+	service.PATCHJSON(
+		"/developer_application/"+application.ID.String()+"/callback_uris",
+		[]string{},
+		service.Protected,
+	).ExpectStatus(http.StatusOK)
+
+	if registered := registeredCallbacks(t, service, application); len(registered) != 0 {
+		t.Errorf("registered callbacks = %v, want none", registered)
+	}
+
+	service.GET(authorizePath(application.ID, externalCallbackURI)).
+		ExpectStatus(http.StatusForbidden).
+		ExpectDetail("Invalid application ID or callback_uri")
+}
+
+// Changing an application is the owner's to do. Somebody else is told exactly
+// what they would be told about an application nobody registered, and the
+// owner's application is left as it was.
+func TestChangingAnApplicationNeedsToOwnIt(t *testing.T) {
+	t.Parallel()
+
+	attempts := map[string]func(*servertest.Service, string) *servertest.Response{
+		"deleting it": func(service *servertest.Service, id string) *servertest.Response {
+			return service.DELETE("/developer_application/"+id, service.Protected)
+		},
+		"replacing its credential": func(service *servertest.Service, id string) *servertest.Response {
+			return service.PATCHJSON("/developer_application/"+id+"/reset_token", nil, service.Protected)
+		},
+		"replacing its callbacks": func(service *servertest.Service, id string) *servertest.Response {
+			return service.PATCHJSON(
+				"/developer_application/"+id+"/callback_uris",
+				[]string{"https://elsewhere.example.test/return"},
+				service.Protected,
+			)
+		},
+	}
+
+	for name, attempt := range attempts {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			service := servertest.New(t)
+
+			owner := service.Providers.Someone(oauth.Discord, "the owner")
+			service.SignIn(owner)
+
+			application := service.RegisterApplication("an application", externalCallbackURI)
+
+			service.SignIn(service.Providers.Someone(oauth.Discord, "a stranger"))
+
+			stranger := attempt(service, application.ID.String()).ExpectStatus(http.StatusNotFound)
+			absent := attempt(service, uuid.New().String()).ExpectStatus(http.StatusNotFound)
+
+			if string(stranger.Body) != string(absent.Body) {
+				t.Errorf(
+					"an application somebody owns answers %s and one nobody owns answers %s",
+					stranger.Body, absent.Body,
+				)
+			}
+
+			service.SignIn(owner)
+
+			registered := registeredCallbacks(t, service, application)
+			if len(registered) != 1 || registered[0] != externalCallbackURI {
+				t.Errorf("registered callbacks = %v, want the set the owner registered", registered)
+			}
+
+			token := applicationAccessToken(t, service, application.ID, application.RefreshToken)
+			service.GET("/developer_application/me", servertest.Bearer(token)).ExpectStatus(http.StatusOK)
+		})
+	}
+}
+
+// Ownership is settled before a submitted body is read, so a stranger sending
+// something this service would refuse still only learns that it found nothing.
+func TestAStrangersUnusableCallbacksAreStillNothingFound(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+
+	owner := service.Providers.Someone(oauth.Discord, "the owner")
+	service.SignIn(owner)
+
+	application := service.RegisterApplication("an application", externalCallbackURI)
+	path := "/developer_application/" + application.ID.String() + "/callback_uris"
+
+	service.SignIn(service.Providers.Someone(oauth.Discord, "a stranger"))
+
+	service.PATCHJSON(path, []string{"javascript:alert(1)"}, service.Protected).
+		ExpectStatus(http.StatusNotFound).
+		ExpectDetail("Not Found")
+
+	service.PATCHJSON(path, map[string][]string{"callback_uris": {}}, service.Protected).
+		ExpectStatus(http.StatusNotFound).
+		ExpectDetail("Not Found")
+
+	service.SignIn(owner)
+
+	registered := registeredCallbacks(t, service, application)
+	if len(registered) != 1 || registered[0] != externalCallbackURI {
+		t.Errorf("registered callbacks = %v, want the set the owner registered", registered)
+	}
+}
+
+// A credential is required before anything a request carries is read, so a
+// request without one is refused for the credential rather than told which of
+// its inputs this service could not read.
+func TestManagingApplicationsChecksTheCredentialBeforeTheInput(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+
+	service.POSTJSON("/developer_application", map[string]string{}).
+		ExpectStatus(http.StatusForbidden).
+		ExpectDetail("Not authenticated")
+
+	service.GET("/developer_application/not-an-identifier").
+		ExpectStatus(http.StatusForbidden).
+		ExpectDetail("Not authenticated")
+
+	service.DELETE("/developer_application/not-an-identifier").
+		ExpectStatus(http.StatusForbidden).
+		ExpectDetail("Not authenticated")
+
+	service.PATCHJSON("/developer_application/not-an-identifier/callback_uris",
+		map[string][]string{"callback_uris": {}}).
+		ExpectStatus(http.StatusForbidden).
+		ExpectDetail("Not authenticated")
+}
+
 // A submitted list is taken whole or not at all: one URI this service would not
 // return a browser to leaves the application with what it had.
 func TestOneUnusableCallbackLeavesTheRegisteredSetAlone(t *testing.T) {

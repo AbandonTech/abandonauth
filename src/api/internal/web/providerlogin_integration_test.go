@@ -3,6 +3,7 @@
 package web_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
+	"github.com/abandontech/abandonauth/src/api/internal/services/providers/providertest"
 	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
 )
 
@@ -243,19 +245,135 @@ func TestALoginThisServiceDidNotStartCannotBeFinished(t *testing.T) {
 }
 
 // A person who declines at the provider comes back without a code. There is
-// nothing to exchange, so they are simply returned to where they came from.
-func TestALoginTheProviderDidNotCompleteReturnsTheBrowser(t *testing.T) {
+// nothing to exchange, so they are simply returned to where they came from and
+// nobody is signed in.
+//
+// The login is spent all the same. Coming back a second time with a code the
+// provider really would honour finds no login at all, so a declined attempt
+// cannot be picked up later by whoever saw the state travel past.
+func TestALoginTheProviderDidNotCompleteIsOverForGood(t *testing.T) {
+	t.Parallel()
+
+	for _, provider := range oauth.Providers {
+		t.Run(string(provider), func(t *testing.T) {
+			t.Parallel()
+
+			service := servertest.New(t)
+			started := service.StartLogin(provider, service.Site.ApplicationID, service.Site.CallbackURI)
+
+			declined := service.ReturnFromProvider(provider, "", started.State).
+				ExpectStatus(http.StatusTemporaryRedirect).
+				ExpectRedirectTo(service.Site.CallbackURI)
+
+			if declined.Cookie(service.SessionCookieName()) != nil {
+				t.Error("a browser that never signed in was given a session")
+			}
+
+			code := service.Providers.Issue(provider, providertest.Grant{
+				Identity:  service.Providers.Someone(provider, "the person who declined"),
+				Challenge: started.Challenge,
+				Nonce:     started.Nonce,
+			})
+
+			replayed := service.ReturnFromProvider(provider, code, started.State).
+				ExpectStatus(http.StatusForbidden).
+				ExpectDetail("This login could not be matched to one that was started here")
+
+			if replayed.Cookie(service.SessionCookieName()) != nil {
+				t.Error("a login that was already over signed a browser in")
+			}
+
+			if location := replayed.Header.Get("Location"); location != "" {
+				t.Error("a login that was already over returned the browser somewhere")
+			}
+		})
+	}
+}
+
+// A state value completes one login. Two callbacks arriving together with the
+// same state, from the same browser, are not two sign-ins.
+//
+// Each carries an authorization code of its own that the provider would honour,
+// so nothing on the provider's side can be what refuses the second: only the
+// login state can. The site's own application is used, so a completed login
+// ends in a session rather than in a code travelling in a URL.
+func TestOneLoginStateCompletesAtMostOnce(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
 	started := service.StartLogin(oauth.Discord, service.Site.ApplicationID, service.Site.CallbackURI)
 
-	response := service.ReturnFromProvider(oauth.Discord, "", started.State).
-		ExpectStatus(http.StatusTemporaryRedirect).
-		ExpectRedirectTo(service.Site.CallbackURI)
+	binding := &http.Cookie{
+		Name:  service.LoginCookieName(),
+		Value: service.CookieValue(service.LoginCookieName()),
+	}
 
-	if response.Cookie(service.SessionCookieName()) != nil {
-		t.Error("a browser that never signed in was given a session")
+	if binding.Value == "" {
+		t.Fatal("the browser was given nothing that ties the login to it")
+	}
+
+	person := service.Providers.Someone(oauth.Discord, "a person coming back twice at once")
+	requests := make([]*http.Request, 0, 2)
+
+	for range 2 {
+		code := service.Providers.Issue(oauth.Discord, providertest.Grant{
+			Identity:  person,
+			Challenge: started.Challenge,
+			Nonce:     started.Nonce,
+		})
+
+		address := service.URL() + servertest.CallbackPath(oauth.Discord) + "?" + url.Values{
+			"code":  {code},
+			"state": {started.State},
+		}.Encode()
+
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, address, nil)
+		if err != nil {
+			t.Fatalf("preparing a callback request: %v", err)
+		}
+
+		request.AddCookie(binding)
+		requests = append(requests, request)
+	}
+
+	var completed, refused, signedIn int
+
+	for _, answer := range atTheSameMoment(t, requests...) {
+		switch answer.status {
+		case http.StatusTemporaryRedirect:
+			completed++
+
+			if answer.location != service.Site.CallbackURI {
+				t.Error("a completed login returned the browser somewhere it did not start")
+			}
+
+			if answer.cookie(service.SessionCookieName()) != nil {
+				signedIn++
+			}
+		case http.StatusForbidden:
+			refused++
+
+			var failed struct {
+				Detail string `json:"detail"`
+			}
+
+			switch err := json.Unmarshal(answer.body, &failed); {
+			case err != nil:
+				t.Error("a refused callback did not answer in this service's failure shape")
+			case failed.Detail != "This login could not be matched to one that was started here":
+				t.Error("a callback was refused for something other than the login not matching")
+			}
+		default:
+			t.Errorf("a callback answered %d", answer.status)
+		}
+	}
+
+	if completed != 1 || refused != 1 {
+		t.Errorf("%d callbacks completed and %d were refused, want one of each", completed, refused)
+	}
+
+	if signedIn != 1 {
+		t.Errorf("%d browsers were signed in, want one", signedIn)
 	}
 }
 

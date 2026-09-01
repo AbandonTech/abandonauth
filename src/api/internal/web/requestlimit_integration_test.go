@@ -152,6 +152,47 @@ func TestGuessingOneTimeCodesRunsOut(t *testing.T) {
 	).ExpectStatus(http.StatusUnauthorized)
 }
 
+// A public budget is spent before the request is read, so sending something
+// this service cannot read is not a way to make attempts free.
+func TestARequestThatCannotBeReadStillSpendsItsBudget(t *testing.T) {
+	t.Parallel()
+
+	endpoints := map[string]struct {
+		group ratelimit.Group
+		path  string
+	}{
+		"spending a one-time code": {group: ratelimit.LoginExchange, path: "/login"},
+		"withdrawing a credential": {group: ratelimit.BurnToken, path: "/burn-token"},
+	}
+
+	for name, endpoint := range endpoints {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			service := servertest.New(t, servertest.WithSteadyClock())
+
+			policy, known := ratelimit.PolicyFor(endpoint.group)
+			if !known {
+				t.Fatalf("%s has no budget", name)
+			}
+
+			unreadable := []func(*http.Request){
+				servertest.Header("Content-Type", "application/json"),
+				asClient("198.51.100.50"),
+			}
+
+			for attempt := int64(0); attempt < policy.Limit; attempt++ {
+				service.POSTRaw(endpoint.path, "{", unreadable...).
+					ExpectStatus(http.StatusUnprocessableEntity)
+			}
+
+			service.POSTRaw(endpoint.path, "{", unreadable...).
+				ExpectStatus(http.StatusTooManyRequests).
+				ExpectDetail("Too many requests. Try again later.")
+		})
+	}
+}
+
 // Nothing a limit is keyed on is stored as it arrived: the client address is
 // kept only as a keyed hash.
 func TestNoClientAddressIsKeptInTheClear(t *testing.T) {

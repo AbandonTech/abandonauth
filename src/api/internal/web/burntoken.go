@@ -8,6 +8,15 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/web/response"
 )
 
+// readWithdrawnCredential reads the credential a caller asks to have withdrawn.
+// It is required, and is any value the caller is holding rather than a shape
+// this service checks.
+func readWithdrawnCredential(given *inputs.Inputs) string {
+	given.DecodeObjectBody()
+
+	return given.BodyString("token")
+}
+
 // burnToken withdraws a credential before it would have expired.
 //
 // A one-time code is removed and an access token is recorded as refused for the
@@ -32,8 +41,7 @@ func (s *Server) burnToken() http.Handler {
 		}
 
 		given := inputs.New(request)
-		given.DecodeObjectBody()
-		presented := given.BodyString("token")
+		presented := readWithdrawnCredential(given)
 
 		if !given.OK() {
 			response.Invalid(writer, given.Failures())

@@ -52,18 +52,7 @@ const (
 func (s *Server) providerAuthorize() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		given := inputs.New(request)
-
-		provider, known := oauth.ParseProvider(given.PathString("provider"))
-		if !known {
-			given.Refuse(response.Failure{
-				Location: []any{"path", "provider"},
-				Message:  "Input should be 'discord', 'github' or 'google'",
-				Type:     "enum",
-			})
-		}
-
-		applicationID := given.QueryUUID("application_id")
-		callbackURI := given.Query("callback_uri")
+		wanted := readProviderLoginInputs(given)
 
 		if !given.OK() {
 			response.Invalid(writer, given.Failures())
@@ -75,7 +64,9 @@ func (s *Server) providerAuthorize() http.Handler {
 			return
 		}
 
-		registered, err := s.applications.CallbackIsRegistered(request.Context(), applicationID, callbackURI)
+		registered, err := s.applications.CallbackIsRegistered(
+			request.Context(), wanted.applicationID, wanted.callbackURI,
+		)
 		if err != nil {
 			s.refuseUnavailable(writer, request, err)
 
@@ -89,7 +80,7 @@ func (s *Server) providerAuthorize() http.Handler {
 		}
 
 		started, err := s.logins.Begin(
-			request.Context(), provider, applicationID, callbackURI,
+			request.Context(), wanted.provider, wanted.applicationID, wanted.callbackURI,
 			cookieValue(request, s.LoginCookieName()),
 		)
 		if err != nil {
@@ -99,8 +90,35 @@ func (s *Server) providerAuthorize() http.Handler {
 		}
 
 		s.bindLoginToBrowser(writer, started.BrowserBinding)
-		response.Redirect(writer, http.StatusTemporaryRedirect, s.authorizationURL(provider, started))
+		response.Redirect(writer, http.StatusTemporaryRedirect, s.authorizationURL(wanted.provider, started))
 	})
+}
+
+// providerLoginInputs is what starting a login names: who to sign in with, for
+// which application, and where the person is to be returned.
+type providerLoginInputs struct {
+	provider      oauth.Provider
+	applicationID uuid.UUID
+	callbackURI   string
+}
+
+// readProviderLoginInputs reads all three, refusing a provider this service does
+// not offer as an input rather than looking anything up for it.
+func readProviderLoginInputs(given *inputs.Inputs) providerLoginInputs {
+	provider, known := oauth.ParseProvider(given.PathString("provider"))
+	if !known {
+		given.Refuse(response.Failure{
+			Location: []any{"path", "provider"},
+			Message:  "Input should be 'discord', 'github' or 'google'",
+			Type:     "enum",
+		})
+	}
+
+	return providerLoginInputs{
+		provider:      provider,
+		applicationID: given.QueryUUID("application_id"),
+		callbackURI:   given.Query("callback_uri"),
+	}
 }
 
 func (s *Server) authorizationURL(provider oauth.Provider, started oauth.Start) string {

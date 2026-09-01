@@ -4,6 +4,8 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/google/uuid"
+
 	"github.com/abandontech/abandonauth/src/api/internal/services/applications"
 	"github.com/abandontech/abandonauth/src/api/internal/services/ratelimit"
 	"github.com/abandontech/abandonauth/src/api/internal/services/tokens"
@@ -16,6 +18,42 @@ import (
 // return a browser to. It says which position in the submitted list was
 // refused and why, and never repeats the URI.
 const detailUnsafeCallback = "One of the callback URIs is not a URI this service will return a browser to"
+
+// readApplicationName reads the name a new application is registered under.
+func readApplicationName(given *inputs.Inputs) string {
+	given.DecodeObjectBody()
+
+	return given.BodyString("name")
+}
+
+// applicationCredentials are what an application authenticates itself with.
+type applicationCredentials struct {
+	applicationID uuid.UUID
+	refreshToken  string
+}
+
+// readApplicationCredentials reads an application's own credentials, both of
+// which are required.
+func readApplicationCredentials(given *inputs.Inputs) applicationCredentials {
+	given.DecodeObjectBody()
+
+	return applicationCredentials{
+		applicationID: given.BodyUUID("id"),
+		refreshToken:  given.BodyString("refresh_token"),
+	}
+}
+
+// readApplicationIdentifier reads the application a path names.
+func readApplicationIdentifier(given *inputs.Inputs) uuid.UUID {
+	return given.PathUUID("application_id")
+}
+
+// readSubmittedCallbackURIs reads the complete set of URIs an application may be
+// returned to. The body is the list itself, and an empty list is the way an
+// application says it has no callbacks.
+func readSubmittedCallbackURIs(given *inputs.Inputs) []string {
+	return given.DecodeStringArrayBody()
+}
 
 // describeApplication is the published shape of an application.
 func describeApplication(application applications.Application) models.DeveloperApplicationDto {
@@ -51,8 +89,7 @@ func (s *Server) createApplication() http.Handler {
 		}
 
 		given := inputs.New(request)
-		given.DecodeObjectBody()
-		name := given.BodyString("name")
+		name := readApplicationName(given)
 
 		if !given.OK() {
 			response.Invalid(writer, given.Failures())
@@ -101,9 +138,7 @@ func (s *Server) createApplication() http.Handler {
 func (s *Server) applicationLogin() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		given := inputs.New(request)
-		given.DecodeObjectBody()
-		applicationID := given.BodyUUID("id")
-		refreshToken := given.BodyString("refresh_token")
+		presented := readApplicationCredentials(given)
 
 		if !given.OK() {
 			response.Invalid(writer, given.Failures())
@@ -116,12 +151,14 @@ func (s *Server) applicationLogin() http.Handler {
 		// lock a real application out of its own sign-in.
 		if !s.withinLimit(
 			writer, request, ratelimit.DeveloperApplicationLogin,
-			s.clientAddress(request), applicationID.String(),
+			s.clientAddress(request), presented.applicationID.String(),
 		) {
 			return
 		}
 
-		application, err := s.applications.Authenticate(request.Context(), applicationID, refreshToken)
+		application, err := s.applications.Authenticate(
+			request.Context(), presented.applicationID, presented.refreshToken,
+		)
 		if errors.Is(err, applications.ErrInvalidCredential) {
 			response.Error(writer, http.StatusUnauthorized, detailApplicationRejected)
 
@@ -339,7 +376,7 @@ func (s *Server) replaceCallbackURIs() http.Handler {
 		}
 
 		given := inputs.New(request)
-		uris := given.DecodeStringArrayBody()
+		uris := readSubmittedCallbackURIs(given)
 
 		if !given.OK() {
 			response.Invalid(writer, given.Failures())
@@ -383,7 +420,7 @@ func (s *Server) callerApplication(
 	}
 
 	given := inputs.New(request)
-	applicationID := given.PathUUID("application_id")
+	applicationID := readApplicationIdentifier(given)
 
 	if !given.OK() {
 		response.Invalid(writer, given.Failures())

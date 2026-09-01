@@ -4,9 +4,13 @@ package web_test
 
 import (
 	"net/http"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
+	"github.com/abandontech/abandonauth/src/api/internal/services/tokens"
+	"github.com/abandontech/abandonauth/src/api/internal/web"
 	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
 )
 
@@ -158,4 +162,94 @@ func TestSpendingACodeNeedsTheCode(t *testing.T) {
 	service := servertest.New(t)
 
 	service.POSTJSON("/login", nil).ExpectRejectedInput("header", "exchange-token")
+}
+
+// The request is read before the credential it carries is looked at, so an
+// application holding a token this service issued still has to send something
+// this service can read. Nothing is spent by a request that was never read.
+func TestSpendingACodeReadsTheRequestBeforeTheCredential(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	service.SignIn(service.Providers.Someone(oauth.Discord, "the owner"))
+
+	application := service.RegisterApplication("a relying application", externalCallbackURI)
+	token := applicationAccessToken(t, service, application.ID, application.RefreshToken)
+	code := signInToApplication(t, service, application, externalCallbackURI)
+
+	service.POSTRaw("/login", "{",
+		servertest.Header("Content-Type", "application/json"),
+		servertest.Header("exchange-token", code),
+		servertest.Bearer(token),
+	).ExpectRejectedInput("body")
+
+	service.POSTRaw("/login", "",
+		servertest.Header("exchange-token", code),
+		servertest.Bearer(token),
+	).ExpectStatus(http.StatusOK)
+}
+
+// A person's token speaks for a person. Presenting it where an application is
+// expected identifies nobody, which is the mirror of an application's own
+// credential identifying no person.
+func TestAPersonsCredentialIsNotAnApplicationsCredential(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	service.SignIn(service.Providers.Someone(oauth.Discord, "the owner"))
+
+	application := service.RegisterApplication("a relying application", externalCallbackURI)
+	token := userAccessToken(t, service, application)
+
+	service.GET("/me", servertest.Bearer(token)).ExpectStatus(http.StatusOK)
+
+	service.GET("/developer_application/me", servertest.Bearer(token)).
+		ExpectStatus(http.StatusForbidden).
+		ExpectDetail("Invalid token format")
+}
+
+// A token is good for a quarter of an hour. Once it has aged out the person
+// holding it is told that, rather than that it was never this service's.
+func TestAnAgedOutTokenIsRefusedAsExpired(t *testing.T) {
+	t.Parallel()
+
+	clock := &heldClock{at: time.Now().UTC()}
+
+	service := servertest.New(t, servertest.WithDependencies(func(dependencies *web.Dependencies) {
+		dependencies.Now = clock.read
+	}))
+
+	service.SignIn(service.Providers.Someone(oauth.Discord, "the owner"))
+
+	application := service.RegisterApplication("a relying application", externalCallbackURI)
+	token := userAccessToken(t, service, application)
+
+	service.GET("/me", servertest.Bearer(token)).ExpectStatus(http.StatusOK)
+
+	clock.advance(tokens.AccessLifetime + tokens.MaxClockSkew + time.Second)
+
+	service.GET("/me", servertest.Bearer(token)).
+		ExpectStatus(http.StatusForbidden).
+		ExpectDetail("Token has expired")
+}
+
+// heldClock is a clock the test moves itself. The service reads it while
+// answering requests, so the reads and the moves are guarded.
+type heldClock struct {
+	guard sync.Mutex
+	at    time.Time
+}
+
+func (c *heldClock) read() time.Time {
+	c.guard.Lock()
+	defer c.guard.Unlock()
+
+	return c.at
+}
+
+func (c *heldClock) advance(by time.Duration) {
+	c.guard.Lock()
+	defer c.guard.Unlock()
+
+	c.at = c.at.Add(by)
 }

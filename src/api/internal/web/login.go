@@ -59,18 +59,7 @@ func (s *Server) login() http.Handler {
 		}
 
 		given := inputs.New(request)
-		code := given.Header(ExchangeTokenHeader)
-		credentialsGiven := given.DecodeOptionalObjectBody()
-
-		var (
-			applicationID uuid.UUID
-			refreshToken  string
-		)
-
-		if credentialsGiven {
-			applicationID = given.BodyUUID("id")
-			refreshToken = given.BodyString("refresh_token")
-		}
+		presented := readLoginInputs(given)
 
 		if !given.OK() {
 			response.Invalid(writer, given.Failures())
@@ -79,13 +68,13 @@ func (s *Server) login() http.Handler {
 		}
 
 		application, identified := s.collectingApplication(
-			writer, request, credentialsGiven, applicationID, refreshToken,
+			writer, request, presented.credentialsGiven, presented.applicationID, presented.refreshToken,
 		)
 		if !identified {
 			return
 		}
 
-		spent, err := s.codes.Redeem(request.Context(), code, application.ID)
+		spent, err := s.codes.Redeem(request.Context(), presented.code, application.ID)
 		if errors.Is(err, oauth.ErrNoSuchCode) {
 			response.Error(writer, http.StatusUnauthorized, detailUnusableCode)
 
@@ -100,6 +89,34 @@ func (s *Server) login() http.Handler {
 
 		s.issueUserAccess(writer, request, spent.UserID, application.ID)
 	})
+}
+
+// loginInputs is what a client sends to spend a one-time code.
+type loginInputs struct {
+	code string
+
+	// credentialsGiven records that a body arrived at all, which is what
+	// separates an application relying on its access token from one that sent
+	// credentials this service must then accept or refuse.
+	credentialsGiven bool
+
+	applicationID uuid.UUID
+	refreshToken  string
+}
+
+// readLoginInputs reads the one-time code and the optional credentials of the
+// application collecting the token. Both credential members are required once a
+// body is present.
+func readLoginInputs(given *inputs.Inputs) loginInputs {
+	presented := loginInputs{code: given.Header(ExchangeTokenHeader)}
+
+	presented.credentialsGiven = given.DecodeOptionalObjectBody()
+	if presented.credentialsGiven {
+		presented.applicationID = given.BodyUUID("id")
+		presented.refreshToken = given.BodyString("refresh_token")
+	}
+
+	return presented
 }
 
 // collectingApplication establishes which application is spending the code.

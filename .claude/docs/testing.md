@@ -68,6 +68,25 @@ future caller cannot get past it, and the expiry sweeps, which no endpoint
 drives. Reach for this only when there is no front door to the behaviour, and
 still state the requirement rather than the mechanism.
 
+## Endpoint inputs and endpoint journeys
+
+An endpoint that reads a body, a path value or a required query value keeps that
+reading in an unexported reader beside its handler, and the reader is driven
+directly by a small test: one valid request, and the invalid ones that define
+that endpoint's own required members, accepted types and failure locations. The
+handler calls the same reader, so the test drives what a request goes through
+rather than a second description of it.
+
+Those tests stop at the shape of a request. Whether a credential is checked
+before an input is read, whether ownership is settled before a body is parsed,
+and whether a request budget is spent before either, are promises about a whole
+request and are proved through `servertest` against the running service.
+
+Coverage output is for reading which of those promises nothing exercises. It is
+never itself the reason for a test: nothing here tests the standard library, the
+JWT or database libraries, generated code, a failure no input or dependency can
+cause, or the test support.
+
 ## Available checks
 
 Run what a change could have broken, from the repository root, and report

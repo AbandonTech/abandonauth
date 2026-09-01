@@ -3,6 +3,8 @@
 package web_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"
@@ -251,6 +253,78 @@ func TestAOneTimeCodeIsSpentOnce(t *testing.T) {
 	service.POSTJSON("/login", credentials, servertest.Header("exchange-token", "a-code-that-never-existed")).
 		ExpectStatus(http.StatusUnauthorized).
 		ExpectDetail("Token is not valid.")
+}
+
+// A code buys one token. Two requests from the application it was issued to,
+// arriving together with the same code, are not two sign-ins.
+func TestOneOneTimeCodeIsSpentAtMostOnce(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	service.SignIn(service.Providers.Someone(oauth.Discord, "the owner"))
+
+	application := service.RegisterApplication("a relying application", externalCallbackURI)
+	code := signInToApplication(t, service, application, externalCallbackURI)
+
+	credentials, err := json.Marshal(map[string]string{
+		"id":            application.ID.String(),
+		"refresh_token": application.RefreshToken,
+	})
+	if err != nil {
+		t.Fatalf("preparing the application's credentials: %v", err)
+	}
+
+	requests := make([]*http.Request, 0, 2)
+
+	for range 2 {
+		request, err := http.NewRequestWithContext(
+			t.Context(), http.MethodPost, service.URL()+"/login", bytes.NewReader(credentials),
+		)
+		if err != nil {
+			t.Fatalf("preparing a request to spend the code: %v", err)
+		}
+
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("exchange-token", code)
+
+		requests = append(requests, request)
+	}
+
+	var granted, refused int
+
+	for _, answer := range atTheSameMoment(t, requests...) {
+		switch answer.status {
+		case http.StatusOK:
+			granted++
+
+			var issued struct {
+				Token string `json:"token"`
+			}
+
+			if err := json.Unmarshal(answer.body, &issued); err != nil || issued.Token == "" {
+				t.Error("a request that spent the code was given nothing to identify anyone with")
+			}
+		case http.StatusUnauthorized:
+			refused++
+
+			var failed struct {
+				Detail string `json:"detail"`
+			}
+
+			switch err := json.Unmarshal(answer.body, &failed); {
+			case err != nil:
+				t.Error("a refused request did not answer in this service's failure shape")
+			case failed.Detail != "Token is not valid.":
+				t.Error("a request was refused for something other than the code being unusable")
+			}
+		default:
+			t.Errorf("spending a code answered %d", answer.status)
+		}
+	}
+
+	if granted != 1 || refused != 1 {
+		t.Errorf("%d requests were given a token and %d were refused, want one of each", granted, refused)
+	}
 }
 
 // A code belongs to the application the person was signing in to. Another

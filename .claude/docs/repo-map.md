@@ -48,6 +48,11 @@ front of sqlc queries over pgx. Nothing is served that
 | `internal/database/authorityrotation.go` | `rotate-auth-epoch`, which invalidates every token, state, code, and session in one transaction |
 | `internal/database/testdatabase/` | gives each test a migrated database of its own |
 
+`RotateAuthority` is proved twice: against the database in
+`internal/database/authorityrotation_integration_test.go`, and through the
+endpoints that stop accepting credentials in
+`internal/web/authorityrotation_integration_test.go`.
+
 ### Services
 
 | Path | Responsibility |
@@ -94,6 +99,10 @@ front of sqlc queries over pgx. Nothing is served that
 
 Files ending `_devtools.go` are compiled only with `-tags=devtools`: password
 sign-in. A deployment does not contain them.
+
+An endpoint that reads structured input keeps that reading in an unexported
+reader beside its handler. `<endpoint>_test.go` drives the reader; the complete
+request journeys are in `<endpoint>_integration_test.go`.
 
 ## Website
 
