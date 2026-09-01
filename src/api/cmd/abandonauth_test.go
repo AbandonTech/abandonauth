@@ -141,7 +141,7 @@ func TestServeReadsEverySettingFromItsEnvironmentName(t *testing.T) {
 	}
 
 	for name, provider := range providers {
-		if provider.ClientID == "" || provider.ClientSecret.IsEmpty() || provider.Callback == nil {
+		if provider.ClientID == "" || provider.ClientSecret.IsEmpty() || provider.Callback.IsZero() {
 			t.Errorf("the %s registration did not reach the configuration: %+v", name, provider)
 		}
 	}

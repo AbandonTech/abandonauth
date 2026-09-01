@@ -211,15 +211,10 @@ func TestUndocumentedRoutesAreExpected(t *testing.T) {
 		"GET /",
 		"GET /ui",
 		"GET /ui/",
-	}
-
-	if DevtoolsBuild {
-		want = append(want,
-			"GET /docs",
-			"GET /docs/",
-			"GET /docs/oauth2-redirect",
-			"GET /openapi.json",
-		)
+		"GET /docs",
+		"GET /docs/",
+		"GET /docs/oauth2-redirect",
+		"GET /openapi.json",
 	}
 
 	slices.Sort(want)
@@ -256,6 +251,21 @@ func TestPasswordRoutesAreDevtoolsOnly(t *testing.T) {
 	for _, route := range passwordRoutes {
 		if served[route] != DevtoolsBuild {
 			t.Errorf("route %s served = %v, want %v", route, served[route], DevtoolsBuild)
+		}
+	}
+}
+
+// The reference for what a deployment publishes is committed, so an operation
+// added to it is a decision to serve that address in every build. Password
+// sign-in is not one a deployment carries.
+func TestThePublishedReferencePromisesNoPasswordSignIn(t *testing.T) {
+	t.Parallel()
+
+	published := documentedOperations(loadAPISchema(t, apiSchemaFile))
+
+	for _, operation := range []string{"POST /create_test_user", "POST /login_test_user"} {
+		if slices.Contains(published, operation) {
+			t.Errorf("%s names %s, which a deployment does not serve", apiSchemaFile, operation)
 		}
 	}
 }

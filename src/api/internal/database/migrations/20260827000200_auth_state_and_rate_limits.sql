@@ -188,11 +188,6 @@ CREATE TABLE rate_limit_bucket (
 
 CREATE INDEX rate_limit_bucket_expires_at_idx
     ON rate_limit_bucket (expires_at);
-
--- The migration history a database carries before this service adopts it.
--- Adoption verifies it; once this service owns the schema it is not
--- authoritative, and leaving it would invite a second adoption.
-DROP TABLE IF EXISTS "_prisma_migrations";
 -- +goose StatementEnd
 
 -- +goose Down

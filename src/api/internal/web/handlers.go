@@ -35,6 +35,7 @@ func (s *Server) handlers() map[RouteName]http.Handler {
 		RouteLogout:            s.logout(),
 	}
 
+	maps.Copy(handlers, s.documentationHandlers())
 	maps.Copy(handlers, s.devtoolsHandlers())
 
 	return handlers

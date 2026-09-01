@@ -21,7 +21,7 @@ jobs:
       # No service block and no TEST_DATABASE_URL: the script brings its own
       # database up, which is what keeps this identical to a local run.
       - name: Check
-        run: ./scripts/check.sh --integration --images
+        run: ./scripts/check.sh --integration
 
   website:
     name: Tests and builds the site

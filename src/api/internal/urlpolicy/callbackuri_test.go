@@ -25,7 +25,7 @@ func TestParseCallbackURIAccepts(t *testing.T) {
 		{"loopback address with port", "http://127.0.0.1:3000/callback"},
 		{"loopback range with port", "http://127.5.5.5:3000/callback"},
 		{"ipv6 loopback with port", "http://[::1]:3000/callback"},
-		{"uppercase scheme is normalised", "HTTPS://Example.test/callback"},
+		{"uppercase scheme and host", "HTTPS://Example.test/callback"},
 	}
 
 	for _, testCase := range cases {
@@ -37,7 +37,7 @@ func TestParseCallbackURIAccepts(t *testing.T) {
 				t.Fatalf("ParseCallbackURI(%q) = %v, want no error", testCase.uri, err)
 			}
 
-			if parsed == nil {
+			if parsed.IsZero() {
 				t.Fatal("ParseCallbackURI returned no URL")
 			}
 		})
@@ -192,7 +192,7 @@ func TestWithResponseParameter(t *testing.T) {
 				t.Fatalf("ParseRegisteredCallbackURI(%q) = %v", testCase.uri, err)
 			}
 
-			got := urlpolicy.WithResponseParameter(parsed, testCase.key, testCase.value)
+			got := parsed.WithResponseParameter(testCase.key, testCase.value)
 			if got != testCase.want {
 				t.Errorf("WithResponseParameter() = %q, want %q", got, testCase.want)
 			}
@@ -219,29 +219,65 @@ func TestCallbackErrorsDoNotEchoTheURI(t *testing.T) {
 	}
 }
 
-func TestParseCallbackURIIsExactAndStable(t *testing.T) {
+// The rules are applied case-insensitively to the scheme and host, but the
+// browser is sent to the spelling that was registered: an application compares
+// the redirect it receives against the string it gave, and a provider compares
+// it against the string registered with it.
+func TestACallbackKeepsTheSpellingItWasGiven(t *testing.T) {
 	t.Parallel()
 
-	// Two spellings that differ only in case of the scheme and host resolve to
-	// the same URL, but the stored form is what the application registered.
-	parsed, err := urlpolicy.ParseCallbackURI("HTTPS://Example.TEST/Callback")
+	const registered = "HTTPS://Example.TEST/Callback"
+
+	callback, err := urlpolicy.ParseCallbackURI(registered)
 	if err != nil {
 		t.Fatalf("ParseCallbackURI = %v", err)
 	}
 
-	if parsed.Scheme != "https" {
-		t.Errorf("scheme = %q, want https", parsed.Scheme)
+	if callback.String() != registered {
+		t.Errorf("String() = %q, want %q", callback.String(), registered)
 	}
 
-	if parsed.Host != "example.test" {
-		t.Errorf("host = %q, want example.test", parsed.Host)
+	if got := callback.WithResponseParameter("code", "abc"); got != registered+"?code=abc" {
+		t.Errorf("WithResponseParameter() = %q, want %q", got, registered+"?code=abc")
 	}
 
-	if parsed.Path != "/Callback" {
-		t.Errorf("path = %q, want /Callback, paths are case sensitive", parsed.Path)
+	compared := callback.URL()
+
+	if compared.Scheme != "https" {
+		t.Errorf("the compared scheme = %q, want https", compared.Scheme)
 	}
 
-	if _, err := url.Parse(parsed.String()); err != nil {
-		t.Fatalf("normalised URL does not re-parse: %v", err)
+	if compared.Host != "example.test" {
+		t.Errorf("the compared host = %q, want example.test", compared.Host)
+	}
+
+	if compared.Path != "/Callback" {
+		t.Errorf("the compared path = %q, want /Callback, paths are case sensitive", compared.Path)
+	}
+
+	if _, err := url.Parse(callback.String()); err != nil {
+		t.Fatalf("the registered spelling does not re-parse: %v", err)
+	}
+}
+
+// The parsed form is handed out as a copy, so a caller that rewrites it cannot
+// change where a later redirect sends a browser.
+func TestTheComparedURLCannotBeRewritten(t *testing.T) {
+	t.Parallel()
+
+	callback, err := urlpolicy.ParseCallbackURI("https://example.test/callback")
+	if err != nil {
+		t.Fatalf("ParseCallbackURI = %v", err)
+	}
+
+	taken := callback.URL()
+	taken.Host = "attacker.test"
+
+	if got := callback.URL().Host; got != "example.test" {
+		t.Errorf("host = %q after a caller rewrote its copy, want example.test", got)
+	}
+
+	if got := callback.WithResponseParameter("code", "abc"); strings.Contains(got, "attacker.test") {
+		t.Errorf("the redirect followed a rewritten copy: %q", got)
 	}
 }

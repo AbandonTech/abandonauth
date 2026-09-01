@@ -7,7 +7,15 @@ read `.claude/docs/security.md`.
 ## Runtime
 
 AbandonAuth is a Go API, a Nuxt site, and PostgreSQL. `compose.yml` runs all
-three for local development and builds the API's `development` target.
+three, for development and for production alike; `.env` is the only thing that
+differs between them, and `API_BUILD_TARGET` in it is what selects the
+`development` build over the published `deployment` one.
+
+The API and the site publish `API_PORT` and `WEBSITE_PORT`. The database
+publishes nothing: it is on an internal network the site does not join, so it
+is reachable at `database:5432` from the API and from nowhere else, and that
+network denies it outbound access. The API is on both networks, which is how it
+still reaches the provider APIs.
 
 The API is a `net/http` router in front of interface-backed services in front of
 sqlc queries over pgx. There is no web framework. Requests are answered only for
@@ -76,6 +84,12 @@ to steal. An external application's code is opaque, short-lived, bound to that
 application, stored only as a digest, and spent by a delete that a second
 attempt cannot repeat.
 
+Either way the browser goes to the callback exactly as it was registered. The
+policy checks run against a copy whose scheme and host are lower cased, but the
+redirect is built from the registered string, and only the one response parameter
+is appended to it. A person who declines at the provider is returned to that same
+validated string with nothing added.
+
 ## Browser authority
 
 A signed-in browser holds a random value; the database holds its digest, the
@@ -136,20 +150,33 @@ embedded in the binary, so a deployment carries no schema file. Queries are the
 SQL under `internal/database/queries/`; sqlc turns them into the `query` package,
 which is generated, gitignored and never edited.
 
-`serve` migrates before it answers a request. A database that already holds the
-account tables with no record of this service having migrated them is refused
-outright rather than migrated blindly.
+`serve` migrates before it answers a request, and decides whether it may under
+the same advisory lock it migrates under, so one instance never judges a database
+another is halfway through building. It migrates an empty database, one the
+baseline built, and one already at a version the binary carries. Everything else
+— account tables without both the migration history and the `schema_identity`
+marker the baseline writes, a partial set of them, a gap or an unknown version in
+the history, a migration recorded as unfinished — is refused with the database
+left exactly as it was found. The marker is what stops a hand-written history
+from passing a schema off as one these migrations built.
 
 Database time is authoritative for every expiry, so a wrong clock on an API host
 cannot extend a credential.
 
 ## Build modes
 
-One Dockerfile, two runtime targets. The published `deployment` target contains
-neither password sign-in nor the documentation UI, because those live in files
-compiled only under `-tags=devtools`, and it refuses to start with `DEBUG` set at
-all. The `development` target carries both, and serves them only when debug mode
-is on; password sign-in additionally requires a loopback-only bind.
+One Dockerfile, two runtime targets, and it is the last stage that a build naming
+no target produces. The published `deployment` target contains no password
+sign-in, because those handlers live in files compiled only under
+`-tags=devtools`, and it refuses to start with `DEBUG` set at all. The
+`development` target carries them, and serves them only with debug mode on and a
+loopback-only bind.
+
+The documentation and the schema are in both. This is a public API, so they are
+served whatever the build and whatever the configuration. The annotations swag
+reads carry no build constraints, so the document it produces names password
+sign-in in either build; `internal/web/apidocumentation.go` narrows it to the
+addresses the running build actually serves before publishing it.
 
 ## The site boundary
 
@@ -158,3 +185,9 @@ the readable CSRF cookie into `X-CSRF-Token` on writes, and builds no provider
 address of its own. Its Nitro route proxies `/api/**` to the API and hands
 redirects back to the browser rather than following them, because a provider
 callback's redirect is also what carries the session cookie.
+
+`/api` is the site's own prefix and is removed before the call is made: the API
+answers at `/me`. The site dials `ABANDON_AUTH_API_ADDRESS`, which the container
+can be started with, rather than `ABANDON_AUTH_URL`, which is the origin a
+browser and a registered callback URI use and does not resolve from inside the
+stack.

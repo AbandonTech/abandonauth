@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 
@@ -102,29 +101,6 @@ func TestConcurrentMigrationsAreSerialised(t *testing.T) {
 		if err != nil {
 			t.Errorf("a concurrent start-up failed to migrate: %v", err)
 		}
-	}
-}
-
-// A database that already holds accounts but no record of this service having
-// migrated it must never be migrated blindly: the statements would either fail
-// on tables that exist or, worse, succeed against a schema that is subtly
-// different from the one this service expects.
-func TestStartUpRefusesADatabaseItDoesNotRecognise(t *testing.T) {
-	t.Parallel()
-
-	pool := testdatabase.NewUnrecognised(t)
-	handle := testdatabase.OpenMigrationHandle(t, pool)
-
-	err := database.Migrate(t.Context(), handle, quietLog{})
-
-	if !errors.Is(err, database.ErrUnrecognisedSchema) {
-		t.Fatalf("migrating an unrecognised database returned %v, want ErrUnrecognisedSchema", err)
-	}
-
-	// The refusal says what it found, so an operator reading a failed start-up
-	// knows the database was left alone rather than half migrated.
-	if got := err.Error(); !strings.Contains(got, "will not be migrated") {
-		t.Errorf("the refusal does not say what it did: %s", got)
 	}
 }
 

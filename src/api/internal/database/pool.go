@@ -78,9 +78,8 @@ type Conn interface {
 
 // OpenMigrationHandle returns a database/sql handle over an existing pool.
 //
-// The migration runner and the schema adoption procedure are written against
-// database/sql because that is what they require; everything a request touches
-// goes through the pool directly.
+// The migration runner is written against database/sql because that is what it
+// requires; everything a request touches goes through the pool directly.
 func OpenMigrationHandle(pool *pgxpool.Pool) *sql.DB {
 	return stdlib.OpenDBFromPool(pool)
 }

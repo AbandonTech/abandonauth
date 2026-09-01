@@ -1,22 +1,22 @@
--- Accounts, developer applications and their callback URIs.
---
--- This migration reproduces the schema that already exists in the deployed
--- database, down to identifier quoting, constraint names, column order and the
--- name of the sequence behind "PasswordAccount"."id". A database that already
--- holds this schema is marked as having applied this migration by
--- `abandonauth database adopt-existing-schema` and the statements below are not
--- executed against it, so the two paths must agree exactly or a later migration
--- would behave differently on a new database than on the deployed one.
---
--- Table and column identifiers are quoted because they are mixed case. Renaming
--- them would rewrite live data for no functional gain and is deliberately not
--- part of this migration.
+-- Table and column identifiers are quoted because they are mixed case, and the
+-- queries this service generates spell them the same way.
 
 -- +goose Up
 -- +goose StatementBegin
+-- The marker proving this service's migrations built this schema. Start-up
+-- refuses account tables without it, so a hand-written history cannot pass.
+CREATE TABLE schema_identity (
+    singleton BOOLEAN NOT NULL DEFAULT TRUE,
+    baseline_version BIGINT NOT NULL,
+
+    CONSTRAINT schema_identity_pkey PRIMARY KEY (singleton),
+    CONSTRAINT schema_identity_holds_one_row CHECK (singleton),
+    CONSTRAINT schema_identity_baseline_version CHECK (baseline_version = 20260827000100)
+);
+
+INSERT INTO schema_identity (baseline_version) VALUES (20260827000100);
+
 CREATE TABLE "User" (
-    -- "username" precedes "id" because the identifier column was replaced with
-    -- a UUID after the table was created, which moved it to the end.
     "username" TEXT NOT NULL,
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
 
@@ -69,7 +69,6 @@ CREATE TABLE "PasswordAccount" (
     CONSTRAINT "PasswordAccount_pkey" PRIMARY KEY ("id")
 );
 
--- The sequence is unquoted, and therefore lower case, in the deployed database.
 CREATE SEQUENCE passwordaccount_id_seq;
 ALTER TABLE "PasswordAccount" ALTER COLUMN "id" SET DEFAULT nextval('passwordaccount_id_seq');
 ALTER SEQUENCE passwordaccount_id_seq OWNED BY "PasswordAccount"."id";
@@ -118,4 +117,5 @@ DROP TABLE IF EXISTS "GoogleAccount";
 DROP TABLE IF EXISTS "GitHubAccount";
 DROP TABLE IF EXISTS "DiscordAccount";
 DROP TABLE IF EXISTS "User";
+DROP TABLE IF EXISTS schema_identity;
 -- +goose StatementEnd

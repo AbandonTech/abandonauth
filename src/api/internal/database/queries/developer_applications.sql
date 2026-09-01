@@ -53,10 +53,3 @@ SELECT EXISTS (
     WHERE "developer_application_id" = $1
       AND "uri" = $2
 ) AS registered;
-
--- Used before a schema is adopted, to prove that no stored callback would send a
--- browser somewhere the current rules forbid.
--- name: ListAllCallbackUris :many
-SELECT "id", "developer_application_id", "uri"
-FROM "CallbackUri"
-ORDER BY "id";

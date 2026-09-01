@@ -36,122 +36,150 @@ var (
 // could read the attacker-supplied one.
 var ResponseQueryKeys = []string{"code", "authentication"}
 
-// ParseCallbackURI validates a URL the service may redirect a browser to and
-// returns it with the scheme and host lower cased. The path, query and their
-// encoding are left exactly as given, because callbacks are matched by exact
-// equality against the value the application registered.
-func ParseCallbackURI(raw string) (*url.URL, error) {
+// Callback is a URL this service may return a browser to.
+//
+// It carries the exact spelling that was validated as well as the parsed form
+// the transport rules were applied to. A browser is sent to the exact spelling:
+// an application, and a provider, match a redirect against the string they were
+// given, and a normalised rewrite of it is a different string.
+type Callback struct {
+	registered string
+	parsed     *url.URL
+}
+
+// String returns the exact spelling that was registered and validated.
+func (c Callback) String() string {
+	return c.registered
+}
+
+// IsZero reports a callback that was never parsed.
+func (c Callback) IsZero() bool {
+	return c.parsed == nil
+}
+
+// URL returns the parsed form, whose scheme and host are lower cased so that
+// host comparisons are case-insensitive. It is not what a browser is sent to.
+func (c Callback) URL() *url.URL {
+	target := *c.parsed
+
+	return &target
+}
+
+// WithResponseParameter returns the callback with one query parameter added.
+//
+// The registered spelling is copied through byte for byte instead of being
+// decoded and re-encoded: an application may depend on the order or the exact
+// escaping of the parameters it registered, and re-encoding could change a
+// signed value. Only the added pair is encoded, by the standard encoder.
+func (c Callback) WithResponseParameter(key, value string) string {
+	separator := "?"
+	// A fragment is refused at parse time, so the first question mark can only
+	// begin the query and anything after it is already part of one.
+	if strings.Contains(c.registered, "?") {
+		separator = "&"
+	}
+
+	return c.registered + separator + url.Values{key: []string{value}}.Encode()
+}
+
+// ParseCallbackURI validates a URL the service may redirect a browser to.
+//
+// The transport rules are applied to a copy whose scheme and host are lower
+// cased, and the returned callback keeps the spelling it was given, because
+// callbacks are matched by exact equality against the value that was registered.
+func ParseCallbackURI(raw string) (Callback, error) {
 	if raw == "" {
-		return nil, ErrEmpty
+		return Callback{}, ErrEmpty
 	}
 
 	if strings.TrimSpace(raw) != raw {
-		return nil, ErrMalformed
+		return Callback{}, ErrMalformed
 	}
 
 	if hasControlCharacter(raw) {
-		return nil, ErrControlCharacter
+		return Callback{}, ErrControlCharacter
 	}
 
 	// url.Parse silently accepts a fragment, so check the raw text as well: a
 	// fragment is never sent to the server and would make an exact match
 	// meaningless.
 	if strings.Contains(raw, "#") {
-		return nil, ErrFragment
+		return Callback{}, ErrFragment
 	}
 
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return nil, ErrMalformed
+		return Callback{}, ErrMalformed
 	}
 
 	if parsed.Scheme == "" {
-		return nil, ErrNotAbsolute
+		return Callback{}, ErrNotAbsolute
 	}
 
 	parsed.Scheme = strings.ToLower(parsed.Scheme)
 
 	if parsed.Scheme != "https" && parsed.Scheme != "http" {
-		return nil, ErrUnsupportedScheme
+		return Callback{}, ErrUnsupportedScheme
 	}
 
 	if parsed.Host == "" {
-		return nil, ErrNotAbsolute
+		return Callback{}, ErrNotAbsolute
 	}
 
 	if parsed.User != nil {
-		return nil, ErrUserInfo
+		return Callback{}, ErrUserInfo
 	}
 
 	parsed.Host = strings.ToLower(parsed.Host)
 
 	port := parsed.Port()
 	if port != "" && !isValidPort(port) {
-		return nil, ErrInvalidPort
+		return Callback{}, ErrInvalidPort
 	}
 
 	if parsed.Scheme == "http" {
 		if !isLoopbackHost(parsed.Hostname()) {
-			return nil, ErrInsecureTransport
+			return Callback{}, ErrInsecureTransport
 		}
 
 		// Without a port the URL depends on the reader's default, and an
 		// application on port 80 of a developer machine is not the one that
 		// registered the callback.
 		if port == "" {
-			return nil, ErrMissingPort
+			return Callback{}, ErrMissingPort
 		}
 	}
 
 	if _, err := url.ParseQuery(parsed.RawQuery); err != nil {
-		return nil, ErrMalformed
+		return Callback{}, ErrMalformed
 	}
 
-	return parsed, nil
+	return Callback{registered: raw, parsed: parsed}, nil
 }
 
 // ParseRegisteredCallbackURI validates a URL an application wants to register.
 // It applies every rule of ParseCallbackURI and additionally refuses URLs that
 // already use one of ResponseQueryKeys.
-func ParseRegisteredCallbackURI(raw string) (*url.URL, error) {
-	parsed, err := ParseCallbackURI(raw)
+func ParseRegisteredCallbackURI(raw string) (Callback, error) {
+	callback, err := ParseCallbackURI(raw)
 	if err != nil {
-		return nil, err
+		return Callback{}, err
 	}
 
-	query, err := url.ParseQuery(parsed.RawQuery)
+	query, err := url.ParseQuery(callback.parsed.RawQuery)
 	if err != nil {
-		return nil, ErrMalformed
+		return Callback{}, ErrMalformed
 	}
 
 	for key := range query {
 		for _, reserved := range ResponseQueryKeys {
 			if strings.EqualFold(key, reserved) {
-				return nil, ErrReservedQueryKey
+				return Callback{}, ErrReservedQueryKey
 			}
 		}
 	}
 
-	return parsed, nil
-}
-
-// WithResponseParameter returns the callback URL with one query parameter added.
-//
-// The existing query is copied through byte for byte instead of being decoded
-// and re-encoded: an application may depend on the order or the exact escaping
-// of the parameters it registered, and re-encoding could change a signed value.
-// Only the added pair is encoded, by the standard encoder.
-func WithResponseParameter(callback *url.URL, key, value string) string {
-	target := *callback
-	added := url.Values{key: []string{value}}.Encode()
-
-	if target.RawQuery == "" {
-		target.RawQuery = added
-	} else {
-		target.RawQuery = target.RawQuery + "&" + added
-	}
-
-	return target.String()
+	return callback, nil
 }
 
 func hasControlCharacter(value string) bool {

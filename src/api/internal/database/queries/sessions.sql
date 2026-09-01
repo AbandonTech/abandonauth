@@ -30,10 +30,6 @@ WHERE browser_session.session_hash = $1
 DELETE FROM browser_session
 WHERE session_hash = $1;
 
--- name: DeleteBrowserSessionsForUser :execrows
-DELETE FROM browser_session
-WHERE user_id = $1;
-
 -- name: DeleteExpiredBrowserSessions :execrows
 DELETE FROM browser_session
 WHERE session_hash IN (

@@ -350,9 +350,9 @@ func TestARequiredQueryParameter(t *testing.T) {
 	}
 }
 
-// A parameter that is present but empty is still present. FastAPI's behaviour
-// and this service's depend on the distinction: an empty state value must reach
-// the handler, which refuses it for its own reasons.
+// A parameter that is present but empty is still present. An empty state value
+// must reach the handler, which refuses it for its own reasons, rather than
+// being reported as absent here.
 func TestAnEmptyQueryParameterIsPresent(t *testing.T) {
 	t.Parallel()
 

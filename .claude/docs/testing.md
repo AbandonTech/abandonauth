@@ -32,7 +32,7 @@ cover:
 - debug-route and permissive-CORS exclusion from production configuration;
 - rate limits and non-enumerating errors.
 
-Mock HTTPX provider calls and database access or use isolated test databases.
+Mock provider HTTP calls and database access, or use isolated test databases.
 Never use live OAuth clients or real credentials. Test output, fixtures, and
 snapshots must contain placeholders only.
 
@@ -76,16 +76,19 @@ exactly what was run:
 ```text
 ./scripts/check.sh                 codegen, formatting, lint, both builds, unit tests
 ./scripts/check.sh --integration   also the race, database and coverage checks
-./scripts/check.sh --images        also both images and the composed stack
 ./scripts/db.sh down               remove the test database afterwards
 
 npm --prefix src/website test
 npm --prefix src/website run build
 ```
 
+On Windows, invoke them with
+`& "C:\Program Files\Git\bin\bash.exe" scripts/check.sh ...`; never execute a
+`.sh` file directly through PowerShell, which opens the OS application chooser.
+
 `--integration` is authoritative for coverage and is the one to run after a
-change to database or concurrency behaviour. `--images` matters when a
-Dockerfile, a `.dockerignore` or `scripts/imagecheck.sh` changes.
+change to database or concurrency behaviour. Both images are built on every pull
+request by `.github/workflows/`, which is what covers a Dockerfile change.
 
 The coverage profile is built with `-tags=integration` and **not** `devtools`, so
 a test written under `integration && devtools` earns no coverage against the

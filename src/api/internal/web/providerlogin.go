@@ -198,7 +198,7 @@ func (s *Server) completeLogin(
 	}
 
 	response.Redirect(
-		writer, http.StatusTemporaryRedirect, urlpolicy.WithResponseParameter(callback, responseKey, code),
+		writer, http.StatusTemporaryRedirect, callback.WithResponseParameter(responseKey, code),
 	)
 }
 

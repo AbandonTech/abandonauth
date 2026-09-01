@@ -6,7 +6,6 @@
 #   scripts/check.sh --gen-only      only sqlc + swag + tidy, then stop
 #   scripts/check.sh --fix-fmt       format the source, then run the default checks
 #   scripts/check.sh --integration   also run the database, race and coverage checks
-#   scripts/check.sh --images        also build both images and check what they hold
 #   scripts/check.sh --verbose       stream each stage's output instead of capturing it
 #
 # Quiet on success. On failure the offending stage's output is dumped.
@@ -18,7 +17,6 @@ quick=0
 gen_only=0
 fix_fmt=0
 integration=0
-images=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -26,13 +24,12 @@ while [ $# -gt 0 ]; do
     --gen-only) gen_only=1 ;;
     --fix-fmt) fix_fmt=1 ;;
     --integration) integration=1 ;;
-    --images) images=1 ;;
     -v | --verbose)
         VERBOSE=1
         export VERBOSE
         ;;
     -h | --help)
-        sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
         exit 0
         ;;
     *) die "unknown flag: $1 (see --help)" ;;
@@ -54,7 +51,7 @@ require_command git 'Install git.'
 cd "$API_DIR"
 
 # Both variants are built and tested, because the production build's job is to
-# not contain password sign-in or the documentation UI.
+# not contain password sign-in.
 DEVTOOLS_TAG=devtools
 
 fmt_stage() {
@@ -131,22 +128,15 @@ run_stage "go test" go test -count=1 -timeout "$TEST_TIMEOUT" ./...
 run_stage "go test (-tags=$DEVTOOLS_TAG)" \
     go test -count=1 -timeout "$TEST_TIMEOUT" -tags="$DEVTOOLS_TAG" ./...
 
-if [ "$integration" -eq 0 ] && [ "$images" -eq 0 ]; then
-    info "all checks passed (the database, race and coverage checks need --integration;" \
-        "the image checks need --images)"
+if [ "$integration" -eq 0 ]; then
+    info "all checks passed (the database, race and coverage checks need --integration)"
     exit 0
 fi
 
 require_command docker 'Install Docker from https://docs.docker.com/get-docker/.'
 
-# These stream rather than going quiet, because building and pulling take long
+# This streams rather than going quiet, because building and pulling take long
 # enough that silence looks like a hang.
-if [ "$integration" -eq 1 ]; then
-    stream_stage "container checks" compose run --rm --build check
-fi
-
-if [ "$images" -eq 1 ]; then
-    stream_stage "image checks" sh "$REPO_ROOT/scripts/imagecheck.sh"
-fi
+stream_stage "container checks" compose run --rm --build check
 
 info "all checks passed"

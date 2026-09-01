@@ -12,6 +12,9 @@ plan and review by `abandonauth-security-reviewer` before implementation.
   logs, URLs, exceptions, plans, tests, fixtures, snapshots, or commits.
 - Hold secrets in `config.Secret` and call `Reveal()` only at the narrow
   outbound call or cryptographic boundary that requires the value.
+- `DATABASE_URL`, `JWT_SECRET` and the three provider client secrets are read
+  from the environment only. Do not give any of them a command-line flag: an
+  argument is readable by every process on the machine.
 - Redact authorization headers, cookies, query strings, and provider response
   bodies from logging and telemetry.
 
@@ -68,8 +71,8 @@ place production credentials in an agent-accessible development worktree.
 - Rate-limit login, callback, token exchange, credential reset, account
   creation/linking, and recovery endpoints. Consider distributed attacks and
   avoid account enumeration.
-- Debug authentication routes, wildcard CORS, documentation, and verbose errors
-  must be unreachable in production even when configuration is mistaken.
+- Debug authentication routes, wildcard CORS, and verbose errors must be
+  unreachable in production even when configuration is mistaken.
 
 ## The controls in force, and where they live
 
@@ -87,11 +90,14 @@ the work was about.
 | PKCE on every provider, with the verifier encrypted at rest | `internal/services/oauth` |
 | Google's issuer, audience and `azp`, RS256 only, signature, nonce, `at_hash` and clock claims, against compiled-in endpoints a discovery document cannot move | `internal/services/providers/google.go` |
 | Callback URI policy: absolute, HTTPS except on loopback where a port is required, no userinfo, no fragment, no control characters, reserved response keys refused at registration | `internal/urlpolicy` |
+| A browser returned to the exact registered spelling, with one encoded response parameter appended and no existing byte rewritten | `internal/urlpolicy`, `internal/web/providerlogin.go`, `providercallback.go` |
+| A database migrated only when it is empty or carries both this service's migration history and the marker its baseline writes; every other state refused without being changed | `internal/database/schemastate.go`, `migrate.go` |
 | Server-side sessions stored only as digests, absolute expiry, logout as a delete, double-submit CSRF with an exact `Origin` | `internal/services/sessions`, `internal/web/browsersession.go`, `cookies.go` |
 | Budgets keyed so a public identifier cannot lock anyone out, counted in the database, with no setting that raises or removes one | `internal/services/ratelimit`, `internal/web/requestlimit.go` |
 | Forwarding headers believed only from a configured proxy | `internal/web/clientaddress.go` |
 | Exactly one permitted origin, never a credentialed wildcard | `internal/web/cors.go` |
-| Password sign-in and the documentation UI compiled only into the development build, and served only in debug mode; a deployment refuses `DEBUG` outright | `internal/buildmode`, `internal/config`, the `_devtools.go` files |
+| Password sign-in compiled only into the development build, and served only in debug mode on a loopback-only bind; a deployment refuses `DEBUG` outright | `internal/buildmode`, `internal/config`, the `_devtools.go` files |
+| A published schema narrowed to the addresses the running build serves, because the annotations it is generated from carry no build constraints | `internal/web/apidocumentation.go` |
 | A log line that never carries a query string, header or cookie | `internal/logging` |
 
 ## Where the negative tests are
@@ -113,5 +119,8 @@ them:
 - `internal/web/browsersession_integration_test.go` — cookie attributes, CSRF,
   logout, and a copied cookie after logout.
 - `internal/services/tokens/tokens_test.go` — the token abuse matrix.
-- `internal/web/apidocumentation_default_integration_test.go` — a deployment
-  serving none of the documentation addresses.
+- `internal/web/passwordaccounts_default_integration_test.go` — a deployment
+  serving neither of the account-seeding addresses.
+- `internal/web/apidocumentation_test.go` — the published schema naming password
+  sign-in only in the build that serves it, and refusing to publish a document
+  it cannot narrow.

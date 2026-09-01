@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"embed"
-	"errors"
 	"fmt"
 	"io/fs"
 	"slices"
@@ -38,30 +37,42 @@ func embeddedMigrations() (fs.FS, error) {
 // one this service did not build, and start-up refuses it.
 const BaselineVersion int64 = 20260827000100
 
-// ErrUnrecognisedSchema reports a database that already holds the account
-// schema but has no migration history of its own.
-//
-// Migrating it blindly would either fail on tables that already exist or, worse,
-// succeed against a schema that is subtly different from the one the service
-// expects. Neither is something start-up may decide on its own, so it stops and
-// leaves the database untouched.
-var ErrUnrecognisedSchema = errors.New(
-	"the database already holds application tables but no record of this service having migrated them, " +
-		"so it will not be migrated",
-)
-
 // Migrate applies every migration the database has not yet run.
 //
-// It is safe to call from every instance at start-up: the session lock means one
-// instance migrates and the others wait for it.
+// It is safe to call from every instance at start-up: one instance migrates and
+// the others wait for it. Deciding whether the database is one this service may
+// migrate happens under the same lock as the migration itself, so an instance
+// can never judge a database another instance is halfway through building.
 func Migrate(ctx context.Context, db *sql.DB, logger goose.Logger) error {
-	state, err := InspectSchema(ctx, db)
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("connecting to migrate: %w", err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", AdvisoryLockKey); err != nil {
+		return fmt.Errorf("taking the migration lock: %w", err)
+	}
+
+	// The lock is held by the session, and the connection goes back to the pool
+	// afterwards, so releasing it is what stops the next borrower inheriting it.
+	defer func() {
+		release := context.WithoutCancel(ctx)
+		_, _ = conn.ExecContext(release, "SELECT pg_advisory_unlock($1)", AdvisoryLockKey)
+	}()
+
+	state, err := InspectSchema(ctx, conn)
 	if err != nil {
 		return err
 	}
 
-	if state.IsUnrecognised() {
-		return ErrUnrecognisedSchema
+	known, err := MigrationVersions()
+	if err != nil {
+		return err
+	}
+
+	if err := state.supported(known); err != nil {
+		return err
 	}
 
 	provider, err := newMigrationProvider(db, logger)

@@ -36,6 +36,10 @@ const (
 	RouteGitHubCallback      RouteName = "github-callback"
 	RouteProviderAuthorize   RouteName = "provider-authorize"
 	RouteLogout              RouteName = "logout"
+	RouteSwaggerUI           RouteName = "swagger-ui"
+	RouteSwaggerUIIndex      RouteName = "swagger-ui-index"
+	RouteSwaggerOAuth2       RouteName = "swagger-oauth2-redirect"
+	RouteAPISchema           RouteName = "api-schema"
 )
 
 // Route is one endpoint of the service.
@@ -92,6 +96,11 @@ var baseRoutes = []Route{
 	{Name: RouteGitHubCallback, Method: "GET", Pattern: "/ui/github-callback", Documented: true},
 	{Name: RouteProviderAuthorize, Method: "GET", Pattern: "/ui/{provider}/authorize", Documented: true},
 	{Name: RouteLogout, Method: "POST", Pattern: "/ui/logout", Documented: true},
+
+	{Name: RouteSwaggerUI, Method: "GET", Pattern: "/docs"},
+	{Name: RouteSwaggerUIIndex, Method: "GET", Pattern: "/docs/"},
+	{Name: RouteSwaggerOAuth2, Method: "GET", Pattern: "/docs/oauth2-redirect"},
+	{Name: RouteAPISchema, Method: "GET", Pattern: "/openapi.json"},
 }
 
 // Routes returns every route this build serves.

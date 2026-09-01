@@ -1,8 +1,8 @@
-//go:build devtools
-
 package web
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -22,19 +22,27 @@ const externalPrefix = "/api"
 // APISchemaPath is where the published schema is served.
 const APISchemaPath = "/openapi.json"
 
-// generatedAPISchema renders the annotations into the published document.
+// generatedAPISchema renders the annotations into a document.
+//
+// The annotations are read from the source, which carries no build constraints,
+// so the result describes every annotated endpoint rather than the ones this
+// build serves. publishedAPISchema is what a reader gets.
 //
 // Rendering writes back to the package-level value it renders from, so two
 // callers at once race on it. The result is the same every time, so it is
 // produced once.
 var generatedAPISchema = sync.OnceValue(docs.SwaggerInfo.ReadDoc)
 
-// documentationHandlers are the routes only the development build serves.
-func (s *Server) devtoolsHandlers() map[RouteName]http.Handler {
-	return map[RouteName]http.Handler{
-		RouteCreateTestUser: s.createPasswordAccount(),
-		RouteLoginTestUser:  s.signInWithPassword(),
+// publishedAPISchema is the generated document with every address this build
+// does not serve removed, so it cannot advertise an endpoint that answers 404.
+var publishedAPISchema = sync.OnceValues(func() (string, error) {
+	return schemaLimitedTo(generatedAPISchema(), documentedPaths())
+})
 
+// documentationHandlers publish this API's documentation. It describes only
+// endpoints a caller could discover by trying them, so every build serves it.
+func (s *Server) documentationHandlers() map[RouteName]http.Handler {
+	return map[RouteName]http.Handler{
 		RouteSwaggerUI:      s.documentationEntry(),
 		RouteSwaggerUIIndex: s.documentation(),
 		RouteSwaggerOAuth2:  s.documentationRedirectPage(),
@@ -49,10 +57,6 @@ func (s *Server) devtoolsHandlers() map[RouteName]http.Handler {
 // reached directly or behind the prefix a proxy serves it from.
 func (s *Server) documentationEntry() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		if !s.documentationReachable(writer) {
-			return
-		}
-
 		response.Redirect(writer, http.StatusTemporaryRedirect, "docs/")
 	})
 }
@@ -62,10 +66,6 @@ func (s *Server) documentation() http.Handler {
 	page := httpSwagger.Handler(httpSwagger.URL(externalPrefix + APISchemaPath))
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if !s.documentationReachable(writer) {
-			return
-		}
-
 		// A request for the subtree itself is answered with the page, rather
 		// than with a redirect to the file the page happens to live in.
 		if strings.HasSuffix(request.URL.Path, "/") {
@@ -85,10 +85,6 @@ func (s *Server) documentationRedirectPage() http.Handler {
 	page := httpSwagger.Handler(httpSwagger.URL(externalPrefix + APISchemaPath))
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if !s.documentationReachable(writer) {
-			return
-		}
-
 		page.ServeHTTP(writer, addressedTo(request, request.URL.Path+".html"))
 	})
 }
@@ -107,26 +103,67 @@ func addressedTo(request *http.Request, path string) *http.Request {
 	return rewritten
 }
 
-// apiSchema serves the published schema this build was generated with.
+// apiSchema serves the schema this build publishes.
 func (s *Server) apiSchema() http.Handler {
-	return http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		if !s.documentationReachable(writer) {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		document, err := publishedAPISchema()
+		if err != nil {
+			s.refuseUnavailable(writer, request, err)
+
 			return
 		}
 
 		writer.Header().Set("Content-Type", response.ContentTypeJSON)
-		_, _ = writer.Write([]byte(generatedAPISchema()))
+		_, _ = writer.Write([]byte(document))
 	})
 }
 
-// documentationReachable reports whether the documentation may be served at
-// all, and otherwise answers as if it were not compiled in.
-func (s *Server) documentationReachable(writer http.ResponseWriter) bool {
-	if s.config.DocumentationEnabled() {
-		return true
+// documentedPaths are the addresses this build serves and publishes.
+func documentedPaths() map[string]bool {
+	published := make(map[string]bool)
+
+	for _, route := range Routes() {
+		if route.Documented {
+			published[route.Path()] = true
+		}
 	}
 
-	response.NotFound(writer)
+	return published
+}
 
-	return false
+// schemaLimitedTo removes from a document every path the given set does not
+// name. A document it cannot read is an error rather than a document served
+// unfiltered, because the filtering is what keeps the two builds apart.
+func schemaLimitedTo(document string, published map[string]bool) (string, error) {
+	var rendered map[string]json.RawMessage
+
+	if err := json.Unmarshal([]byte(document), &rendered); err != nil {
+		return "", fmt.Errorf("the API schema is not a JSON document: %w", err)
+	}
+
+	var paths map[string]json.RawMessage
+
+	if err := json.Unmarshal(rendered["paths"], &paths); err != nil {
+		return "", fmt.Errorf("the API schema declares no paths: %w", err)
+	}
+
+	for path := range paths {
+		if !published[path] {
+			delete(paths, path)
+		}
+	}
+
+	limited, err := json.Marshal(paths)
+	if err != nil {
+		return "", fmt.Errorf("the remaining paths could not be written: %w", err)
+	}
+
+	rendered["paths"] = limited
+
+	complete, err := json.Marshal(rendered)
+	if err != nil {
+		return "", fmt.Errorf("the API schema could not be written: %w", err)
+	}
+
+	return string(complete), nil
 }

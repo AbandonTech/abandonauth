@@ -15,8 +15,8 @@ run_stage "go test -race" go test -race -count=1 -timeout "$TEST_TIMEOUT" ./...
 run_stage "go test -race (-tags=devtools)" \
     go test -race -count=1 -timeout "$TEST_TIMEOUT" -tags=devtools ./...
 
-# The password routes and the documentation UI are only compiled into this
-# variant, so the endpoints that drive them need both tags and a database.
+# The password routes are only compiled into this variant, so the endpoints
+# that drive them need both tags and a database.
 run_stage "go test -race (-tags='integration devtools')" \
     go test -race -count=1 -timeout "$TEST_TIMEOUT" -tags='integration devtools' ./...
 

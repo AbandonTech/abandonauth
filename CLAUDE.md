@@ -68,15 +68,17 @@ drift. Run what a change could have broken and report exactly what you ran:
 ```text
 ./scripts/check.sh                 codegen, formatting, lint, both builds, unit tests
 ./scripts/check.sh --integration   also the race, database and coverage checks
-./scripts/check.sh --images        also both images and the composed stack
 ./scripts/db.sh down               remove the test database afterwards
 
 npm --prefix src/website test
 npm --prefix src/website run build
 ```
 
-`--integration` and `--images` need Docker and take minutes; the default run
-does not. `./scripts/check.sh` reports formatting rather than correcting it, and
+On Windows, invoke repository shell scripts with
+`& "C:\Program Files\Git\bin\bash.exe" scripts/check.sh ...`; never execute a
+`.sh` file directly through PowerShell, which opens the OS application chooser.
+
+`--integration` needs Docker and takes minutes; the default run does not. `./scripts/check.sh` reports formatting rather than correcting it, and
 `--fix-fmt` corrects it, so a check never rewrites the worktree unannounced.
 
 The 80% per-package coverage gate passes. Keep it that way, and never describe a
@@ -103,9 +105,10 @@ New behavior requires tests. A manual request is not a substitute for one.
   `src/api/internal/database/migrations/`, embedded in the binary. Do not add a
   second description of it.
 - Two API builds come from one Dockerfile. The `deployment` target is what is
-  published and carries neither password sign-in nor the documentation UI; the
-  `development` target is built with `-tags=devtools` and carries both. Code that
-  must not exist in a deployment lives in a file guarded by that tag.
+  published and carries no password sign-in; the `development` target is built
+  with `-tags=devtools` and carries it. Code that must not exist in a deployment
+  lives in a file guarded by that tag. Both carry the documentation and the
+  schema, which every build serves.
 - Preserve unrelated user changes and ignored local configuration.
 
 ## Naming and documentation
@@ -128,9 +131,10 @@ docstrings, tests, fixtures, commit messages, plans, and repository docs.
   application's own domain. Code that is being deleted must not survive as a
   reference point in the code that replaces it.
 - Name the state of an external system after the operation this application
-  performs on it, not after whatever produced that state. A database this
-  service has not taken ownership of is `unadopted`, because `adopt` is this
-  application's own operation; it is not a "prior" or "legacy" database.
+  performs on it, not after whatever produced that state. A database whose
+  schema this service cannot prove it built is `unrecognised`, because
+  recognising one is this application's own operation; it is not a "prior" or
+  "legacy" database.
 - Do not add a test fixture that duplicates something the application already
   produces. If a test needs a schema the migrations build, run the migrations.
   A copied fixture is a second source of truth that drifts and outlives the
@@ -175,9 +179,8 @@ only exists because of a change in progress.
   cascade, a uniqueness rule, or an ordering through the endpoint whose
   contract depends on it.
 - No test exercises a replaced implementation, or the act of migrating to this
-  one. `internal/database/adoption` is the single bounded exception: it is the
-  one-time cutover procedure, its tests live with it, and both are deleted when
-  the cutover completes.
+  one. Database tests state which states this service will migrate and which it
+  refuses without changing, which is a rule it enforces forever, not a cutover.
 - Name a file after the concept it defines. Vague names such as `contract.go`,
   `helpers.go`, `utils.go`, `common.go`, or `misc.go` are not acceptable.
 - Referencing an outside system is allowed only when it is an operational fact

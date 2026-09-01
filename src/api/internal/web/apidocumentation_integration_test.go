@@ -1,4 +1,4 @@
-//go:build integration && devtools
+//go:build integration
 
 package web_test
 
@@ -8,16 +8,25 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/abandontech/abandonauth/src/api/internal/config"
 	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
 )
 
-// documentationPaths are every address the documentation is reachable at.
-var documentationPaths = []string{
-	"/docs",
-	"/docs/",
-	"/docs/oauth2-redirect",
-	"/openapi.json",
+// This is a public API. Its documentation describes nothing a caller could not
+// learn by trying an endpoint, so it is served whatever the build and whatever
+// the configuration.
+func TestEveryBuildPublishesTheDocumentation(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+
+	for path, status := range map[string]int{
+		"/docs":                 http.StatusTemporaryRedirect,
+		"/docs/":                http.StatusOK,
+		"/docs/oauth2-redirect": http.StatusOK,
+		"/openapi.json":         http.StatusOK,
+	} {
+		service.GET(path).ExpectStatus(status)
+	}
 }
 
 // A developer opening the API's address gets the documentation page, which is
@@ -25,7 +34,7 @@ var documentationPaths = []string{
 func TestTheDocumentationEntryPointLeadsToThePage(t *testing.T) {
 	t.Parallel()
 
-	service := developmentService(t)
+	service := servertest.New(t)
 
 	service.GET("/docs").
 		ExpectStatus(http.StatusTemporaryRedirect).
@@ -48,16 +57,17 @@ func TestTheDocumentationEntryPointLeadsToThePage(t *testing.T) {
 func TestTheDocumentationHasSomewhereForAProviderToReturnTo(t *testing.T) {
 	t.Parallel()
 
-	service := developmentService(t)
+	service := servertest.New(t)
 
 	service.GET("/docs/oauth2-redirect").ExpectStatus(http.StatusOK)
 }
 
-// The schema the page reads is the one this build was generated with.
-func TestTheServedSchemaIsTheOneTheBuildWasGeneratedWith(t *testing.T) {
+// The schema the page reads describes this build. An address in it that this
+// build does not serve would send a reader to an endpoint answering 404.
+func TestTheServedSchemaDescribesOnlyWhatThisBuildServes(t *testing.T) {
 	t.Parallel()
 
-	service := developmentService(t)
+	service := servertest.New(t)
 
 	served := service.GET("/openapi.json").ExpectStatus(http.StatusOK)
 
@@ -79,23 +89,11 @@ func TestTheServedSchemaIsTheOneTheBuildWasGeneratedWith(t *testing.T) {
 	if len(schema.Paths) == 0 {
 		t.Error("the served schema documents nothing")
 	}
-}
 
-// The documentation describes every endpoint and how to authenticate to it. It
-// is development tooling, so it is served only when this build is being run as
-// development tooling.
-func TestTheDocumentationIsNotServedWithoutDebugMode(t *testing.T) {
-	t.Parallel()
-
-	service := servertest.New(t, servertest.WithSetting(func(settings *config.Settings) {
-		settings.DevelopmentBuild = true
-		settings.Debug = false
-	}))
-
-	for _, path := range documentationPaths {
-		service.GET(path).
-			ExpectStatus(http.StatusNotFound).
-			ExpectDetail("Not Found")
+	for path := range schema.Paths {
+		if service.GET(path).Status == http.StatusNotFound {
+			t.Errorf("the served schema names %s, which this build does not serve", path)
+		}
 	}
 }
 
@@ -104,7 +102,7 @@ func TestTheDocumentationIsNotServedWithoutDebugMode(t *testing.T) {
 func TestOnlyOneAddressServesDocumentation(t *testing.T) {
 	t.Parallel()
 
-	service := developmentService(t)
+	service := servertest.New(t)
 
 	service.GET("/redoc").ExpectStatus(http.StatusNotFound)
 	service.GET("/redoc/").ExpectStatus(http.StatusNotFound)

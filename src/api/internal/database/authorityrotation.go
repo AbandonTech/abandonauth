@@ -59,9 +59,9 @@ func RotateAuthority(ctx context.Context, pool *pgxpool.Pool) (AuthorityRotation
 	return rotation, nil
 }
 
-// takeRotationLock serialises rotation against schema adoption and against
-// another operator running the same command, both of which decide what the
-// database considers authoritative.
+// takeRotationLock serialises rotation against migration and against another
+// operator running the same command, both of which decide what the database
+// considers authoritative.
 func takeRotationLock(ctx context.Context, transaction pgx.Tx) error {
 	if _, err := transaction.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", AdvisoryLockKey); err != nil {
 		return fmt.Errorf("taking the rotation lock: %w", err)

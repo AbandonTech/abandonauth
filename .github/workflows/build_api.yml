@@ -40,8 +40,8 @@ jobs:
           echo "tag=$tag" >> $GITHUB_OUTPUT
 
       # Only the deployment variant is published. The development variant
-      # carries password sign-in and the documentation UI, and is built from the
-      # same Dockerfile by the check pipeline and by Compose.
+      # carries password sign-in, and is built from the same Dockerfile by
+      # Compose.
       - name: Build and push
         uses: docker/build-push-action@v6
         with:

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/abandontech/abandonauth/src/api/internal/urlpolicy"
 )
 
 // sampleEnvironmentPath is the placeholder file an operator copies to make a
@@ -58,6 +60,38 @@ func TestTheSampleEnvironmentNamesEverySetting(t *testing.T) {
 				t.Errorf("%s configures the service but the sample environment does not list it", name)
 			}
 		}
+	}
+
+	// The secrets have no flag to be discovered through, so they are checked
+	// against their own list or nothing would notice one going missing.
+	for _, name := range secretEnvironment() {
+		if _, present := declared[name]; !present {
+			t.Errorf("%s configures the service but the sample environment does not list it", name)
+		}
+	}
+}
+
+// An operator copies the sample and fills in the credentials, so a callback in
+// it that the service would refuse costs them a failed start-up to discover.
+func TestTheSampleEnvironmentsCallbacksAreOnesTheServiceAccepts(t *testing.T) {
+	declared := sampleEnvironment(t)
+
+	found := 0
+
+	for name, value := range declared {
+		if !strings.HasSuffix(name, "_CALLBACK") {
+			continue
+		}
+
+		found++
+
+		if _, err := urlpolicy.ParseCallbackURI(value); err != nil {
+			t.Errorf("the sample's %s is not a callback this service would accept: %v", name, err)
+		}
+	}
+
+	if found == 0 {
+		t.Error("the sample environment declares no provider callback")
 	}
 }
 

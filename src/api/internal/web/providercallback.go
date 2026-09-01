@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
+	"github.com/abandontech/abandonauth/src/api/internal/urlpolicy"
 	"github.com/abandontech/abandonauth/src/api/internal/web/response"
 )
 
@@ -121,5 +122,12 @@ func (s *Server) googleCallback() http.Handler {
 // to where it started. The person declined, or the provider sent them back; in
 // neither case is there anything to exchange.
 func (s *Server) abandonLogin(writer http.ResponseWriter, login oauth.Login) {
-	response.Redirect(writer, http.StatusTemporaryRedirect, login.CallbackURI)
+	callback, err := urlpolicy.ParseCallbackURI(login.CallbackURI)
+	if err != nil {
+		response.Error(writer, http.StatusForbidden, detailUnknownApplicationOrCallback)
+
+		return
+	}
+
+	response.Redirect(writer, http.StatusTemporaryRedirect, callback.String())
 }

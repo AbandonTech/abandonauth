@@ -119,7 +119,7 @@ type Provider struct {
 	// Callback is the redirect URI registered with the provider. It is sent in
 	// the authorization request and again in the token request, and the provider
 	// rejects the exchange if the two differ.
-	Callback *url.URL
+	Callback urlpolicy.Callback
 }
 
 // Config is the validated configuration of a running service. It is created
@@ -264,16 +264,6 @@ func (c Config) RequireSecureCookies() bool {
 // a development build, debug mode, and a listener no other machine can reach.
 func (c Config) PasswordSignInEnabled() bool {
 	return c.developmentBuild && c.Debug && bindsToLoopbackOnly(c.BindAddress)
-}
-
-// DocumentationEnabled reports whether the API documentation may be served.
-//
-// It describes every endpoint and how to authenticate to it, so it needs a
-// development build being run as development tooling. Unlike password sign-in
-// it reveals nothing a caller could not learn by trying, so it does not also
-// require a listener no other machine can reach.
-func (c Config) DocumentationEnabled() bool {
-	return c.developmentBuild && c.Debug
 }
 
 // DevelopmentBuild reports whether this binary carries the development tooling.

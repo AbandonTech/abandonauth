@@ -30,16 +30,13 @@ const version = "0.0.1"
 // password sign-in and documentation routes.
 const buildServesDevelopmentRoutes = buildmode.Devtools
 
-// Command-line names of the settings. Each one also reads an environment
-// variable, whose name is fixed by the deployment and repeated here as the
-// authoritative list of what the service is configured with.
+// Command-line names of the settings that carry no secret. Each also reads the
+// environment variable named alongside it in settingFlags.
 const (
 	flagBindAddress           = "bind-address"
 	flagDebug                 = "debug"
 	flagVerbose               = "verbose"
 	flagPretty                = "pretty"
-	flagDatabaseURL           = "database-url"
-	flagSigningSecret         = "jwt-secret"
 	flagSigningAlgorithm      = "jwt-hashing-algo"
 	flagExchangeCodeSeconds   = "exchange-code-seconds"
 	flagBrowserSessionSeconds = "browser-session-seconds"
@@ -47,16 +44,36 @@ const (
 	flagSiteURL               = "site-url"
 	flagAPIURL                = "api-url"
 	flagDiscordClientID       = "discord-client-id"
-	flagDiscordClientSecret   = "discord-client-secret"
 	flagDiscordCallback       = "discord-callback"
 	flagGitHubClientID        = "github-client-id"
-	flagGitHubClientSecret    = "github-client-secret"
 	flagGitHubCallback        = "github-callback"
 	flagGoogleClientID        = "google-client-id"
-	flagGoogleClientSecret    = "google-client-secret"
 	flagGoogleCallback        = "google-callback"
 	flagTrustedProxyCIDRs     = "trusted-proxy-cidrs"
 )
+
+// Environment variables the secrets are read from. They have no command-line
+// equivalent, because an argument is readable by every process on the machine
+// and is recorded by whatever started this one.
+const (
+	environmentDatabaseURL         = "DATABASE_URL"
+	environmentSigningSecret       = "JWT_SECRET"
+	environmentDiscordClientSecret = "DISCORD_CLIENT_SECRET"
+	environmentGitHubClientSecret  = "GITHUB_CLIENT_SECRET"
+	environmentGoogleClientSecret  = "GOOGLE_CLIENT_SECRET"
+)
+
+// secretEnvironment lists those variables for the checks that must cover every
+// one of them.
+func secretEnvironment() []string {
+	return []string{
+		environmentDatabaseURL,
+		environmentSigningSecret,
+		environmentDiscordClientSecret,
+		environmentGitHubClientSecret,
+		environmentGoogleClientSecret,
+	}
+}
 
 // Lifetimes a deployment that does not set them explicitly gets. Both are also
 // bounded by the configuration rules, which reject a longer value.
@@ -177,9 +194,9 @@ func configure(cmd *cli.Command) (config.Config, error) {
 		Pretty:           cmd.Bool(flagPretty),
 		DevelopmentBuild: buildServesDevelopmentRoutes,
 
-		DatabaseURL: cmd.String(flagDatabaseURL),
+		DatabaseURL: os.Getenv(environmentDatabaseURL),
 
-		SigningSecret:         cmd.String(flagSigningSecret),
+		SigningSecret:         os.Getenv(environmentSigningSecret),
 		SigningAlgorithm:      cmd.String(flagSigningAlgorithm),
 		ExchangeCodeSeconds:   cmd.Int(flagExchangeCodeSeconds),
 		BrowserSessionSeconds: cmd.Int(flagBrowserSessionSeconds),
@@ -190,15 +207,15 @@ func configure(cmd *cli.Command) (config.Config, error) {
 		APIURL:  cmd.String(flagAPIURL),
 
 		DiscordClientID:     cmd.String(flagDiscordClientID),
-		DiscordClientSecret: cmd.String(flagDiscordClientSecret),
+		DiscordClientSecret: os.Getenv(environmentDiscordClientSecret),
 		DiscordCallback:     cmd.String(flagDiscordCallback),
 
 		GitHubClientID:     cmd.String(flagGitHubClientID),
-		GitHubClientSecret: cmd.String(flagGitHubClientSecret),
+		GitHubClientSecret: os.Getenv(environmentGitHubClientSecret),
 		GitHubCallback:     cmd.String(flagGitHubCallback),
 
 		GoogleClientID:     cmd.String(flagGoogleClientID),
-		GoogleClientSecret: cmd.String(flagGoogleClientSecret),
+		GoogleClientSecret: os.Getenv(environmentGoogleClientSecret),
 		GoogleCallback:     cmd.String(flagGoogleCallback),
 
 		TrustedProxyCIDRs: cmd.String(flagTrustedProxyCIDRs),
@@ -225,16 +242,6 @@ func settingFlags() []cli.Flag {
 		&cli.BoolFlag{
 			Name:  flagPretty,
 			Usage: "write human-readable log lines instead of JSON",
-		},
-		&cli.StringFlag{
-			Name:    flagDatabaseURL,
-			Usage:   "the PostgreSQL connection `URL`",
-			Sources: cli.EnvVars("DATABASE_URL"),
-		},
-		&cli.StringFlag{
-			Name:    flagSigningSecret,
-			Usage:   "the root `SECRET` the per-purpose token signing keys are derived from",
-			Sources: cli.EnvVars("JWT_SECRET"),
 		},
 		&cli.StringFlag{
 			Name:    flagSigningAlgorithm,
@@ -275,11 +282,6 @@ func settingFlags() []cli.Flag {
 			Sources: cli.EnvVars("DISCORD_CLIENT_ID"),
 		},
 		&cli.StringFlag{
-			Name:    flagDiscordClientSecret,
-			Usage:   "the Discord application's client `SECRET`",
-			Sources: cli.EnvVars("DISCORD_CLIENT_SECRET"),
-		},
-		&cli.StringFlag{
 			Name:    flagDiscordCallback,
 			Usage:   "the `URI` registered with Discord for this service",
 			Sources: cli.EnvVars("ABANDON_AUTH_DISCORD_CALLBACK"),
@@ -290,11 +292,6 @@ func settingFlags() []cli.Flag {
 			Sources: cli.EnvVars("GITHUB_CLIENT_ID"),
 		},
 		&cli.StringFlag{
-			Name:    flagGitHubClientSecret,
-			Usage:   "the GitHub application's client `SECRET`",
-			Sources: cli.EnvVars("GITHUB_CLIENT_SECRET"),
-		},
-		&cli.StringFlag{
 			Name:    flagGitHubCallback,
 			Usage:   "the `URI` registered with GitHub for this service",
 			Sources: cli.EnvVars("ABANDON_AUTH_GITHUB_CALLBACK"),
@@ -303,11 +300,6 @@ func settingFlags() []cli.Flag {
 			Name:    flagGoogleClientID,
 			Usage:   "the Google application's client `ID`",
 			Sources: cli.EnvVars("GOOGLE_CLIENT_ID"),
-		},
-		&cli.StringFlag{
-			Name:    flagGoogleClientSecret,
-			Usage:   "the Google application's client `SECRET`",
-			Sources: cli.EnvVars("GOOGLE_CLIENT_SECRET"),
 		},
 		&cli.StringFlag{
 			Name:    flagGoogleCallback,
