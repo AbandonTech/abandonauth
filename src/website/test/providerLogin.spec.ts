@@ -33,12 +33,13 @@ describe("providerLoginUrl", () => {
   });
 
   it("builds no provider address of its own", () => {
-    for (const provider of ["discord", "github"] as const) {
+    for (const provider of ["discord", "github", "google"] as const) {
       const url = providerLoginUrl(provider, "an-application", "https://example.test/return");
 
       expect(url.startsWith("/api/")).toBe(true);
       expect(url).not.toContain("discord.com");
       expect(url).not.toContain("github.com");
+      expect(url).not.toContain("accounts.google.com");
       expect(url).not.toContain("state=");
     }
   });

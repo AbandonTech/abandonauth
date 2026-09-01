@@ -34,20 +34,20 @@ func embeddedMigrations() (fs.FS, error) {
 
 // BaselineVersion is the migration that creates the account schema.
 //
-// A database that already holds that schema is marked as having applied this
-// version instead of running it, which is what adoption does.
+// A database that already holds that schema without having run this version is
+// one this service did not build, and start-up refuses it.
 const BaselineVersion int64 = 20260827000100
 
-// ErrSchemaNeedsAdoption reports a database that already holds the account
+// ErrUnrecognisedSchema reports a database that already holds the account
 // schema but has no migration history of its own.
 //
 // Migrating it blindly would either fail on tables that already exist or, worse,
 // succeed against a schema that is subtly different from the one the service
-// expects. The operator has to run the adoption command, which proves the schema
-// is the one this service was built for before recording it as migrated.
-var ErrSchemaNeedsAdoption = errors.New(
-	"the database already holds application tables but no migration history: " +
-		"run `abandonauth database adopt-existing-schema --verify-only` and then without the flag",
+// expects. Neither is something start-up may decide on its own, so it stops and
+// leaves the database untouched.
+var ErrUnrecognisedSchema = errors.New(
+	"the database already holds application tables but no record of this service having migrated them, " +
+		"so it will not be migrated",
 )
 
 // Migrate applies every migration the database has not yet run.
@@ -60,8 +60,8 @@ func Migrate(ctx context.Context, db *sql.DB, logger goose.Logger) error {
 		return err
 	}
 
-	if state.NeedsAdoption() {
-		return ErrSchemaNeedsAdoption
+	if state.IsUnrecognised() {
+		return ErrUnrecognisedSchema
 	}
 
 	provider, err := newMigrationProvider(db, logger)
@@ -79,7 +79,7 @@ func Migrate(ctx context.Context, db *sql.DB, logger goose.Logger) error {
 // MigrateTo applies migrations up to and including the given version.
 //
 // It exists so a test can look at the database as it is immediately after the
-// baseline, which is the state an existing database is adopted at.
+// baseline, before the tables the rest of the service depends on are added.
 func MigrateTo(ctx context.Context, db *sql.DB, logger goose.Logger, version int64) error {
 	provider, err := newMigrationProvider(db, logger)
 	if err != nil {

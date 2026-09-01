@@ -109,21 +109,22 @@ func TestConcurrentMigrationsAreSerialised(t *testing.T) {
 // migrated it must never be migrated blindly: the statements would either fail
 // on tables that exist or, worse, succeed against a schema that is subtly
 // different from the one this service expects.
-func TestStartUpRefusesADatabaseThisServiceHasNotAdopted(t *testing.T) {
+func TestStartUpRefusesADatabaseItDoesNotRecognise(t *testing.T) {
 	t.Parallel()
 
-	pool := testdatabase.NewUnadopted(t)
+	pool := testdatabase.NewUnrecognised(t)
 	handle := testdatabase.OpenMigrationHandle(t, pool)
 
 	err := database.Migrate(t.Context(), handle, quietLog{})
 
-	if !errors.Is(err, database.ErrSchemaNeedsAdoption) {
-		t.Fatalf("migrating an unadopted database returned %v, want ErrSchemaNeedsAdoption", err)
+	if !errors.Is(err, database.ErrUnrecognisedSchema) {
+		t.Fatalf("migrating an unrecognised database returned %v, want ErrUnrecognisedSchema", err)
 	}
 
-	// The refusal has to tell the operator what to run, since nothing else will.
-	if got := err.Error(); !strings.Contains(got, "adopt-existing-schema") {
-		t.Errorf("the refusal does not name the command to run: %s", got)
+	// The refusal says what it found, so an operator reading a failed start-up
+	// knows the database was left alone rather than half migrated.
+	if got := err.Error(); !strings.Contains(got, "will not be migrated") {
+		t.Errorf("the refusal does not say what it did: %s", got)
 	}
 }
 

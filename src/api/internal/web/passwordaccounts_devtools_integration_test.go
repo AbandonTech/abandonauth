@@ -259,7 +259,7 @@ func TestSeedingAnAccountRefusesIncompleteRequests(t *testing.T) {
 func TestGuessingASeededPasswordRunsOut(t *testing.T) {
 	t.Parallel()
 
-	service := developmentService(t)
+	service := developmentService(t, servertest.WithSteadyClock())
 	userID := seedAccount(t, service, "a developer")
 
 	policy, known := ratelimit.PolicyFor(ratelimit.PasswordSignIn)

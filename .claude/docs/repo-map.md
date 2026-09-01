@@ -45,7 +45,7 @@ front of sqlc queries over pgx. Nothing is served that
 | `internal/database/pool.go` | connection pool lifecycle |
 | `internal/database/migrate.go` | the embedded migration runner |
 | `internal/database/authorityrotation.go` | `rotate-auth-epoch`, which invalidates every token, state, code, and session in one transaction |
-| `internal/database/adoption/` | the one-time procedure for taking ownership of a database this service has not adopted. Deleted with its tests at plan step 27 |
+| `internal/database/migrate.go` | the embedded migration runner, which refuses a database this service did not build |
 | `internal/database/testdatabase/` | gives each test a migrated database of its own |
 
 ### Services
@@ -61,6 +61,7 @@ front of sqlc queries over pgx. Nothing is served that
 | `internal/services/sessions/` | browser sessions and their CSRF tokens |
 | `internal/services/authority/` | the auth epoch every check is measured against |
 | `internal/services/ratelimit/` | fixed-window budgets keyed so a public identifier cannot lock anyone out |
+| `internal/services/housekeeping/` | removes expired logins, codes, sessions, withdrawals and budget windows on a ticker `serve` owns |
 | `internal/services/providers/` | Discord, GitHub, and Google clients against fixed HTTPS endpoints |
 | `internal/services/providers/providertest/` | local servers that answer as the providers; no test leaves the machine |
 
@@ -164,10 +165,12 @@ nor the documentation UI, refuses `DEBUG=true`, runs as an account that is not
 root, and holds nothing but the binary and a certificate bundle. Compose builds
 the `development` target, which is the variant those routes are compiled into.
 
-## Work in progress
+## Documentation
 
-`src/api/abandonauth/`, `src/api/pyproject.toml`, `src/api/poetry.lock`,
-`src/api/prisma/`, and the root `prisma/` directory describe the service being
-replaced. They are removed at plan step 27. Read
-`.plans/migrate-fastapi-backend-to-go.progress.md` for what is done and what is
-next; do not read them as a description of what the service now does.
+| Path | Holds |
+| --- | --- |
+| `README.md` | integrating an application, running the service, and local development |
+| `docs/DISCORD-OAUTH2.md`, `GITHUB-OAUTH2.md`, `GOOGLE-OAUTH2.md` | registering with each provider |
+| `.claude/docs/architecture.md` | how the parts fit and how a sign-in travels through them |
+| `.claude/docs/security.md` | the controls in force, and where their negative tests are |
+| `.claude/docs/testing.md` | what a test may assert, and the checks to run |

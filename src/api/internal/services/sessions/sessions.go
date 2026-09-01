@@ -170,11 +170,19 @@ func (s *Store) End(ctx context.Context, value string) error {
 	return nil
 }
 
-// EndAllForUser signs out every browser a person is signed in from.
-func (s *Store) EndAllForUser(ctx context.Context, userID uuid.UUID) error {
-	if _, err := s.queries.DeleteBrowserSessionsForUser(ctx, userID); err != nil {
-		return fmt.Errorf("ending a user's sessions: %w", err)
+// maximumCleanupRows bounds one sweep so that tidying up can never become the
+// slowest thing running against the database.
+const maximumCleanupRows = 500
+
+// Forget removes sessions that have reached their expiry.
+//
+// Reading a session already requires it to be unexpired, so nobody is signed
+// out by this who was not already signed out by the clock.
+func (s *Store) Forget(ctx context.Context) (int64, error) {
+	removed, err := s.queries.DeleteExpiredBrowserSessions(ctx, maximumCleanupRows)
+	if err != nil {
+		return 0, fmt.Errorf("removing expired sessions: %w", err)
 	}
 
-	return nil
+	return removed, nil
 }

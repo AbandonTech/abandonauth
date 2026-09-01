@@ -30,6 +30,9 @@ describe("the login page", () => {
     expect(addresses).toContain(
       `/api/ui/github/authorize?application_id=${applicationId}&callback_uri=${encodeURIComponent(callbackUri)}`,
     );
+    expect(addresses).toContain(
+      `/api/ui/google/authorize?application_id=${applicationId}&callback_uri=${encodeURIComponent(callbackUri)}`,
+    );
   });
 
   it("sends nothing to a provider itself", async () => {

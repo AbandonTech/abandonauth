@@ -73,7 +73,7 @@ holds '^etc/ssl/certs/ca-certificates\.crt$' ||
 # The schema travels inside the binary and the service is one Go program, so a
 # .sql file, an interpreter or a package directory in here is something that was
 # copied in by mistake.
-for unwanted in '(^|/)python' '(^|/)poetry' '(^|/)prisma' '(^|/)node' '\.sql$' '(^|/)\.env'; do
+for unwanted in '(^|/)python' '(^|/)node' '\.sql$' '(^|/)\.env'; do
     if holds "$unwanted"; then
         die "the image holds files matching $unwanted"
     fi

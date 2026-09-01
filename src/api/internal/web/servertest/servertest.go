@@ -19,12 +19,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 
 	"github.com/abandontech/abandonauth/src/api/internal/config"
 	"github.com/abandontech/abandonauth/src/api/internal/database/testdatabase"
+	"github.com/abandontech/abandonauth/src/api/internal/services/housekeeping"
 	"github.com/abandontech/abandonauth/src/api/internal/services/providers/providertest"
 	"github.com/abandontech/abandonauth/src/api/internal/web"
 )
@@ -77,9 +79,9 @@ func New(t *testing.T, choices ...Option) *Service {
 		t.Fatalf("the test configuration is not valid: %v", err)
 	}
 
-	identityProviders := providertest.New(t, providertest.Options{
-		GoogleClientID: chosen.settings.GoogleClientID,
-	})
+	chosen.providers.GoogleClientID = chosen.settings.GoogleClientID
+
+	identityProviders := providertest.New(t, chosen.providers)
 
 	dependencies := chosen.dependencies
 
@@ -126,6 +128,13 @@ func New(t *testing.T, choices ...Option) *Service {
 	}
 }
 
+// ExpiredRecordSweeps is how the running service removes each kind of
+// short-lived record once it has expired. Nothing serves these over HTTP, so a
+// test that drives them asks the service for them here.
+func (s *Service) ExpiredRecordSweeps() []housekeeping.Sweep {
+	return s.service.ExpiredRecordSweeps()
+}
+
 // SessionCookieName is the name of the cookie a signed-in browser carries.
 func (s *Service) SessionCookieName() string { return s.service.SessionCookieName() }
 
@@ -140,6 +149,13 @@ func (s *Service) LoginCookieName() string { return s.service.LoginCookieName() 
 type options struct {
 	settings     config.Settings
 	dependencies web.Dependencies
+	providers    providertest.Options
+}
+
+// WithProviderAnswering changes what the identity providers answer, so a test
+// can describe an answer this service is required to refuse.
+func WithProviderAnswering(apply func(*providertest.Options)) Option {
+	return func(chosen *options) { apply(&chosen.providers) }
 }
 
 // Option adjusts how the service under test is built.
@@ -155,6 +171,24 @@ func WithSetting(apply func(*config.Settings)) Option {
 // in for the providers, and a clock the test controls.
 func WithDependencies(apply func(*web.Dependencies)) Option {
 	return func(chosen *options) { apply(&chosen.dependencies) }
+}
+
+// WithSteadyClock holds the service's clock still for the whole test.
+//
+// A request budget is counted in a window fixed to the clock, so a test that
+// spends one takes as long as the work it drives: on a slow machine it can
+// straddle a window boundary, and the count it was building is then measured
+// against a fresh window. Holding the clock makes such a test describe the
+// budget rather than how long the machine took.
+//
+// Only the service's own clock stops. Expiry recorded by the database is
+// measured by the database and continues.
+func WithSteadyClock() Option {
+	held := time.Now().UTC()
+
+	return WithDependencies(func(dependencies *web.Dependencies) {
+		dependencies.Now = func() time.Time { return held }
+	})
 }
 
 // URL is the address of the running service.

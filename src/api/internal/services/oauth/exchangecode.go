@@ -114,3 +114,16 @@ func (e *ExchangeCodes) Discard(ctx context.Context, code string) error {
 
 	return nil
 }
+
+// Forget removes codes whose lifetime has ended.
+//
+// Spending a code already requires it to be unexpired, so nothing here can be
+// redeemed; the delete is bounded so it cannot become the slowest thing running.
+func (e *ExchangeCodes) Forget(ctx context.Context) (int64, error) {
+	removed, err := e.queries.DeleteExpiredExchangeCodes(ctx, maximumCleanupRows)
+	if err != nil {
+		return 0, fmt.Errorf("removing expired one-time codes: %w", err)
+	}
+
+	return removed, nil
+}

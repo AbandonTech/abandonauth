@@ -266,6 +266,23 @@ func nonceFor(provider Provider) (string, []byte, error) {
 	return nonce, credentials.Digest(credentials.DomainIdentityNonce, nonce), nil
 }
 
+// maximumCleanupRows bounds one sweep so that tidying up can never become the
+// slowest thing running against the database.
+const maximumCleanupRows = 500
+
+// Forget removes logins that were started and never completed.
+//
+// Consuming a login already requires it to be unexpired, so nothing here could
+// still have been finished.
+func (s *Store) Forget(ctx context.Context) (int64, error) {
+	removed, err := s.queries.DeleteExpiredAuthorizationState(ctx, maximumCleanupRows)
+	if err != nil {
+		return 0, fmt.Errorf("removing abandoned logins: %w", err)
+	}
+
+	return removed, nil
+}
+
 // challengeFor derives the PKCE challenge the provider is given. Only the
 // challenge travels to the provider, so an intercepted authorization code
 // cannot be exchanged without the verifier this service kept.

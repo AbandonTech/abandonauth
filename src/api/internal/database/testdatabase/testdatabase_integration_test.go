@@ -50,10 +50,10 @@ func TestAMigratedDatabaseIsReadyToUse(t *testing.T) {
 	}
 }
 
-func TestAnUnadoptedDatabaseCanBeBuilt(t *testing.T) {
+func TestAnUnrecognisedDatabaseCanBeBuilt(t *testing.T) {
 	t.Parallel()
 
-	pool := testdatabase.NewUnadopted(t)
+	pool := testdatabase.NewUnrecognised(t)
 	handle := testdatabase.OpenMigrationHandle(t, pool)
 
 	state, err := database.InspectSchema(t.Context(), handle)
@@ -66,7 +66,7 @@ func TestAnUnadoptedDatabaseCanBeBuilt(t *testing.T) {
 	}
 
 	if state.HasMigrationHistory {
-		t.Error("an unadopted database must not already carry this service's own history")
+		t.Error("a database this service did not build must not already carry its history")
 	}
 }
 

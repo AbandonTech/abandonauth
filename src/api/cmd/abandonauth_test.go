@@ -56,9 +56,7 @@ func applyEnvironment(t *testing.T, environment map[string]string) {
 type recorder struct {
 	served              bool
 	maintained          bool
-	adopted             bool
 	rotated             bool
-	verifyOnly          bool
 	maintenanceAddress  string
 	configuration       config.Config
 	errorToReturnOnCall error
@@ -74,14 +72,6 @@ func (r *recorder) Serve(_ context.Context, configuration config.Config) error {
 func (r *recorder) Maintenance(_ context.Context, address string) error {
 	r.maintained = true
 	r.maintenanceAddress = address
-
-	return r.errorToReturnOnCall
-}
-
-func (r *recorder) AdoptExistingSchema(_ context.Context, configuration config.Config, verifyOnly bool) error {
-	r.adopted = true
-	r.verifyOnly = verifyOnly
-	r.configuration = configuration
 
 	return r.errorToReturnOnCall
 }
@@ -236,52 +226,15 @@ func TestMaintenanceNeedsOnlyAnAddress(t *testing.T) {
 }
 
 func TestDatabaseCommands(t *testing.T) {
-	tests := []struct {
-		name       string
-		arguments  []string
-		wantAdopt  bool
-		wantRotate bool
-		wantVerify bool
-	}{
-		{
-			name:      "adoption changes the database",
-			arguments: []string{"database", "adopt-existing-schema"},
-			wantAdopt: true,
-		},
-		{
-			name:       "adoption can only report",
-			arguments:  []string{"database", "adopt-existing-schema", "--verify-only"},
-			wantAdopt:  true,
-			wantVerify: true,
-		},
-		{
-			name:       "rotation replaces the authority",
-			arguments:  []string{"database", "rotate-auth-epoch"},
-			wantRotate: true,
-		},
+	applyEnvironment(t, placeholderEnvironment())
+
+	perform, err := runCommand(t, "database", "rotate-auth-epoch")
+	if err != nil {
+		t.Fatalf("rotating the authority failed: %v", err)
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			applyEnvironment(t, placeholderEnvironment())
-
-			perform, err := runCommand(t, test.arguments...)
-			if err != nil {
-				t.Fatalf("%v failed: %v", test.arguments, err)
-			}
-
-			if perform.adopted != test.wantAdopt {
-				t.Errorf("adoption ran = %t, want %t", perform.adopted, test.wantAdopt)
-			}
-
-			if perform.rotated != test.wantRotate {
-				t.Errorf("rotation ran = %t, want %t", perform.rotated, test.wantRotate)
-			}
-
-			if perform.verifyOnly != test.wantVerify {
-				t.Errorf("verify-only = %t, want %t", perform.verifyOnly, test.wantVerify)
-			}
-		})
+	if !perform.rotated {
+		t.Error("rotation did not run")
 	}
 }
 
@@ -293,7 +246,7 @@ func TestAnUnknownCommandIsRefused(t *testing.T) {
 		t.Fatal("an unknown command was accepted")
 	}
 
-	if perform.served || perform.adopted || perform.rotated || perform.maintained {
+	if perform.served || perform.rotated || perform.maintained {
 		t.Error("an unknown command ran one of the real commands")
 	}
 }

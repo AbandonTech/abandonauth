@@ -24,7 +24,7 @@ func asClient(address string) func(*http.Request) {
 func TestGuessingAnApplicationsCredentialRunsOut(t *testing.T) {
 	t.Parallel()
 
-	service := servertest.New(t)
+	service := servertest.New(t, servertest.WithSteadyClock())
 	service.SignIn(service.Providers.Someone(oauth.Discord, "the owner"))
 
 	application := service.RegisterApplication("an application")
@@ -92,9 +92,12 @@ func TestSpendingABudgetAgainstAnApplicationDoesNotLockItOut(t *testing.T) {
 func TestAForwardedAddressIsOnlyBelievedFromTheProxy(t *testing.T) {
 	t.Parallel()
 
-	service := servertest.New(t, servertest.WithSetting(func(settings *config.Settings) {
-		settings.TrustedProxyCIDRs = "203.0.113.0/24"
-	}))
+	service := servertest.New(t,
+		servertest.WithSetting(func(settings *config.Settings) {
+			settings.TrustedProxyCIDRs = "203.0.113.0/24"
+		}),
+		servertest.WithSteadyClock(),
+	)
 
 	service.SignIn(service.Providers.Someone(oauth.Discord, "the owner"))
 	application := service.RegisterApplication("an application")
@@ -120,7 +123,7 @@ func TestAForwardedAddressIsOnlyBelievedFromTheProxy(t *testing.T) {
 func TestGuessingOneTimeCodesRunsOut(t *testing.T) {
 	t.Parallel()
 
-	service := servertest.New(t)
+	service := servertest.New(t, servertest.WithSteadyClock())
 	service.SignIn(service.Providers.Someone(oauth.Discord, "the owner"))
 
 	application := service.RegisterApplication("a relying application")

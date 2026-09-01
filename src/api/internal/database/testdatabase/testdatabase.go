@@ -117,22 +117,22 @@ func Migrate(t *testing.T, pool *pgxpool.Pool) {
 	}
 }
 
-// NewUnadopted creates a database that holds the account schema but no record of
+// NewUnrecognised creates a database that holds the account schema but no record of
 // this service having migrated it.
-func NewUnadopted(t *testing.T) *pgxpool.Pool {
+func NewUnrecognised(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 
 	pool := New(t)
 
-	MakeUnadopted(t, pool)
+	MakeUnrecognised(t, pool)
 
 	return pool
 }
 
-// MakeUnadopted brings an empty database to the state a start-up must refuse to
+// MakeUnrecognised brings an empty database to the state a start-up must refuse to
 // migrate: it holds the account schema, but nothing records that this service
 // put it there.
-func MakeUnadopted(t *testing.T, pool *pgxpool.Pool) {
+func MakeUnrecognised(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 
 	handle := database.OpenMigrationHandle(pool)

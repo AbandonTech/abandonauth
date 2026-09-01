@@ -2,14 +2,17 @@
 
 ## Current state
 
-There is no tracked automated test suite, pytest dependency, frontend test
-runner, frontend lint command, or frontend typecheck command. CI lints the API
-and builds containers but does not run behavior tests. Never report tests as
-passing when none exist.
+The API has unit and integration tests, and CI runs the same
+`./scripts/check.sh` a developer runs. Every package that contains statements is
+held to 80% statement coverage, measured from a real profile; the gate fails the
+run, and it currently passes.
 
-New behavior must add real automated tests. If the necessary test framework is
-missing, the plan must establish it as part of the change or explicitly stop
-for user approval rather than substituting manual API requests.
+The site has Vitest tests and a production build. There is still **no frontend
+lint or typecheck command**. Do not claim one passed.
+
+New behavior must add real automated tests. A manual request is not a
+substitute. If the necessary test framework is missing, the plan must establish
+it as part of the change or stop for user approval.
 
 ## Security test requirements
 
@@ -59,28 +62,40 @@ how today's behaviour is achieved, not what is promised. A cascade, a uniqueness
 rule or an ordering is proved through the endpoint whose contract depends on it.
 Do not call `query.Queries` from a test.
 
-`internal/database/adoption` is the single exception, and a bounded one. It is
-the one-time procedure for taking ownership of a database this service did not
-migrate, it is the only place that names an artifact of the tool that built the
-deployed database, and it is deleted together with its tests once the cutover is
-complete.
+A few things no client can reach are tested against their service directly: a
+constructor that must refuse an unusable setting, a guard that exists so a
+future caller cannot get past it, and the expiry sweeps, which no endpoint
+drives. Reach for this only when there is no front door to the behaviour, and
+still state the requirement rather than the mechanism.
 
 ## Available checks
 
-Run relevant checks from the repository root:
+Run what a change could have broken, from the repository root, and report
+exactly what was run:
 
 ```text
-poetry -C src/api run ruff check .
-poetry -C src/api run pyright
+./scripts/check.sh                 codegen, formatting, lint, both builds, unit tests
+./scripts/check.sh --integration   also the race, database and coverage checks
+./scripts/check.sh --images        also both images and the composed stack
+./scripts/db.sh down               remove the test database afterwards
+
+npm --prefix src/website test
 npm --prefix src/website run build
-docker compose config
 ```
 
-Run API checks for Python or Prisma changes, the website build for frontend
-changes, and Compose validation for deployment changes. Documentation-only
-agent setup does not require application builds.
+`--integration` is authoritative for coverage and is the one to run after a
+change to database or concurrency behaviour. `--images` matters when a
+Dockerfile, a `.dockerignore` or `scripts/imagecheck.sh` changes.
 
-`.pre-commit-config.yaml` contains mutating hooks: Ruff runs with fixes, Prisma
-formats and generates, and whitespace hooks rewrite files. Inspect `git status`
-and the diff before and after invoking pre-commit. Do not treat generated Prisma
-client output as source or edit it manually.
+The coverage profile is built with `-tags=integration` and **not** `devtools`, so
+a test written under `integration && devtools` earns no coverage against the
+gate. That is deliberate: those files are not in the published binary.
+
+`./scripts/check.sh` reports formatting rather than correcting it, so a check
+never rewrites the worktree unannounced; `--fix-fmt` corrects it. Generated sqlc
+and Swagger output is regenerated every run and is never edited.
+
+A test that spends a request budget should hold the clock with
+`servertest.WithSteadyClock()`. Budgets are counted in windows fixed to the
+clock, so a slow test can otherwise build a count in one window and be measured
+against the next.

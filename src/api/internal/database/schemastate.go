@@ -43,9 +43,9 @@ func (s SchemaState) IsComplete() bool {
 	return len(s.MissingAccountTables) == 0
 }
 
-// NeedsAdoption reports a database that already holds account data but has no
+// IsUnrecognised reports a database that already holds account data but has no
 // migration history of its own, so migrations must not simply be run against it.
-func (s SchemaState) NeedsAdoption() bool {
+func (s SchemaState) IsUnrecognised() bool {
 	return !s.IsEmpty() && !s.HasMigrationHistory
 }
 

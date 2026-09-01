@@ -10,8 +10,8 @@ security-critical.
 | Work | Read first |
 | --- | --- |
 | Finding code | `.claude/docs/repo-map.md` |
-| Architecture or data flow | `.claude/docs/architecture.md` (stale; see below) |
-| Auth, OAuth, tokens, sessions, or secrets | `.claude/docs/security.md` (stale; see below) |
+| Architecture or data flow | `.claude/docs/architecture.md` |
+| Auth, OAuth, tokens, sessions, or secrets | `.claude/docs/security.md` |
 | Tests or validation | `.claude/docs/testing.md` |
 | Agent phase boundaries | `.agents/abandonauth-agent-workflow.md` |
 
@@ -19,10 +19,6 @@ Read the repo map before searching or launching an exploration agent. Use
 targeted Glob, Grep, or direct reads after the map as tool permissions allow.
 Update the map in the same change when files, routes, packages, or agent
 workflow components move or change.
-
-`architecture.md` and `security.md` still describe an implementation this
-service no longer has. Read the code, not them, until they are rewritten;
-`.plans/migrate-fastapi-backend-to-go.progress.md` says when that happens.
 
 ## Workflow
 
@@ -83,8 +79,9 @@ npm --prefix src/website run build
 does not. `./scripts/check.sh` reports formatting rather than correcting it, and
 `--fix-fmt` corrects it, so a check never rewrites the worktree unannounced.
 
-The 80% per-package coverage gate is not currently met. Do not describe a run as
-passing when it failed there.
+The 80% per-package coverage gate passes. Keep it that way, and never describe a
+run as passing when it failed there. The profile is built without the `devtools`
+tag, so a test under `integration && devtools` earns no coverage against it.
 
 There is still no frontend lint or typecheck command. Do not claim one passed;
 Vitest and the production build are the site's validation.

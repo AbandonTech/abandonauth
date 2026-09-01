@@ -87,9 +87,14 @@ type Providers struct {
 	t *testing.T
 
 	googleClientID string
+	faults         Options
 
 	server *httptest.Server
 	key    *rsa.PrivateKey
+
+	// anotherKey is not in the published set, so a token signed with it is one
+	// the service must refuse.
+	anotherKey *rsa.PrivateKey
 
 	held    sync.Mutex
 	grants  map[string]Grant
@@ -100,6 +105,20 @@ type Providers struct {
 type Options struct {
 	// GoogleClientID is the audience the identity tokens are issued for.
 	GoogleClientID string
+
+	// AlterIdentityToken changes what Google claims about a person before the
+	// token is signed, so a test can describe an answer this service is
+	// required to refuse. It is left unset by a test about a working sign-in.
+	AlterIdentityToken func(jwt.MapClaims)
+
+	// SignIdentityTokenWithAnotherKey signs with a key the published set does
+	// not carry, which is what a forged token looks like.
+	SignIdentityTokenWithAnotherKey bool
+
+	// IdentityTokenAlgorithm signs with something other than RS256. A symmetric
+	// algorithm here is signed with the client identifier, which is what an
+	// attacker holding only public values could manage.
+	IdentityTokenAlgorithm jwt.SigningMethod
 }
 
 // New starts the providers and stops them when the test ends.
@@ -111,10 +130,17 @@ func New(t *testing.T, choices Options) *Providers {
 		t.Fatalf("generating the provider signing key: %v", err)
 	}
 
+	another, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generating a second provider signing key: %v", err)
+	}
+
 	providers := &Providers{
 		t:              t,
 		googleClientID: choices.GoogleClientID,
+		faults:         choices,
 		key:            key,
+		anotherKey:     another,
 		grants:         make(map[string]Grant),
 		granted:        make(map[string]Identity),
 	}
@@ -300,10 +326,30 @@ func (p *Providers) identityToken(grant Grant, accessToken string) string {
 		"at_hash": accessTokenSum(accessToken),
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	if p.faults.AlterIdentityToken != nil {
+		p.faults.AlterIdentityToken(claims)
+	}
+
+	algorithm := jwt.SigningMethod(jwt.SigningMethodRS256)
+	if p.faults.IdentityTokenAlgorithm != nil {
+		algorithm = p.faults.IdentityTokenAlgorithm
+	}
+
+	token := jwt.NewWithClaims(algorithm, claims)
 	token.Header["kid"] = signingKeyIdentifier
 
-	signed, err := token.SignedString(p.key)
+	var signWith any = p.key
+
+	switch {
+	case algorithm.Alg() == jwt.SigningMethodRS256.Alg() && p.faults.SignIdentityTokenWithAnotherKey:
+		signWith = p.anotherKey
+	case algorithm.Alg() != jwt.SigningMethodRS256.Alg():
+		// A symmetric algorithm is keyed on a value an attacker could hold,
+		// which is the point of refusing anything but RS256.
+		signWith = []byte(p.googleClientID)
+	}
+
+	signed, err := token.SignedString(signWith)
 	if err != nil {
 		p.t.Fatalf("signing an identity token: %v", err)
 	}

@@ -56,7 +56,6 @@ const (
 	flagGoogleClientSecret    = "google-client-secret"
 	flagGoogleCallback        = "google-callback"
 	flagTrustedProxyCIDRs     = "trusted-proxy-cidrs"
-	flagVerifyOnly            = "verify-only"
 )
 
 // Lifetimes a deployment that does not set them explicitly gets. Both are also
@@ -72,7 +71,6 @@ const (
 type operations interface {
 	Serve(ctx context.Context, configuration config.Config) error
 	Maintenance(ctx context.Context, address string) error
-	AdoptExistingSchema(ctx context.Context, configuration config.Config, verifyOnly bool) error
 	RotateAuthority(ctx context.Context, configuration config.Config) error
 }
 
@@ -150,27 +148,6 @@ func databaseCommand(perform operations) *cli.Command {
 		Name:  "database",
 		Usage: "operate on the schema and on the authority behind issued credentials",
 		Commands: []*cli.Command{
-			{
-				Name:  "adopt-existing-schema",
-				Usage: "take ownership of a database whose tables another tool created",
-				Description: "The schema is compared against the one this service was built for, " +
-					"and the migration history that built it is checked against the history this " +
-					"binary carries. A difference is a stop, not a warning.",
-				Flags: []cli.Flag{
-					&cli.BoolFlag{
-						Name:  flagVerifyOnly,
-						Usage: "report what adoption would do and change nothing",
-					},
-				},
-				Action: func(ctx context.Context, cmd *cli.Command) error {
-					configuration, err := configure(cmd)
-					if err != nil {
-						return err
-					}
-
-					return perform.AdoptExistingSchema(ctx, configuration, cmd.Bool(flagVerifyOnly))
-				},
-			},
 			{
 				Name:  "rotate-auth-epoch",
 				Usage: "withdraw every issued credential and install a new authority",

@@ -11,6 +11,7 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/services/accounts"
 	"github.com/abandontech/abandonauth/src/api/internal/services/applications"
 	"github.com/abandontech/abandonauth/src/api/internal/services/authority"
+	"github.com/abandontech/abandonauth/src/api/internal/services/housekeeping"
 	"github.com/abandontech/abandonauth/src/api/internal/services/keyring"
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
 	"github.com/abandontech/abandonauth/src/api/internal/services/providers"
@@ -210,6 +211,20 @@ func unmatchedRequests() http.Handler {
 	}))
 
 	return knownPaths
+}
+
+// ExpiredRecordSweeps names every kind of short-lived record this service
+// stores, and how each is removed once it has expired.
+//
+// The services are built here, so this is where the whole set is known.
+func (s *Server) ExpiredRecordSweeps() []housekeeping.Sweep {
+	return []housekeeping.Sweep{
+		{Records: "abandoned logins", Forget: s.logins.Forget},
+		{Records: "one-time codes", Forget: s.codes.Forget},
+		{Records: "browser sessions", Forget: s.sessions.Forget},
+		{Records: "withdrawn tokens", Forget: s.authority.Forget},
+		{Records: "rate limit windows", Forget: s.limiter.Forget},
+	}
 }
 
 // MissingHandlers names the routes this build declares but cannot answer.

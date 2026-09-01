@@ -76,3 +76,20 @@ func (a *Authority) IsWithdrawn(ctx context.Context, identifier uuid.UUID) (bool
 
 	return withdrawn, nil
 }
+
+// maximumCleanupRows bounds one sweep so that tidying up can never become the
+// slowest thing running against the database.
+const maximumCleanupRows = 500
+
+// Forget removes withdrawals that have outlived the tokens they refused.
+//
+// A withdrawal is recorded with the expiry of the token it refuses, so a row
+// this removes names a token that no longer passes verification on its own.
+func (a *Authority) Forget(ctx context.Context) (int64, error) {
+	removed, err := a.queries.DeleteExpiredRevocations(ctx, maximumCleanupRows)
+	if err != nil {
+		return 0, fmt.Errorf("removing expired withdrawals: %w", err)
+	}
+
+	return removed, nil
+}

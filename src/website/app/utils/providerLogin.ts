@@ -1,5 +1,5 @@
 /** The providers a person can sign in with. */
-export type SignInProvider = "discord" | "github";
+export type SignInProvider = "discord" | "github" | "google";
 
 /**
  * providerLoginUrl is where a browser goes to begin a sign-in.

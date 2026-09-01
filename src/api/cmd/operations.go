@@ -12,8 +12,8 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/buildmode"
 	"github.com/abandontech/abandonauth/src/api/internal/config"
 	"github.com/abandontech/abandonauth/src/api/internal/database"
-	"github.com/abandontech/abandonauth/src/api/internal/database/adoption"
 	"github.com/abandontech/abandonauth/src/api/internal/logging"
+	"github.com/abandontech/abandonauth/src/api/internal/services/housekeeping"
 	"github.com/abandontech/abandonauth/src/api/internal/web"
 )
 
@@ -46,6 +46,15 @@ func (service) Serve(ctx context.Context, configuration config.Config) error {
 		return fmt.Errorf("these routes have no handler: %v", missing)
 	}
 
+	keeper, err := housekeeping.New(server.ExpiredRecordSweeps(), housekeeping.Options{Logger: logger})
+	if err != nil {
+		return err
+	}
+
+	// Bound to the same context as the listener, so stopping the service stops
+	// the sweeps with it.
+	go keeper.Run(ctx)
+
 	logger.Info().
 		Str("build", buildmode.Name).
 		Str("version", version).
@@ -70,42 +79,6 @@ func (service) Maintenance(ctx context.Context, address string) error {
 		Msg("serving maintenance responses only")
 
 	return listenUntilStopped(ctx, logger, address, web.MaintenanceHandler())
-}
-
-// AdoptExistingSchema takes ownership of a database that already holds the
-// account schema without a record of this service having migrated it, or reports
-// whether doing so would succeed.
-func (service) AdoptExistingSchema(ctx context.Context, configuration config.Config, verifyOnly bool) error {
-	logger := loggerFor(configuration)
-
-	pool, err := database.Open(ctx, configuration.DatabaseURL.Reveal())
-	if err != nil {
-		return err
-	}
-	defer pool.Close()
-
-	handle := database.OpenMigrationHandle(pool)
-	defer handle.Close()
-
-	var report adoption.Report
-
-	if verifyOnly {
-		report, err = adoption.Verify(ctx, handle)
-	} else {
-		report, err = adoption.Adopt(ctx, handle)
-	}
-
-	reportAdoption(logger, report)
-
-	if err != nil {
-		return err
-	}
-
-	if verifyOnly && report.Outcome == adoption.OutcomeAdoptable {
-		logger.Info().Msg("run the command again without --verify-only to adopt this schema")
-	}
-
-	return nil
 }
 
 // RotateAuthority withdraws every credential the service has issued.
@@ -145,27 +118,6 @@ func migrate(ctx context.Context, pool *pgxpool.Pool, logger zerolog.Logger) err
 	defer handle.Close()
 
 	return database.Migrate(ctx, handle, database.NewMigrationLog(logger))
-}
-
-func reportAdoption(logger zerolog.Logger, report adoption.Report) {
-	if report.Outcome != "" {
-		logger.Info().
-			Str("outcome", string(report.Outcome)).
-			Int("recorded_migrations", report.RecordedMigrations).
-			Msg("inspected the database")
-	}
-
-	for _, difference := range report.SchemaDifferences {
-		logger.Error().Str("difference", difference.String()).Msg("the schema does not match")
-	}
-
-	// Identified by primary key rather than by value: a callback URI is a
-	// deployment detail of somebody else's application.
-	if len(report.UnsafeCallbackURIIDs) > 0 {
-		logger.Error().
-			Ints32("callback_uri_ids", report.UnsafeCallbackURIIDs).
-			Msg("these registered callback URIs are refused by the current rules and must be corrected")
-	}
 }
 
 // listenUntilStopped serves until the context is cancelled, then stops taking

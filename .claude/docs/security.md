@@ -10,8 +10,8 @@ plan and review by `abandonauth-security-reviewer` before implementation.
 - Never expose passwords, client secrets, authorization codes, JWTs, provider
   access tokens, refresh tokens, session cookies, or private keys in output,
   logs, URLs, exceptions, plans, tests, fixtures, snapshots, or commits.
-- Use `SecretStr` or equivalent secret-bearing types and reveal values only at
-  the narrow outbound call or cryptographic boundary that requires them.
+- Hold secrets in `config.Secret` and call `Reveal()` only at the narrow
+  outbound call or cryptographic boundary that requires the value.
 - Redact authorization headers, cookies, query strings, and provider response
   bodies from logging and telemetry.
 
@@ -71,19 +71,47 @@ place production credentials in an agent-accessible development worktree.
 - Debug authentication routes, wildcard CORS, documentation, and verbose errors
   must be unreachable in production even when configuration is mistaken.
 
-## Current high-risk areas
+## The controls in force, and where they live
 
-Plans touching these areas must verify current behavior rather than assuming
-it is safe:
+These are decisions, not incidental behaviour. Weakening one is a security
+change: it needs a sensitive plan, a review, and abuse-case tests, whatever else
+the work was about.
 
-| Area | Current concern |
+| Control | Where |
 | --- | --- |
-| `dependencies/auth/jwt.py` | decode does not explicitly allowlist algorithms; audience can be skipped; scope uses substring membership; exchange-token cache is process-local and not consumed on exchange |
-| `routers/ui.py` and `pages/login.vue` | OAuth state is not session-bound or unpredictable; exchange credentials are redirected in query strings |
-| `routers/google.py` | caller-controlled redirect target and fixed fake audience bypass the registered callback flow |
-| `routers/developer_application.py` | endpoint documented as short-lived issues a long-lived JWT; callback URI strings lack scheme and policy validation |
-| `routers/ui.py` and website auth | long-lived JWT is readable by browser JavaScript and logout has no server-side revocation |
-| `routers/password_login.py` and `main.py` | debug configuration enables authentication routes and wildcard CORS |
+| Exactly `HS512`, checked rather than obeyed; per-purpose keys derived from the signing root under fixed key identifiers | `internal/config`, `internal/services/keyring`, `internal/services/tokens` |
+| Two access token classes that are never interchangeable, each validated against its own issuer, audience, subject, scope, type and lifetime | `internal/services/tokens`, `internal/web/authentication.go` |
+| A developer application's credential version, which refuses every token issued before its credential was reset | `internal/services/applications`, `internal/web/authentication.go` |
+| The auth epoch every check is measured against, replaced transactionally to withdraw everything at once | `internal/services/authority`, `internal/database/authorityrotation.go` |
+| Login state that is opaque, single-use, browser-bound, application-bound, callback-exact and expiring, consumed by one `DELETE ... RETURNING` | `internal/services/oauth` |
+| PKCE on every provider, with the verifier encrypted at rest | `internal/services/oauth` |
+| Google's issuer, audience and `azp`, RS256 only, signature, nonce, `at_hash` and clock claims, against compiled-in endpoints a discovery document cannot move | `internal/services/providers/google.go` |
+| Callback URI policy: absolute, HTTPS except on loopback where a port is required, no userinfo, no fragment, no control characters, reserved response keys refused at registration | `internal/urlpolicy` |
+| Server-side sessions stored only as digests, absolute expiry, logout as a delete, double-submit CSRF with an exact `Origin` | `internal/services/sessions`, `internal/web/browsersession.go`, `cookies.go` |
+| Budgets keyed so a public identifier cannot lock anyone out, counted in the database, with no setting that raises or removes one | `internal/services/ratelimit`, `internal/web/requestlimit.go` |
+| Forwarding headers believed only from a configured proxy | `internal/web/clientaddress.go` |
+| Exactly one permitted origin, never a credentialed wildcard | `internal/web/cors.go` |
+| Password sign-in and the documentation UI compiled only into the development build, and served only in debug mode; a deployment refuses `DEBUG` outright | `internal/buildmode`, `internal/config`, the `_devtools.go` files |
+| A log line that never carries a query string, header or cookie | `internal/logging` |
 
-Do not opportunistically change these behaviors in unrelated work. Address
-them through reviewed plans with regression and abuse-case tests.
+## Where the negative tests are
+
+A change to any of the above is expected to extend these rather than replace
+them:
+
+- `internal/web/googleidentity_integration_test.go` — the identity tokens Google
+  must be refused for, with a positive control so the refusals cannot pass
+  vacuously.
+- `internal/web/providerlogin_integration_test.go`,
+  `providercallback_integration_test.go` — state that is missing, altered,
+  replayed, from another browser, for another provider or another application.
+- `internal/web/unavailable_integration_test.go` — every endpoint refusing when
+  the database cannot be reached, and a genuine token refused rather than
+  accepted on its signature alone.
+- `internal/web/requestlimit_integration_test.go` — budgets, and proof that
+  spending one against a public application identifier does not lock it out.
+- `internal/web/browsersession_integration_test.go` — cookie attributes, CSRF,
+  logout, and a copied cookie after logout.
+- `internal/services/tokens/tokens_test.go` — the token abuse matrix.
+- `internal/web/apidocumentation_default_integration_test.go` — a deployment
+  serving none of the documentation addresses.

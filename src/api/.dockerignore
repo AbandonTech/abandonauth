@@ -3,9 +3,4 @@ internal/database/query/
 docs/
 
 # Not read by the service.
-abandonauth
-prisma/
-pyproject.toml
-poetry.lock
-.ruff_cache/
 *.exe
