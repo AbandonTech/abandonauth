@@ -22,6 +22,7 @@ services:
       dockerfile: Dockerfile
       args:
         ABANDON_AUTH_URL: ${ABANDON_AUTH_URL}
+        ABANDON_AUTH_SITE_URL: ${ABANDON_AUTH_SITE_URL}
         ABANDON_AUTH_DEVELOPER_APP_ID: ${ABANDON_AUTH_DEVELOPER_APP_ID}
     environment:
       NUXT_API_ADDRESS: ${ABANDON_AUTH_API_ADDRESS}

@@ -84,7 +84,7 @@ the process with a message naming it, and never repeating its value.
 | `JWT_SECRET` | | yes | **environment only.** The root every signing key is derived from. **At least 64 bytes** |
 | `JWT_HASHING_ALGO` | `HS512` | yes | must be exactly `HS512`; anything else fails closed rather than selecting an algorithm |
 | `ABANDON_AUTH_URL` | | yes | this API's own origin, and the issuer of its tokens |
-| `ABANDON_AUTH_SITE_URL` | | yes | the site's origin. The only origin allowed to call the API from a browser |
+| `ABANDON_AUTH_SITE_URL` | | yes | the site's origin. The only origin allowed to call the API from a browser, and what the site's own sign-in callback is built from |
 | `ABANDON_AUTH_DEVELOPER_APP_ID` | | yes | the developer application that stands for this service's own site |
 | `BIND_ADDRESS` | `0.0.0.0:8000` | no | `host:port` to listen on |
 | `TRUSTED_PROXY_CIDRS` | `127.0.0.1/32,::1/128` | no | whose forwarding headers are believed. **See below** |

@@ -119,6 +119,7 @@ Paths are relative to `src/website/`. Everything the browser runs lives under
 | `test/` | the site's tests |
 | `server/api/[...].ts` | proxy from `/api/**` to the API |
 | `server/utils/apiProxy.ts` | where that proxy sends a call, and why it hands redirects back to the browser |
+| `server/utils/siteCallback.ts` | where the site's own sign-in returns the browser |
 | `app/utils/providerLogin.ts` | the address that asks the API to start a sign-in |
 | `app/utils/browserSession.ts` | the CSRF header, the session paths, and whether a browser is signed in |
 | `app/middleware/auth.global.ts` | route gate; asks `/api/me` |

@@ -25,6 +25,12 @@ and the API from one origin instead, with the reverse proxy stripping `/api`.
 | Name | Used for |
 | --- | --- |
 | `ABANDON_AUTH_URL` | Where `/api` calls are sent |
+| `ABANDON_AUTH_SITE_URL` | The origin a browser reaches this site on, which the sign-in callback is built from |
 | `ABANDON_AUTH_DEVELOPER_APP_ID` | The application this site signs people in to |
 
-Both are read at build time.
+All three are read at build time, from this directory's own `.env` rather than
+the one at the repository root. A deployment passes them as build arguments.
+
+The sign-in callback is `ABANDON_AUTH_SITE_URL` plus `/api/ui`, and the API
+matches it byte for byte against what the application registered, so changing
+that origin means re-registering the callback as well as rebuilding.

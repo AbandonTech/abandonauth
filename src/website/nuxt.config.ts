@@ -1,10 +1,11 @@
 import tailwindcss from "@tailwindcss/vite";
 
 import { apiAddress } from "./server/utils/apiProxy";
+import { siteCallbackUri } from "./server/utils/siteCallback";
 
 const loginQuery = new URLSearchParams({
   application_id: process.env.ABANDON_AUTH_DEVELOPER_APP_ID ?? "",
-  callback_uri: `${process.env.ABANDON_AUTH_URL}/api/ui`,
+  callback_uri: siteCallbackUri(process.env.ABANDON_AUTH_SITE_URL ?? ""),
 });
 
 const apiTarget = apiAddress(process.env.ABANDON_AUTH_API_ADDRESS, process.env.ABANDON_AUTH_URL);
