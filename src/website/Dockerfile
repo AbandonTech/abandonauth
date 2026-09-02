@@ -1,5 +1,5 @@
 # https://hub.docker.com/_/node/tags
-ARG NODE_VERSION=24.13.0
+ARG NODE_VERSION=24.15.0
 
 
 FROM node:${NODE_VERSION} AS build

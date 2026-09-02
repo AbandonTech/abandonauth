@@ -35,7 +35,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           # Matches the version src/website/Dockerfile builds with.
-          node-version: "24.13.0"
+          node-version: "24.15.0"
           cache: npm
           cache-dependency-path: src/website/package-lock.json
 
