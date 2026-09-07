@@ -34,6 +34,12 @@ plan-content gates below.
 - Write only `.plans/<feature>.md`. The plan must be self-contained and
   executable without unanswered questions, alternatives requiring a choice,
   placeholders, or assumptions awaiting confirmation.
+- Locate the logic the change depends on and name it exactly. The plan
+  enumerates every file it changes or creates by repository-relative path, the
+  symbols or document sections within each, and the unchanged consumer or
+  configuration paths that establish the data flow where a reader needs them to
+  judge the change. Every ordered implementation step names the file it acts
+  on.
 - Record the base commit and identify worktree changes that the implementer
   must preserve. Never include secret values.
 - Follow the naming and documentation rules in `CLAUDE.md`. Do not prescribe
@@ -64,8 +70,10 @@ Every plan contains:
 3. Base commit and worktree preservation notes.
 4. Security impact: `none` or `sensitive`, with rationale.
 5. Resolved decisions and compatibility constraints.
-6. Affected files, symbols, data flows, and existing patterns to reuse.
-7. Ordered implementation steps.
+6. Affected files, symbols, data flows, and existing patterns to reuse, with
+   every file given as a repository-relative path and the symbols or sections
+   within it named.
+7. Ordered implementation steps, each naming the file path it acts on.
 8. Tests, including negative and abuse cases where relevant.
 9. Validation commands and known validation gaps.
 10. Migration, rollout, and rollback considerations.
