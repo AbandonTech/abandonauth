@@ -20,7 +20,7 @@ import (
 // @Success     200 {array}  models.DeveloperApplicationDto
 // @Failure     403 {object} response.Failed "The credential was missing, refused or expired"
 // @Security    JWTBearer
-// @Router      /user/applications [get].
+// @Router      /api/user/applications [get].
 func (s *Server) userApplications() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		caller, allowed := s.requireUser(writer, request, tokens.ScopeAbandonauth, audienceInternal)

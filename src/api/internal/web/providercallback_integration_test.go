@@ -12,6 +12,7 @@ import (
 
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
 	"github.com/abandontech/abandonauth/src/api/internal/services/providers/providertest"
+	"github.com/abandontech/abandonauth/src/api/internal/services/ratelimit"
 	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
 )
 
@@ -278,7 +279,7 @@ func TestOneOneTimeCodeIsSpentAtMostOnce(t *testing.T) {
 
 	for range 2 {
 		request, err := http.NewRequestWithContext(
-			t.Context(), http.MethodPost, service.URL()+"/login", bytes.NewReader(credentials),
+			t.Context(), http.MethodPost, service.EndpointURL("/login"), bytes.NewReader(credentials),
 		)
 		if err != nil {
 			t.Fatalf("preparing a request to spend the code: %v", err)
@@ -325,6 +326,49 @@ func TestOneOneTimeCodeIsSpentAtMostOnce(t *testing.T) {
 	if granted != 1 || refused != 1 {
 		t.Errorf("%d requests were given a token and %d were refused, want one of each", granted, refused)
 	}
+}
+
+// A target spelled a way this service does not serve reaches nothing. It spends
+// neither the one-time code it carries nor the budget that protects spending
+// one, so the address it is refused at cannot be used to wear either of them
+// down before the application that owns the code arrives.
+func TestAnExchangeSpelledAnotherWaySpendsNeitherTheCodeNorItsBudget(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t, servertest.WithSteadyClock())
+	service.SignIn(service.Providers.Someone(oauth.Discord, "the owner"))
+
+	application := service.RegisterApplication("a relying application", externalCallbackURI)
+	code := signInToApplication(t, service, application, externalCallbackURI)
+
+	budget, known := ratelimit.PolicyFor(ratelimit.LoginExchange)
+	if !known {
+		t.Fatal("spending a one-time code has no budget")
+	}
+
+	spellings := []string{
+		"/login",
+		"/api//login",
+		"/api/../api/login",
+		"/api/%6cogin",
+		"/api/login/",
+		"/api/ui/../login",
+	}
+
+	for attempt := int64(0); attempt <= budget.Limit; attempt++ {
+		target := spellings[attempt%int64(len(spellings))]
+
+		service.AtExactTarget(http.MethodPost, target,
+			servertest.Header("exchange-token", code),
+			asClient("198.51.100.40"),
+		).ExpectStatus(http.StatusNotFound)
+	}
+
+	service.POSTJSON("/login", map[string]string{
+		"id":            application.ID.String(),
+		"refresh_token": application.RefreshToken,
+	}, servertest.Header("exchange-token", code), asClient("198.51.100.40")).
+		ExpectStatus(http.StatusOK)
 }
 
 // A code belongs to the application the person was signing in to. Another

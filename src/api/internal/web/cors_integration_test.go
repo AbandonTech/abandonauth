@@ -108,6 +108,73 @@ func TestAPreflightFromAnotherSiteIsGivenNoPermission(t *testing.T) {
 	}
 }
 
+// A preflight asks what a browser may do with an address. An address this
+// service does not serve is reported as not served, whoever asked: answering it
+// would describe permissions for something there is nothing at, and would do so
+// for spellings the route table deliberately refuses.
+func TestAPreflightToAnAddressThisServiceDoesNotServeIsRefused(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+
+	targets := map[string]string{
+		"an address above the route root":   "/developer_application",
+		"a session endpoint above the root": "/ui/logout",
+		"an address no route claims":        "/api/nothing-claims-this",
+		"a repeated slash":                  "/api//developer_application",
+		"a dot segment":                     "/api/../api/developer_application",
+		"an escaped slash":                  "/api%2fdeveloper_application",
+		"a trailing slash on an exact path": "/api/developer_application/login/",
+	}
+
+	origins := map[string]string{
+		"the site":       servertest.SiteOrigin,
+		"another origin": "https://elsewhere.example.test",
+	}
+
+	for name, target := range targets {
+		for originName, origin := range origins {
+			t.Run(name+", from "+originName, func(t *testing.T) {
+				t.Parallel()
+
+				response := service.AtExactTarget(http.MethodOptions, target,
+					servertest.Header("Origin", origin),
+					servertest.Header("Access-Control-Request-Method", "POST"),
+				).ExpectStatus(http.StatusNotFound)
+
+				for _, header := range []string{
+					"Access-Control-Allow-Origin",
+					"Access-Control-Allow-Credentials",
+					"Access-Control-Allow-Methods",
+					"Access-Control-Allow-Headers",
+				} {
+					if got := response.Header.Get(header); got != "" {
+						t.Errorf("%s = %q, want nothing", header, got)
+					}
+				}
+			})
+		}
+	}
+}
+
+// The permission headers a plain request carries are decided the same way, so
+// an address that is not served describes nothing to a browser either.
+func TestAnAddressThisServiceDoesNotServeGrantsNoOriginPermission(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+
+	for _, target := range []string{"/me", "/api/nothing-claims-this", "/api//me"} {
+		response := service.AtExactTarget(http.MethodGet, target,
+			servertest.Header("Origin", servertest.SiteOrigin),
+		).ExpectStatus(http.StatusNotFound)
+
+		if got := response.Header.Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("%s: Access-Control-Allow-Origin = %q, want nothing", target, got)
+		}
+	}
+}
+
 // Every answer carries an identifier a person can quote, and one they supplied
 // is used so a request can be followed through a proxy.
 func TestEveryAnswerCarriesAnIdentifier(t *testing.T) {
@@ -163,7 +230,7 @@ func TestTheLogHoldsNoRequestValues(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(written, `"route":"GET /user/applications"`) {
+	if !strings.Contains(written, `"route":"GET /api/user/applications"`) {
 		t.Error("the log does not say which route answered")
 	}
 }

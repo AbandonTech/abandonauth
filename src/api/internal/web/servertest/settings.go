@@ -36,15 +36,15 @@ func placeholderSettings() config.Settings {
 
 		DiscordClientID:     "discord-client-id",
 		DiscordClientSecret: "discord-client-secret-placeholder",
-		DiscordCallback:     APIOrigin + "/ui/discord-callback",
+		DiscordCallback:     APIOrigin + "/api/ui/discord-callback",
 
 		GitHubClientID:     "github-client-id",
 		GitHubClientSecret: "github-client-secret-placeholder",
-		GitHubCallback:     APIOrigin + "/ui/github-callback",
+		GitHubCallback:     APIOrigin + "/api/ui/github-callback",
 
 		GoogleClientID:     "google-client-id",
 		GoogleClientSecret: "google-client-secret-placeholder",
-		GoogleCallback:     APIOrigin + "/google",
+		GoogleCallback:     APIOrigin + "/api/google",
 
 		TrustedProxyCIDRs: config.DefaultTrustedProxyCIDRs,
 	}

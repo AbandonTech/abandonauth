@@ -1,7 +1,7 @@
-import { joinURL, withoutBase } from "ufo";
+import { joinURL } from "ufo";
 
-/** Where this site serves the API. The API answers at /me, not at /api/me. */
-export const apiPrefix = "/api";
+/** The route root the API serves everything under, which this site preserves. */
+export const apiRoot = "/api";
 
 /**
  * apiAddress is where this site's own server sends a call to the API.
@@ -16,16 +16,27 @@ export function apiAddress(configured: string | undefined, publicOrigin: string 
 }
 
 /**
- * apiProxyRequest describes how a call the browser makes to /api reaches the
- * API.
+ * apiForwardTarget is what the development forwarder is pointed at.
  *
- * A redirect is handed back to the browser rather than followed here. The
- * sign-in callbacks answer with a redirect that also carries the session
- * cookie, and following it on the server would swallow both.
+ * That forwarder is mounted on the route root and hands on the path with the
+ * root already removed, so the root has to be part of the address it dials for
+ * the API to receive the path the browser asked for.
+ */
+export function apiForwardTarget(address: string): string {
+  return joinURL(address, apiRoot);
+}
+
+/**
+ * apiProxyRequest describes how a call the browser makes reaches the API.
+ *
+ * The path is passed on whole: it is the API's own address, not something this
+ * site adds. A redirect is handed back to the browser rather than followed
+ * here, because the sign-in callbacks answer with a redirect that also carries
+ * the session cookie, and following it on the server would swallow both.
  */
 export function apiProxyRequest(baseUrl: string, path: string) {
   return {
-    target: joinURL(baseUrl, withoutBase(path, apiPrefix)),
+    target: joinURL(baseUrl, path),
     options: { fetchOptions: { redirect: "manual" as const } },
   };
 }

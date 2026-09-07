@@ -1,6 +1,6 @@
 import tailwindcss from "@tailwindcss/vite";
 
-import { apiAddress } from "./server/utils/apiProxy";
+import { apiAddress, apiForwardTarget } from "./server/utils/apiProxy";
 import { siteCallbackUri } from "./server/utils/siteCallback";
 
 const loginQuery = new URLSearchParams({
@@ -14,7 +14,7 @@ export default defineNuxtConfig({
   compatibilityDate: "2026-08-30",
   nitro: {
     devProxy: {
-      "/api": apiTarget,
+      "/api": apiForwardTarget(apiTarget),
     },
   },
   devtools: {

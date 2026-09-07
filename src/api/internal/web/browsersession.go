@@ -44,7 +44,7 @@ func (s *Server) siteEntry() http.Handler {
 // @Success     200 "The session was ended and the cookies were cleared"
 // @Failure     403 {object} response.Failed "Missing or invalid session, origin, or CSRF token"
 // @Failure     422 {object} response.Invalidated
-// @Router      /ui/logout [post].
+// @Router      /api/ui/logout [post].
 func (s *Server) logout() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		given := inputs.New(request)

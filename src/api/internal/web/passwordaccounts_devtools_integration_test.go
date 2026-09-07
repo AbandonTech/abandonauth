@@ -61,6 +61,32 @@ func seedAccount(t *testing.T, service *servertest.Service, username string) str
 	return created.ID
 }
 
+// Even where these routes exist, they exist at one address each. A target the
+// router would clean or decode into one of them is refused before it gets
+// there, so seeding an account has exactly the one way in that the three
+// conditions above guard.
+func TestSeedingAnAccountHasOnlyOneAddress(t *testing.T) {
+	t.Parallel()
+
+	service := developmentService(t)
+
+	spellings := []string{
+		"/create_test_user",
+		"/login_test_user",
+		"/api//create_test_user",
+		"/api/../api/create_test_user",
+		"/api/%63reate_test_user",
+		"/api/ui/../create_test_user",
+		"/api/create_test_user/",
+	}
+
+	for _, target := range spellings {
+		service.AtExactTarget(http.MethodPost, target).
+			ExpectStatus(http.StatusNotFound).
+			ExpectDetail("Not Found")
+	}
+}
+
 // A developer with no provider credentials can still get an account and sign in
 // as it, which is the whole reason these routes exist.
 func TestAnAccountSeededWithAPasswordCanSignIn(t *testing.T) {

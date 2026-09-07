@@ -36,7 +36,7 @@ const detailPasswordRejected = "Invalid username or password"
 // @Success     200       {object} models.UserDto
 // @Failure     422       {object} response.Invalidated
 // @Failure     429       {object} response.Failed "Too many attempts"
-// @Router      /create_test_user [post].
+// @Router      /api/create_test_user [post].
 func (s *Server) createPasswordAccount() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if !s.passwordSignInReachable(writer) {
@@ -122,7 +122,7 @@ func (s *Server) createPasswordAccount() http.Handler {
 // @Failure     401       {object} response.Failed "The credentials were not accepted"
 // @Failure     422       {object} response.Invalidated
 // @Failure     429       {object} response.Failed "Too many attempts"
-// @Router      /login_test_user [post].
+// @Router      /api/login_test_user [post].
 func (s *Server) signInWithPassword() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if !s.passwordSignInReachable(writer) {

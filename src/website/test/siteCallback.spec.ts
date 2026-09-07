@@ -9,10 +9,10 @@ describe("siteCallbackUri", () => {
     expect(siteCallbackUri("https://abandonauth.test")).toBe("https://abandonauth.test/api/ui");
   });
 
-  it("names a path the proxy resolves to the API's site entry", () => {
+  it("names the API's own site entry, which the forwarder passes on unchanged", () => {
     const callback = new URL(siteCallbackUri("http://localhost:3000"));
 
-    expect(apiProxyRequest("http://localhost:8001", callback.pathname).target).toBe("http://localhost:8001/ui");
+    expect(apiProxyRequest("http://localhost:8001", callback.pathname).target).toBe("http://localhost:8001/api/ui");
   });
 
   it("spells one address whether or not the origin carries a trailing slash", () => {

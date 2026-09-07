@@ -19,7 +19,7 @@ func applicationBodyRequest(path, body string) *http.Request {
 }
 
 func applicationPathRequest(value string) *http.Request {
-	request := httptest.NewRequest(http.MethodGet, "/developer_application/"+value, nil)
+	request := httptest.NewRequest(http.MethodGet, APIRoot+"/developer_application/"+value, nil)
 	request.SetPathValue("application_id", value)
 
 	return request
@@ -28,7 +28,7 @@ func applicationPathRequest(value string) *http.Request {
 func callbackRequest(body string) *http.Request {
 	return httptest.NewRequest(
 		http.MethodPatch,
-		"/developer_application/"+managedApplicationID+"/callback_uris",
+		APIRoot+"/developer_application/"+managedApplicationID+"/callback_uris",
 		strings.NewReader(body),
 	)
 }
@@ -38,7 +38,7 @@ func callbackRequest(body string) *http.Request {
 func TestRegisteringAnApplicationReadsItsName(t *testing.T) {
 	t.Parallel()
 
-	given := inputs.New(applicationBodyRequest("/developer_application", `{"name":"an application"}`))
+	given := inputs.New(applicationBodyRequest(APIRoot+"/developer_application", `{"name":"an application"}`))
 
 	if name := readApplicationName(given); name != "an application" {
 		t.Errorf("name = %q", name)
@@ -67,7 +67,7 @@ func TestRegisteringAnApplicationRefusesWhatItCannotRead(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			given := inputs.New(applicationBodyRequest("/developer_application", test.body))
+			given := inputs.New(applicationBodyRequest(APIRoot+"/developer_application", test.body))
 			readApplicationName(given)
 
 			if got := refusals(given); !slices.Equal(got, test.want) {
@@ -82,7 +82,7 @@ func TestRegisteringAnApplicationRefusesWhatItCannotRead(t *testing.T) {
 func TestAnApplicationsCredentialsAreReadTogether(t *testing.T) {
 	t.Parallel()
 
-	given := inputs.New(applicationBodyRequest("/developer_application/login",
+	given := inputs.New(applicationBodyRequest(APIRoot+"/developer_application/login",
 		`{"id":"`+managedApplicationID+`","refresh_token":"a-placeholder-credential"}`))
 	presented := readApplicationCredentials(given)
 
@@ -125,7 +125,7 @@ func TestAnApplicationsCredentialsRefuseWhatTheyCannotRead(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			given := inputs.New(applicationBodyRequest("/developer_application/login", test.body))
+			given := inputs.New(applicationBodyRequest(APIRoot+"/developer_application/login", test.body))
 			readApplicationCredentials(given)
 
 			if got := refusals(given); !slices.Equal(got, test.want) {

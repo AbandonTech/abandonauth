@@ -25,12 +25,18 @@ const preflightMaxAge = 10 * time.Minute
 // Exactly one origin is ever permitted: the site this deployment was configured
 // with. Credentials are allowed, so a wildcard is not merely disallowed by the
 // specification but would hand every origin a signed-in person's session.
+//
+// Only an address the route table names is answered for. A preflight to
+// anything else is left to the router, which reports that it is not served,
+// rather than being told what a browser could do with an address there is
+// nothing at.
 func (s *Server) answerCORS(next http.Handler) http.Handler {
 	site := s.config.Site
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		served := declaredPath(rawPath(request))
 		origin := request.Header.Get("Origin")
-		permitted := origin != "" && site.MatchesHeader(origin)
+		permitted := served && origin != "" && site.MatchesHeader(origin)
 
 		if permitted {
 			header := writer.Header()
@@ -42,7 +48,8 @@ func (s *Server) answerCORS(next http.Handler) http.Handler {
 			header.Add("Vary", "Origin")
 		}
 
-		if request.Method != http.MethodOptions || request.Header.Get("Access-Control-Request-Method") == "" {
+		if !served || request.Method != http.MethodOptions ||
+			request.Header.Get("Access-Control-Request-Method") == "" {
 			next.ServeHTTP(writer, request)
 
 			return

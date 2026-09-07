@@ -6,18 +6,22 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/web/response"
 )
 
-// sitePath is where a browser that arrives at the API's root is sent. It is a
-// path on this host rather than the site's own origin: the reverse proxy serves
-// both, and the redirect has to work the same from inside the deployment as
-// from outside it.
-const sitePath = "/ui"
-
 // index sends a browser that arrived at the root of the API to the site.
 //
 // It is not part of the published API. Nothing programmatic depends on it; it
-// exists so that typing the host into a browser lands somewhere useful.
+// exists so that typing the address into a browser lands somewhere useful. The
+// destination is the configured site origin, so a forged Host or forwarding
+// header cannot choose where a browser is sent.
 func (s *Server) index() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		response.Redirect(writer, http.StatusTemporaryRedirect, sitePath)
+		response.Redirect(writer, http.StatusTemporaryRedirect, s.config.Site.String())
+	})
+}
+
+// indexEntry sends a browser from the bare root to the root itself, so the two
+// spellings of it lead to one answer.
+func (s *Server) indexEntry() http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		response.Redirect(writer, http.StatusTemporaryRedirect, APIRoot+"/")
 	})
 }

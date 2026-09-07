@@ -19,7 +19,7 @@ const registeredCallbackURI = "https://relying.example.test/return"
 
 func authorizeRequest(provider string, query url.Values) *http.Request {
 	request := httptest.NewRequest(
-		http.MethodGet, "/ui/"+provider+"/authorize?"+query.Encode(), nil,
+		http.MethodGet, APIRoot+"/ui/"+provider+"/authorize?"+query.Encode(), nil,
 	)
 	request.SetPathValue("provider", provider)
 

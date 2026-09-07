@@ -58,6 +58,35 @@ func TestRedirectsAreReturnedRatherThanFollowed(t *testing.T) {
 	}
 }
 
+// Every endpoint helper is given the path below the API's route root, and the
+// root is composed once. A journey written against a path that reached the
+// service without it would prove nothing about what a caller can reach.
+func TestAnEndpointPathReachesTheAPIsRouteRoot(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+
+	if got, want := service.EndpointURL("/me"), service.URL()+"/api/me"; got != want {
+		t.Errorf("EndpointURL(\"/me\") = %q, want %q", got, want)
+	}
+
+	service.GET("/openapi.json").ExpectStatus(http.StatusOK)
+	service.AtExactTarget(http.MethodGet, "/api/openapi.json").ExpectStatus(http.StatusOK)
+}
+
+// The exact-target helper writes the whole target out, so a test can describe
+// what this service does with one it does not serve. It adds nothing of its
+// own; if it did, those tests would be describing a different request.
+func TestTheExactTargetHelperAddsNothing(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+
+	service.AtExactTarget(http.MethodGet, "/openapi.json").
+		ExpectStatus(http.StatusNotFound).
+		ExpectDetail("Not Found")
+}
+
 func TestTheConfigurationIsAvailableToTests(t *testing.T) {
 	t.Parallel()
 

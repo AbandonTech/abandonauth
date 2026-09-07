@@ -13,14 +13,14 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/web/response"
 )
 
-// externalPrefix is where a reverse proxy serves this API from. The
-// documentation page is loaded in a browser, so the address it fetches the
-// schema from has to be the one the browser can reach, not the one inside the
-// deployment.
-const externalPrefix = "/api"
-
 // APISchemaPath is where the published schema is served.
-const APISchemaPath = "/openapi.json"
+const APISchemaPath = APIRoot + "/openapi.json"
+
+// schemaFromDocumentation is how the documentation page names the schema. The
+// page is loaded in a browser, and a relative reference resolves against the
+// address that browser actually asked for, so no host, port or origin has to be
+// guessed for it.
+const schemaFromDocumentation = "../openapi.json"
 
 // generatedAPISchema renders the annotations into a document.
 //
@@ -53,8 +53,8 @@ func (s *Server) documentationHandlers() map[RouteName]http.Handler {
 // documentationEntry sends a browser from the bare path to the subtree the page
 // and its files are served under.
 //
-// The location is relative so it resolves correctly whether the service is
-// reached directly or behind the prefix a proxy serves it from.
+// The location is relative so it resolves against the address the browser
+// asked for.
 func (s *Server) documentationEntry() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		response.Redirect(writer, http.StatusTemporaryRedirect, "docs/")
@@ -63,7 +63,7 @@ func (s *Server) documentationEntry() http.Handler {
 
 // documentation serves the page and the files it loads.
 func (s *Server) documentation() http.Handler {
-	page := httpSwagger.Handler(httpSwagger.URL(externalPrefix + APISchemaPath))
+	page := httpSwagger.Handler(httpSwagger.URL(schemaFromDocumentation))
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		// A request for the subtree itself is answered with the page, rather
@@ -82,7 +82,7 @@ func (s *Server) documentation() http.Handler {
 // documentation is used to try a sign-in. Its address is the one registered
 // with the providers, which is why the served file is named separately from it.
 func (s *Server) documentationRedirectPage() http.Handler {
-	page := httpSwagger.Handler(httpSwagger.URL(externalPrefix + APISchemaPath))
+	page := httpSwagger.Handler(httpSwagger.URL(schemaFromDocumentation))
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		page.ServeHTTP(writer, addressedTo(request, request.URL.Path+".html"))

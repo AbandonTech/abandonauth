@@ -3,7 +3,6 @@
 // @title                      AbandonAuth
 // @version                    0.0.1
 // @description                Identity provider and OAuth application broker.
-// @servers.url                /api
 // @securityDefinitions.apikey JWTBearer
 // @in                         header
 // @name                       Authorization

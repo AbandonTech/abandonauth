@@ -23,6 +23,14 @@ the routes `internal/web/routes.go` declares, and `serve` refuses to start while
 `MissingHandlers()` is non-empty, so a declared route can never answer with a
 surprise instead of its contract.
 
+Every one of those routes is under `/api`, which is the API's own route root and
+part of its contract: `/api/me` is what a browser asks for, what the site
+forwards, and what the service answers, so no component of a deployment adds or
+removes it. Each route is also spelled one way. `internal/web/requesttarget.go`
+refuses a request target whose raw path carries an escape, a repeated slash, a
+backslash or a dot segment before the router can decode or clean it into an
+address that spends a login, a code or a session.
+
 | Layer | Holds |
 | --- | --- |
 | `internal/web/` | HTTP translation only: read the request, call a service, shape the answer |
@@ -41,12 +49,17 @@ sometimes.
 this service's own site. It is an ordinary registered application in the schema,
 and it is what makes the difference described under "Two ways a login ends".
 
+Its registered callback is the site's origin plus `/api/ui`. It is the site's
+origin because that is where the session cookie belongs, and `/api/ui` because
+that is the address the site forwards to this service's entry point.
+
 ## Identity flows
 
 ### Starting a login
 
 The site builds no provider address. A browser goes to
-`GET /ui/{provider}/authorize` with an application and a callback, and the API:
+`GET /api/ui/{provider}/authorize` with an application and a callback, and the
+API:
 
 1. checks the callback is one that application registered, exactly;
 2. creates opaque state, a browser-binding value, a PKCE verifier and, for
@@ -77,7 +90,7 @@ nonce, `at_hash`, and the clock claims within thirty seconds.
 | The login was for | The browser gets |
 | --- | --- |
 | the site's own application | a browser session, created directly, and a redirect to the registered callback |
-| any other application | a one-time code in the redirect, which that application spends server-side at `POST /login` |
+| any other application | a one-time code in the redirect, which that application spends server-side at `POST /api/login` |
 
 The site never receives a code, so there is no internal credential in a browser
 to steal. An external application's code is opaque, short-lived, bound to that
@@ -91,6 +104,11 @@ is appended to it. A person who declines at the provider is returned to that sam
 validated string with nothing added.
 
 ## Browser authority
+
+Exactly one origin may use this API from a browser, and only for an address the
+route table names: `internal/web/cors.go` emits no permission header and answers
+no preflight for anything else, so a target that is not served is reported as
+not served rather than described.
 
 A signed-in browser holds a random value; the database holds its digest, the
 user it stands for, and a second value the site must echo back. Expiry is
@@ -178,6 +196,10 @@ reads carry no build constraints, so the document it produces names password
 sign-in in either build; `internal/web/apidocumentation.go` narrows it to the
 addresses the running build actually serves before publishing it.
 
+The document declares no server and every path in it is a whole `/api` address,
+so a reader combines it with the origin the document came from. The page reads
+the schema through a relative reference for the same reason.
+
 ## The site boundary
 
 The site holds no access token. It sends the session cookie the API set, copies
@@ -186,8 +208,11 @@ address of its own. Its Nitro route proxies `/api/**` to the API and hands
 redirects back to the browser rather than following them, because a provider
 callback's redirect is also what carries the session cookie.
 
-`/api` is the site's own prefix and is removed before the call is made: the API
-answers at `/me`. The site dials `ABANDON_AUTH_API_ADDRESS`, which the container
-can be started with, rather than `ABANDON_AUTH_URL`, which is the origin a
-browser and a registered callback URI use and does not resolve from inside the
-stack.
+The path travels unchanged: a browser asks the site for `/api/me` and the API is
+asked for `/api/me`. The development forwarder is mounted on `/api` and hands on
+the path with that root already removed, so it is pointed at the API address
+plus the root and arrives at the same place. The site dials
+`ABANDON_AUTH_API_ADDRESS`, which the container can be started with, rather than
+`ABANDON_AUTH_URL`, which is the origin a browser and a registered callback URI
+use and does not resolve from inside the stack. Both are origins; neither
+carries `/api`.

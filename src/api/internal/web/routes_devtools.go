@@ -11,6 +11,6 @@ const (
 // devtoolsRoutes are password sign-in, which seeds local accounts without
 // contacting a provider. It is not published API.
 var devtoolsRoutes = []Route{
-	{Name: RouteCreateTestUser, Method: "POST", Pattern: "/create_test_user", Documented: true},
-	{Name: RouteLoginTestUser, Method: "POST", Pattern: "/login_test_user", Documented: true},
+	{Name: RouteCreateTestUser, Method: "POST", Pattern: APIRoot + "/create_test_user", Documented: true},
+	{Name: RouteLoginTestUser, Method: "POST", Pattern: APIRoot + "/login_test_user", Documented: true},
 }

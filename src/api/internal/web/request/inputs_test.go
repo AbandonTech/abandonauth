@@ -17,7 +17,7 @@ import (
 const applicationID = "6f5902ac-237a-4ba0-8a51-1ed0b6c1c0f0"
 
 func post(body string) *http.Request {
-	return httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(body))
+	return httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(body))
 }
 
 func failureSummaries(failures []response.Failure) []string {
@@ -276,7 +276,7 @@ func TestPathUUID(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			httpRequest := httptest.NewRequest(http.MethodGet, "/developer_application/"+test.value, nil)
+			httpRequest := httptest.NewRequest(http.MethodGet, "/api/developer_application/"+test.value, nil)
 			httpRequest.SetPathValue("application_id", test.value)
 
 			inputs := request.New(httpRequest)
@@ -332,7 +332,7 @@ func TestARequiredHeader(t *testing.T) {
 func TestARequiredQueryParameter(t *testing.T) {
 	t.Parallel()
 
-	present := request.New(httptest.NewRequest(http.MethodGet, "/google?code=opaque-placeholder", nil))
+	present := request.New(httptest.NewRequest(http.MethodGet, "/api/google?code=opaque-placeholder", nil))
 
 	if got := present.Query("code"); got != "opaque-placeholder" {
 		t.Errorf("code = %q", got)
@@ -342,7 +342,7 @@ func TestARequiredQueryParameter(t *testing.T) {
 		t.Errorf("a present query parameter was refused: %v", present.Failures())
 	}
 
-	missing := request.New(httptest.NewRequest(http.MethodGet, "/google", nil))
+	missing := request.New(httptest.NewRequest(http.MethodGet, "/api/google", nil))
 	missing.Query("code")
 
 	if got := failureSummaries(missing.Failures()); !slices.Equal(got, []string{"query.code missing"}) {
@@ -356,7 +356,7 @@ func TestARequiredQueryParameter(t *testing.T) {
 func TestAnEmptyQueryParameterIsPresent(t *testing.T) {
 	t.Parallel()
 
-	inputs := request.New(httptest.NewRequest(http.MethodGet, "/google?code=", nil))
+	inputs := request.New(httptest.NewRequest(http.MethodGet, "/api/google?code=", nil))
 
 	if got := inputs.Query("code"); got != "" {
 		t.Errorf("code = %q, want empty", got)
@@ -370,7 +370,7 @@ func TestAnEmptyQueryParameterIsPresent(t *testing.T) {
 func TestOptionalInputsAreNeverRefused(t *testing.T) {
 	t.Parallel()
 
-	inputs := request.New(httptest.NewRequest(http.MethodGet, "/ui/", nil))
+	inputs := request.New(httptest.NewRequest(http.MethodGet, "/api/ui/", nil))
 
 	if got := inputs.OptionalQuery("code"); got != "" {
 		t.Errorf("code = %q, want empty", got)

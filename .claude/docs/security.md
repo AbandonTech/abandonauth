@@ -94,8 +94,9 @@ the work was about.
 | A database migrated only when it is empty or carries both this service's migration history and the marker its baseline writes; every other state refused without being changed | `internal/database/schemastate.go`, `migrate.go` |
 | Server-side sessions stored only as digests, absolute expiry, logout as a delete, double-submit CSRF with an exact `Origin` | `internal/services/sessions`, `internal/web/browsersession.go`, `cookies.go` |
 | Budgets keyed so a public identifier cannot lock anyone out, counted in the database, with no setting that raises or removes one | `internal/services/ratelimit`, `internal/web/requestlimit.go` |
-| Forwarding headers believed only from a configured proxy | `internal/web/clientaddress.go` |
-| Exactly one permitted origin, never a credentialed wildcard | `internal/web/cors.go` |
+| One spelling of every address: a raw request path carrying an escape, a repeated slash, a backslash or a dot segment is refused before CORS and before the router can decode or clean it into one that is served, and without a redirect to it | `internal/web/requesttarget.go`, `server.go` |
+| Forwarding headers believed only from a configured proxy, which is who a request came from and not what it asked for | `internal/web/clientaddress.go` |
+| Exactly one permitted origin, never a credentialed wildcard, and permission headers and preflight answers only for an address the route table names | `internal/web/cors.go` |
 | Password sign-in compiled only into the development build, and served only in debug mode on a loopback-only bind; a deployment refuses `DEBUG` outright | `internal/buildmode`, `internal/config`, the `_devtools.go` files |
 | A published schema narrowed to the addresses the running build serves, because the annotations it is generated from carry no build constraints | `internal/web/apidocumentation.go` |
 | A log line that never carries a query string, header or cookie | `internal/logging` |
@@ -105,12 +106,21 @@ the work was about.
 A change to any of the above is expected to extend these rather than replace
 them:
 
+- `internal/web/requesttarget_test.go`, `index_integration_test.go` — the target
+  spellings that reach nothing, that a browser is told nothing about and that
+  are never redirected to the address they would have been cleaned into, with an
+  escaped query on an exact address as the positive control.
+- `internal/web/cors_integration_test.go` — preflights and origin permission for
+  addresses this service does not serve, from the site and from elsewhere.
 - `internal/web/googleidentity_integration_test.go` — the identity tokens Google
   must be refused for, with a positive control so the refusals cannot pass
   vacuously.
 - `internal/web/providerlogin_integration_test.go`,
   `providercallback_integration_test.go` — state that is missing, altered,
-  replayed, from another browser, for another provider or another application.
+  replayed, from another browser, for another provider or another application;
+  the site's application accepting only its exact registered callback; and more
+  refused target spellings than a budget allows spending neither the login or
+  one-time code they carry nor the budget.
 - `internal/web/unavailable_integration_test.go` — every endpoint refusing when
   the database cannot be reached, and a genuine token refused rather than
   accepted on its signature alone.

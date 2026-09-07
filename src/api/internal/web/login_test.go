@@ -15,7 +15,7 @@ import (
 const collectingApplicationID = "6f5902ac-237a-4ba0-8a51-1ed0b6c1c0f0"
 
 func spendRequest(code, body string) *http.Request {
-	request := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(body))
+	request := httptest.NewRequest(http.MethodPost, APIRoot+"/login", strings.NewReader(body))
 
 	if code != "" {
 		request.Header.Set(ExchangeTokenHeader, code)

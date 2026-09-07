@@ -1,9 +1,13 @@
 // Package servertest starts the service and drives it over HTTP.
 //
 // Tests call endpoints, never services or queries directly, because a client
-// cannot. The client keeps cookies between requests and returns redirects
-// rather than following them, so a multi-request flow is written as a sequence
-// of calls and a test can assert the Location header.
+// cannot. A request helper is given the path below the API's route root, which
+// is composed in one place so that no journey can be written against a spelling
+// this service does not serve.
+//
+// The client keeps cookies between requests and returns redirects rather than
+// following them, so a multi-request flow is written as a sequence of calls and
+// a test can assert the Location header.
 //
 // Provider HTTP is answered by local test servers passed in at construction. No
 // test reaches a real provider.
@@ -196,6 +200,14 @@ func (s *Service) URL() string {
 	return s.server.URL
 }
 
+// EndpointURL is the whole address of an endpoint, given the path below the
+// API's route root. Every request helper composes the root here and nowhere
+// else, so a test cannot reach an endpoint by a spelling the service does not
+// serve, and a test that has to build a request itself gets the same address.
+func (s *Service) EndpointURL(endpointPath string) string {
+	return s.server.URL + web.APIRoot + endpointPath
+}
+
 // Response is what an endpoint answered.
 type Response struct {
 	t *testing.T
@@ -249,6 +261,18 @@ func (s *Service) POSTRaw(path, body string, prepare ...func(*http.Request)) *Re
 	return s.do(http.MethodPost, path, strings.NewReader(body), prepare...)
 }
 
+// AtExactTarget sends a request to a target written out in full, without the
+// API's route root the endpoint helpers add.
+//
+// It is for the tests that describe what this service does with a target it
+// does not serve. An endpoint journey uses the helpers above, so that no test
+// can exercise an address by writing it a second way.
+func (s *Service) AtExactTarget(method, target string, prepare ...func(*http.Request)) *Response {
+	s.t.Helper()
+
+	return s.send(method, s.server.URL+target, target, nil, prepare...)
+}
+
 func (s *Service) doJSON(method, path string, body any, prepare ...func(*http.Request)) *Response {
 	s.t.Helper()
 
@@ -267,7 +291,15 @@ func (s *Service) doJSON(method, path string, body any, prepare ...func(*http.Re
 func (s *Service) do(method, path string, body io.Reader, prepare ...func(*http.Request)) *Response {
 	s.t.Helper()
 
-	request, err := http.NewRequestWithContext(s.t.Context(), method, s.server.URL+path, body)
+	return s.send(method, s.EndpointURL(path), path, body, prepare...)
+}
+
+func (s *Service) send(
+	method, address, describedAs string, body io.Reader, prepare ...func(*http.Request),
+) *Response {
+	s.t.Helper()
+
+	request, err := http.NewRequestWithContext(s.t.Context(), method, address, body)
 	if err != nil {
 		s.t.Fatalf("building the request: %v", err)
 	}
@@ -278,13 +310,13 @@ func (s *Service) do(method, path string, body io.Reader, prepare ...func(*http.
 
 	response, err := s.client.Do(request)
 	if err != nil {
-		s.t.Fatalf("%s %s: %v", method, path, err)
+		s.t.Fatalf("%s %s: %v", method, describedAs, err)
 	}
 	defer response.Body.Close()
 
 	received, err := io.ReadAll(response.Body)
 	if err != nil {
-		s.t.Fatalf("reading the response to %s %s: %v", method, path, err)
+		s.t.Fatalf("reading the response to %s %s: %v", method, describedAs, err)
 	}
 
 	return &Response{

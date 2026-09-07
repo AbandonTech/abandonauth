@@ -179,10 +179,12 @@ func (s *Server) Handler() http.Handler {
 }
 
 // surround wraps the router in the concerns every request shares, outermost
-// first: a panic must not escape, every answer carries its request identifier,
-// and a browser is told what it may do before anything reads the request.
+// first: a panic must not escape, every answer carries its request identifier
+// and is logged, a target this service does not spell is refused before
+// anything can turn it into one that is, and only then is a browser told what
+// it may do.
 func (s *Server) surround(handler http.Handler) http.Handler {
-	return s.recoverPanics(s.identifyRequest(s.logRequest(s.answerCORS(handler))))
+	return s.recoverPanics(s.identifyRequest(s.logRequest(onlyCanonicalTargets(s.answerCORS(handler)))))
 }
 
 // unmatchedRequests answers a request no route claimed.

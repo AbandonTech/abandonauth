@@ -12,6 +12,7 @@ import (
 
 	"github.com/abandontech/abandonauth/src/api/internal/config"
 	"github.com/abandontech/abandonauth/src/api/internal/database/testdatabase"
+	"github.com/abandontech/abandonauth/src/api/internal/web"
 )
 
 // operationalSettings describe a service that can actually start: a database of
@@ -33,13 +34,13 @@ func operationalSettings(t *testing.T, databaseURL, address string) config.Confi
 		APIURL:                origin,
 		DiscordClientID:       "discord-client-id",
 		DiscordClientSecret:   "discord-client-secret-placeholder",
-		DiscordCallback:       origin + "/ui/discord-callback",
+		DiscordCallback:       origin + web.APIRoot + "/ui/discord-callback",
 		GitHubClientID:        "github-client-id",
 		GitHubClientSecret:    "github-client-secret-placeholder",
-		GitHubCallback:        origin + "/ui/github-callback",
+		GitHubCallback:        origin + web.APIRoot + "/ui/github-callback",
 		GoogleClientID:        "google-client-id",
 		GoogleClientSecret:    "google-client-secret-placeholder",
-		GoogleCallback:        origin + "/google",
+		GoogleCallback:        origin + web.APIRoot + "/google",
 		TrustedProxyCIDRs:     config.DefaultTrustedProxyCIDRs,
 	})
 	if err != nil {
@@ -68,22 +69,22 @@ func TestServingMigratesTheDatabaseAndThenAnswers(t *testing.T) {
 
 	waitUntilAccepting(t, address)
 
-	// The root is served by every build and needs no credential, so it proves
-	// the service is answering rather than merely listening. Its redirect is
-	// the answer under test, so it is read rather than followed.
+	// The API's route root is served by every build and needs no credential, so
+	// it proves the service is answering rather than merely listening. Its
+	// redirect is the answer under test, so it is read rather than followed.
 	client := http.Client{
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 
-	response, err := client.Get("http://" + address + "/")
+	response, err := client.Get("http://" + address + web.APIRoot + "/")
 	if err != nil {
-		t.Fatalf("asking the running service for the root: %v", err)
+		t.Fatalf("asking the running service for its route root: %v", err)
 	}
 
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusTemporaryRedirect {
-		t.Errorf("the root answered %d, want %d", response.StatusCode, http.StatusTemporaryRedirect)
+		t.Errorf("the route root answered %d, want %d", response.StatusCode, http.StatusTemporaryRedirect)
 	}
 
 	var version int64

@@ -48,7 +48,7 @@ const (
 // @Failure     403 {object} response.Failed "The application or callback is not registered"
 // @Failure     422 {object} response.Invalidated
 // @Failure     429 {object} response.Failed "Too many attempts"
-// @Router      /ui/{provider}/authorize [get].
+// @Router      /api/ui/{provider}/authorize [get].
 func (s *Server) providerAuthorize() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		given := inputs.New(request)

@@ -13,22 +13,32 @@ import (
 func TestMaintenanceHandlerRefusesEveryRequest(t *testing.T) {
 	t.Parallel()
 
-	// Paths that would otherwise accept a credential, act on one, or describe
-	// the service. None of them may behave differently from any other path.
+	// Targets that would otherwise accept a credential, act on one, or describe
+	// the service, alongside spellings the serving handler refuses outright.
+	// None of them may behave differently from any other target: this handler
+	// runs when nothing else does, so it answers before any of that is decided.
 	paths := []string{
 		"/",
+		"/api",
+		"/api/",
+		"/api/me",
+		"/api/login",
+		"/api/burn-token",
+		"/api/developer_application",
+		"/api/developer_application/6f5902ac-237a-4ba0-8a51-1ed0b6c1c0f0",
+		"/api/ui/",
+		"/api/ui/discord-callback?code=placeholder&state=placeholder",
+		"/api/ui/logout",
+		"/api/google?code=placeholder&state=placeholder",
+		"/api/docs",
+		"/api/openapi.json",
+		"/api/create_test_user",
 		"/me",
 		"/login",
-		"/burn-token",
-		"/developer_application",
-		"/developer_application/6f5902ac-237a-4ba0-8a51-1ed0b6c1c0f0",
-		"/ui/",
 		"/ui/discord-callback?code=placeholder&state=placeholder",
-		"/ui/logout",
-		"/google?code=placeholder&state=placeholder",
-		"/docs",
-		"/openapi.json",
-		"/create_test_user",
+		"/api//me",
+		"/api/../api/me",
+		"/api%2fme",
 		"/anything/else",
 	}
 
@@ -70,7 +80,7 @@ func TestMaintenanceHandlerRefusesEveryRequest(t *testing.T) {
 func TestMaintenanceHandlerDisclosesNothingAboutTheDeployment(t *testing.T) {
 	t.Parallel()
 
-	request := httptest.NewRequest(http.MethodGet, "/me", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/me", nil)
 	recorder := httptest.NewRecorder()
 
 	web.MaintenanceHandler().ServeHTTP(recorder, request)

@@ -29,6 +29,10 @@ type apiSchema struct {
 		Title   string `json:"title"`
 		Version string `json:"version"`
 	} `json:"info"`
+	// Servers is read so that its absence can be asserted. A published path is
+	// the whole address, combined by a reader with the origin the document came
+	// from; naming a server would claim something else supplies part of it.
+	Servers    []json.RawMessage                  `json:"servers"`
 	Paths      map[string]map[string]apiOperation `json:"paths"`
 	Components struct {
 		Schemas         map[string]json.RawMessage `json:"schemas"`
@@ -132,9 +136,13 @@ func TestAPISchemaIsWellFormed(t *testing.T) {
 			t.Errorf("%s: declares no paths", name)
 		}
 
+		if len(schema.Servers) != 0 {
+			t.Errorf("%s: declares a server, so it claims something else supplies part of an address", name)
+		}
+
 		for path, operations := range schema.Paths {
-			if !strings.HasPrefix(path, "/") {
-				t.Errorf("%s: path %q is not absolute", name, path)
+			if !strings.HasPrefix(path, APIRoot+"/") {
+				t.Errorf("%s: path %q is not an address of this API", name, path)
 			}
 
 			for method, operation := range operations {
@@ -208,13 +216,14 @@ func TestUndocumentedRoutesAreExpected(t *testing.T) {
 	t.Parallel()
 
 	want := []string{
-		"GET /",
-		"GET /ui",
-		"GET /ui/",
-		"GET /docs",
-		"GET /docs/",
-		"GET /docs/oauth2-redirect",
-		"GET /openapi.json",
+		"GET /api",
+		"GET /api/",
+		"GET /api/ui",
+		"GET /api/ui/",
+		"GET /api/docs",
+		"GET /api/docs/",
+		"GET /api/docs/oauth2-redirect",
+		"GET /api/openapi.json",
 	}
 
 	slices.Sort(want)
@@ -241,7 +250,7 @@ func TestUndocumentedRoutesAreExpected(t *testing.T) {
 func TestPasswordRoutesAreDevtoolsOnly(t *testing.T) {
 	t.Parallel()
 
-	passwordRoutes := []string{"POST /create_test_user", "POST /login_test_user"}
+	passwordRoutes := []string{"POST /api/create_test_user", "POST /api/login_test_user"}
 
 	served := make(map[string]bool, len(Routes()))
 	for _, route := range Routes() {
@@ -263,7 +272,7 @@ func TestThePublishedReferencePromisesNoPasswordSignIn(t *testing.T) {
 
 	published := documentedOperations(loadAPISchema(t, apiSchemaFile))
 
-	for _, operation := range []string{"POST /create_test_user", "POST /login_test_user"} {
+	for _, operation := range []string{"POST /api/create_test_user", "POST /api/login_test_user"} {
 		if slices.Contains(published, operation) {
 			t.Errorf("%s names %s, which a deployment does not serve", apiSchemaFile, operation)
 		}
@@ -294,6 +303,19 @@ func TestRoutesAreUniqueAndAnchored(t *testing.T) {
 
 		if strings.Contains(route.Pattern, "//") {
 			t.Errorf("route %s pattern has an empty segment", key)
+		}
+	}
+}
+
+// The route root belongs to this API. A route written without it would be an
+// address no caller could reach through a deployment, and one written with a
+// second root would be a second contract.
+func TestEveryRouteIsUnderTheAPIsRouteRoot(t *testing.T) {
+	t.Parallel()
+
+	for _, route := range Routes() {
+		if route.Path() != APIRoot && !strings.HasPrefix(route.Path(), APIRoot+"/") {
+			t.Errorf("route %s %s is not under %s", route.Method, route.Path(), APIRoot)
 		}
 	}
 }

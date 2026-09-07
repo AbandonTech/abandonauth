@@ -21,7 +21,8 @@ compose.test.yml  the throwaway database and check container
 
 The service is a `net/http` router in front of interface-backed services in
 front of sqlc queries over pgx. Nothing is served that
-`src/api/internal/web/routes.go` does not name.
+`src/api/internal/web/routes.go` does not name, and everything it names is under
+`/api`, the API's own route root.
 
 | Path | Holds |
 | --- | --- |
@@ -74,27 +75,28 @@ endpoints that stop accepting credentials in
 
 | Path | Routes or responsibility |
 | --- | --- |
-| `internal/web/routes.go` | the route table: every URL, written once |
+| `internal/web/routes.go` | the route table: `APIRoot` and every URL, written once |
 | `internal/web/handlers.go` | binds each route name to the code that answers it |
 | `internal/web/server.go` | composition, the middleware order, and the connection deadlines |
-| `internal/web/index.go` | `GET /` |
-| `internal/web/currentuser.go` | `GET /me` |
-| `internal/web/userapplications.go` | `GET /user/applications` |
-| `internal/web/login.go` | `POST /login`, which spends an exchange code |
-| `internal/web/burntoken.go` | `POST /burn-token` |
-| `internal/web/developerapplication.go` | the seven `/developer_application` routes |
-| `internal/web/providerlogin.go` | `GET /ui/{provider}/authorize` |
+| `internal/web/requesttarget.go` | the one spelling of a target that is served, and which paths the route table names |
+| `internal/web/index.go` | `GET /api` and `GET /api/` |
+| `internal/web/currentuser.go` | `GET /api/me` |
+| `internal/web/userapplications.go` | `GET /api/user/applications` |
+| `internal/web/login.go` | `POST /api/login`, which spends an exchange code |
+| `internal/web/burntoken.go` | `POST /api/burn-token` |
+| `internal/web/developerapplication.go` | the seven `/api/developer_application` routes |
+| `internal/web/providerlogin.go` | `GET /api/ui/{provider}/authorize` |
 | `internal/web/providercallback.go` | the Discord, GitHub, and Google callbacks |
-| `internal/web/browsersession.go` | `/ui/`, `POST /ui/logout`, and the session and CSRF checks |
+| `internal/web/browsersession.go` | `/api/ui/`, `POST /api/ui/logout`, and the session and CSRF checks |
 | `internal/web/authentication.go` | bearer and session authorization for each route |
-| `internal/web/cors.go` | exactly one permitted origin |
+| `internal/web/cors.go` | exactly one permitted origin, for declared addresses only |
 | `internal/web/middleware.go` | panic recovery, request identifiers, and the request log |
 | `internal/web/requestlimit.go` | applies the budgets |
 | `internal/web/maintenance.go` | the static 503 a failed deployment is switched to |
-| `internal/web/apidocumentation.go` | `/docs`, `/docs/`, `/docs/oauth2-redirect` and `/openapi.json`, and the narrowing that keeps the published schema to what this build serves |
+| `internal/web/apidocumentation.go` | `/api/docs`, `/api/docs/`, `/api/docs/oauth2-redirect` and `/api/openapi.json`, and the narrowing that keeps the published schema to what this build serves |
 | `internal/web/models/` | request and response bodies |
 | `internal/web/request/`, `internal/web/response/` | input reading and the service's answer shapes |
-| `internal/web/servertest/` | starts the real service against its own database; endpoint tests go through it |
+| `internal/web/servertest/` | starts the real service against its own database; endpoint tests go through it, giving the path below the route root, and `AtExactTarget` writes a target out in full for the tests about what is not served |
 | `internal/web/testdata/` | the API schema the service is required to publish |
 
 Files ending `_devtools.go` are compiled only with `-tags=devtools`: password
@@ -114,11 +116,11 @@ Paths are relative to `src/website/`. Everything the browser runs lives under
 | Path | Holds |
 | --- | --- |
 | `package.json` | scripts and dependencies; npm and `package-lock.json` are canonical |
-| `nuxt.config.ts` | dev proxy, Tailwind, and the public runtime settings |
+| `nuxt.config.ts` | the development forwarder, Tailwind, and the public runtime settings |
 | `vitest.config.ts` | test settings; `// @vitest-environment nuxt` opts a file into a real Nuxt runtime |
 | `test/` | the site's tests |
-| `server/api/[...].ts` | proxy from `/api/**` to the API |
-| `server/utils/apiProxy.ts` | where that proxy sends a call, and why it hands redirects back to the browser |
+| `server/api/[...].ts` | forwards `/api/**` to the API with the path unchanged |
+| `server/utils/apiProxy.ts` | where a forwarded call is sent, what the development forwarder is pointed at, and why redirects are handed back to the browser |
 | `server/utils/siteCallback.ts` | where the site's own sign-in returns the browser |
 | `app/utils/providerLogin.ts` | the address that asks the API to start a sign-in |
 | `app/utils/browserSession.ts` | the CSRF header, the session paths, and whether a browser is signed in |
@@ -132,7 +134,8 @@ Paths are relative to `src/website/`. Everything the browser runs lives under
 
 The site holds no access token. It sends the session cookie the API set, copies
 the readable CSRF cookie into `X-CSRF-Token` on writes, and builds no provider
-address of its own.
+address of its own. `/api` is the API's route root, so a browser's path is
+forwarded whole rather than rewritten on the way.
 
 ## Data
 

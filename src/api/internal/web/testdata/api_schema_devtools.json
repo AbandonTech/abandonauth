@@ -260,7 +260,7 @@
   },
   "openapi": "3.1.0",
   "paths": {
-    "/burn-token": {
+    "/api/burn-token": {
       "post": {
         "description": "Invalidate the given JWT.\n\nAttempts to delete the given token. Returns 200 response regardless of if the token existed.",
         "requestBody": {
@@ -296,7 +296,7 @@
         "summary": "Burn Jwt"
       }
     },
-    "/create_test_user": {
+    "/api/create_test_user": {
       "post": {
         "description": "Create the supplied test user.",
         "requestBody": {
@@ -337,7 +337,7 @@
         ]
       }
     },
-    "/developer_application": {
+    "/api/developer_application": {
       "post": {
         "description": "Create a new developer application owned by the currently authenticated User.\n\nReturns the permanent refresh token for the account. This token can only be manually changed.",
         "requestBody": {
@@ -383,7 +383,7 @@
         ]
       }
     },
-    "/developer_application/login": {
+    "/api/developer_application/login": {
       "post": {
         "description": "Authenticate a developer application given a long-term refresh token or raise a **401** response.\n\nReturns a short-lived exchange token for the developer application.",
         "requestBody": {
@@ -424,7 +424,7 @@
         ]
       }
     },
-    "/developer_application/me": {
+    "/api/developer_application/me": {
       "get": {
         "description": "Get information about the developer application from its access token.",
         "responses": {
@@ -450,7 +450,7 @@
         ]
       }
     },
-    "/developer_application/{application_id}": {
+    "/api/developer_application/{application_id}": {
       "delete": {
         "description": "Delete the given developer application if the current user owns the application.",
         "parameters": [
@@ -544,7 +544,7 @@
         ]
       }
     },
-    "/developer_application/{application_id}/callback_uris": {
+    "/api/developer_application/{application_id}/callback_uris": {
       "patch": {
         "description": "Replace the valid callback URIs for the given developer application and return the given developer application.\n\nCreate all callback URIs that do not exist yet.\nDelete all callback URIs that already exist and were not given in this request.\nCallback URIs that already exist and were given in this request will remain in the database unaltered.",
         "parameters": [
@@ -606,7 +606,7 @@
         ]
       }
     },
-    "/developer_application/{application_id}/reset_token": {
+    "/api/developer_application/{application_id}/reset_token": {
       "patch": {
         "description": "Generate and set a new refresh token for the given developer application.\n\nThis action is not reversible and destroys the existing refresh token for the application.",
         "parameters": [
@@ -654,7 +654,7 @@
         ]
       }
     },
-    "/google": {
+    "/api/google": {
       "get": {
         "description": "Log a user in using Google's OAuth2 as validation.",
         "parameters": [
@@ -705,7 +705,7 @@
         ]
       }
     },
-    "/login": {
+    "/api/login": {
       "post": {
         "description": "Log in the user, using a short-term or long-term AbandonAuth JWT.\n\nNew JWT's aud must match the developer application's ID as an additional security check.",
         "parameters": [
@@ -766,7 +766,7 @@
         "summary": "Exchange a temporary AbandonAuth token for a permanent user token."
       }
     },
-    "/login_test_user": {
+    "/api/login_test_user": {
       "post": {
         "description": "Login as the given test user.",
         "requestBody": {
@@ -807,7 +807,7 @@
         ]
       }
     },
-    "/me": {
+    "/api/me": {
       "get": {
         "description": "Get information about the user from a jwt token.",
         "responses": {
@@ -830,7 +830,7 @@
         "summary": "Current User Information"
       }
     },
-    "/ui/discord-callback": {
+    "/api/ui/discord-callback": {
       "get": {
         "description": "Discord callback endpoint for authenticating with Discord OAuth with AbandonAuth UI.",
         "responses": {
@@ -846,7 +846,7 @@
         "summary": "Discord Callback"
       }
     },
-    "/ui/github-callback": {
+    "/api/ui/github-callback": {
       "get": {
         "description": "GitHub callback endpoint for authenticating with GitHub OAuth with AbandonAuth UI.",
         "responses": {
@@ -862,7 +862,7 @@
         "summary": "Github Callback"
       }
     },
-    "/ui/logout": {
+    "/api/ui/logout": {
       "post": {
         "description": "End the browser session.\n\nDeletes the session on the server before clearing the session and CSRF cookies, so a copy of the cookie taken before logout is not usable afterwards. The request must carry the value of the CSRF cookie in the X-CSRF-Token header and originate from the AbandonAuth site.",
         "parameters": [
@@ -907,7 +907,7 @@
         "summary": "Log out of the browser session"
       }
     },
-    "/ui/{provider}/authorize": {
+    "/api/ui/{provider}/authorize": {
       "get": {
         "description": "Start an OAuth login with the named provider.\n\nChecks that the callback URI is registered to the developer application, binds the attempt to the calling browser, and redirects to the provider's authorization endpoint. The browser must return to the matching provider callback for the login to complete.",
         "parameters": [
@@ -979,7 +979,7 @@
         "summary": "Start a login with an OAuth provider"
       }
     },
-    "/user/applications": {
+    "/api/user/applications": {
       "get": {
         "description": "List all developer applications owned by the authenticated user.",
         "responses": {

@@ -33,7 +33,7 @@ func readWithdrawnCredential(given *inputs.Inputs) string {
 // @Success     200 "The credential is no longer accepted"
 // @Failure     422 {object} response.Invalidated
 // @Failure     429 {object} response.Failed "Too many attempts"
-// @Router      /burn-token [post].
+// @Router      /api/burn-token [post].
 func (s *Server) burnToken() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if !s.withinLimit(writer, request, ratelimit.BurnToken, s.clientAddress(request)) {

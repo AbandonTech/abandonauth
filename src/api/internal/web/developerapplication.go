@@ -80,7 +80,7 @@ func describeApplication(application applications.Application) models.DeveloperA
 // @Failure     422         {object} response.Invalidated
 // @Failure     429         {object} response.Failed "Too many attempts"
 // @Security    JWTBearer
-// @Router      /developer_application [post].
+// @Router      /api/developer_application [post].
 func (s *Server) createApplication() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		caller, allowed := s.requireUser(writer, request, tokens.ScopeAbandonauth, audienceInternal)
@@ -134,7 +134,7 @@ func (s *Server) createApplication() http.Handler {
 // @Failure     401        {object} response.Failed "The credentials were not accepted"
 // @Failure     422        {object} response.Invalidated
 // @Failure     429        {object} response.Failed "Too many attempts"
-// @Router      /developer_application/login [post].
+// @Router      /api/developer_application/login [post].
 func (s *Server) applicationLogin() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		given := inputs.New(request)
@@ -200,7 +200,7 @@ func (s *Server) applicationLogin() http.Handler {
 // @Success     200 {object} models.DeveloperApplicationDto
 // @Failure     403 {object} response.Failed "The credential was missing, refused or expired"
 // @Security    JWTBearer
-// @Router      /developer_application/me [get].
+// @Router      /api/developer_application/me [get].
 func (s *Server) currentApplication() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		application, allowed := s.requireApplication(writer, request)
@@ -225,7 +225,7 @@ func (s *Server) currentApplication() http.Handler {
 // @Failure     404            {object} response.Failed "No such application"
 // @Failure     422            {object} response.Invalidated
 // @Security    JWTBearer
-// @Router      /developer_application/{application_id} [get].
+// @Router      /api/developer_application/{application_id} [get].
 func (s *Server) getApplication() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		application, _, ok := s.callerApplication(writer, request)
@@ -263,7 +263,7 @@ func (s *Server) getApplication() http.Handler {
 // @Failure     422            {object} response.Invalidated
 // @Failure     429            {object} response.Failed "Too many attempts"
 // @Security    JWTBearer
-// @Router      /developer_application/{application_id} [delete].
+// @Router      /api/developer_application/{application_id} [delete].
 func (s *Server) deleteApplication() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		application, caller, ok := s.callerApplication(writer, request)
@@ -310,7 +310,7 @@ func (s *Server) deleteApplication() http.Handler {
 // @Failure     422            {object} response.Invalidated
 // @Failure     429            {object} response.Failed "Too many attempts"
 // @Security    JWTBearer
-// @Router      /developer_application/{application_id}/reset_token [patch].
+// @Router      /api/developer_application/{application_id}/reset_token [patch].
 func (s *Server) resetApplicationCredential() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		application, caller, ok := s.callerApplication(writer, request)
@@ -367,7 +367,7 @@ func (s *Server) resetApplicationCredential() http.Handler {
 // @Failure     422            {object} response.Invalidated
 // @Failure     429            {object} response.Failed "Too many attempts"
 // @Security    JWTBearer
-// @Router      /developer_application/{application_id}/callback_uris [patch].
+// @Router      /api/developer_application/{application_id}/callback_uris [patch].
 func (s *Server) replaceCallbackURIs() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		application, caller, ok := s.callerApplication(writer, request)

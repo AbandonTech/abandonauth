@@ -75,7 +75,7 @@ func TestThePublishedSchemaNamesPasswordSignInOnlyWhereItIsServed(t *testing.T) 
 	published := documentedOperations(publishedSchema(t))
 	generated := documentedOperations(generatedSchema(t))
 
-	for _, operation := range []string{"POST /create_test_user", "POST /login_test_user"} {
+	for _, operation := range []string{"POST /api/create_test_user", "POST /api/login_test_user"} {
 		if !slices.Contains(generated, operation) {
 			t.Errorf("the annotations no longer describe %s, so this proves nothing", operation)
 		}
@@ -98,6 +98,28 @@ func TestTheGeneratedSchemaDescribesEveryEndpointTheReferencePromises(t *testing
 	if want := documentedOperations(loadAPISchema(t, apiSchemaDevtoolsFile)); !slices.Equal(generated, want) {
 		t.Errorf("the generated schema and %s disagree\n got: %v\nwant: %v",
 			apiSchemaDevtoolsFile, generated, want)
+	}
+}
+
+// A reader combines a published address with the origin the document came from,
+// so every address has to be the whole one this service answers at, and nothing
+// in the document may claim that something else adds or removes part of it.
+func TestThePublishedSchemaNamesWholeAddressesAndNoServerOfItsOwn(t *testing.T) {
+	t.Parallel()
+
+	for name, schema := range map[string]apiSchema{
+		"the published schema": publishedSchema(t),
+		"the generated schema": generatedSchema(t),
+	} {
+		if len(schema.Servers) != 0 {
+			t.Errorf("%s declares a server of its own", name)
+		}
+
+		for path := range schema.Paths {
+			if !strings.HasPrefix(path, APIRoot+"/") {
+				t.Errorf("%s names %q, which is not an address of this API", name, path)
+			}
+		}
 	}
 }
 

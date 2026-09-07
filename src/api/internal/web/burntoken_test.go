@@ -11,7 +11,7 @@ import (
 )
 
 func withdrawRequest(body string) *http.Request {
-	return httptest.NewRequest(http.MethodPost, "/burn-token", strings.NewReader(body))
+	return httptest.NewRequest(http.MethodPost, APIRoot+"/burn-token", strings.NewReader(body))
 }
 
 // Whatever a caller is holding is withdrawn as it was sent: the endpoint reads

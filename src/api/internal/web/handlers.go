@@ -12,6 +12,7 @@ import (
 func (s *Server) handlers() map[RouteName]http.Handler {
 	handlers := map[RouteName]http.Handler{
 		RouteIndex:            s.index(),
+		RouteIndexBare:        s.indexEntry(),
 		RouteCurrentUser:      s.currentUser(),
 		RouteUserApplications: s.userApplications(),
 		RouteLogin:            s.login(),

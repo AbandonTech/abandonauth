@@ -18,7 +18,7 @@ import (
 // @Success     307 "Redirect to the application's registered callback"
 // @Failure     403 {object} response.Failed "The login could not be matched or completed"
 // @Failure     429 {object} response.Failed "Too many attempts"
-// @Router      /ui/discord-callback [get].
+// @Router      /api/ui/discord-callback [get].
 func (s *Server) discordCallback() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		login, code, resumed := s.resumeLogin(writer, request, oauth.Discord)
@@ -53,7 +53,7 @@ func (s *Server) discordCallback() http.Handler {
 // @Success     307 "Redirect to the application's registered callback"
 // @Failure     403 {object} response.Failed "The login could not be matched or completed"
 // @Failure     429 {object} response.Failed "Too many attempts"
-// @Router      /ui/github-callback [get].
+// @Router      /api/ui/github-callback [get].
 func (s *Server) githubCallback() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		login, code, resumed := s.resumeLogin(writer, request, oauth.GitHub)
@@ -93,7 +93,7 @@ func (s *Server) githubCallback() http.Handler {
 // @Success     307 "Redirect to the application's registered callback"
 // @Failure     403 {object} response.Failed "The login could not be matched or completed"
 // @Failure     429 {object} response.Failed "Too many attempts"
-// @Router      /google [get].
+// @Router      /api/google [get].
 func (s *Server) googleCallback() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		login, code, resumed := s.resumeLogin(writer, request, oauth.Google)

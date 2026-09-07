@@ -57,10 +57,14 @@ against.
 2. They come back to that callback with a `code` query parameter. It is opaque,
    one-time, short-lived, and bound to your application: nobody else can spend
    it, and it works once.
-3. Your **server** spends it at `POST /login`, sending the code in the
+3. Your **server** spends it at `POST /api/login`, sending the code in the
    `exchange-token` header and identifying your application in the body with its
    `id` and `refresh_token`. You get back a token for that person.
-4. Call `GET /me` with that token as a `Bearer` credential to identify them.
+4. Call `GET /api/me` with that token as a `Bearer` credential to identify them.
+
+Every address this API serves is under `/api`, whichever origin you reach it
+on. Join it to the origin you were given and nothing strips it or adds it on
+the way.
 
 Spend the code from your server, not from the browser: it identifies your
 application with your application's own credential.
@@ -113,12 +117,19 @@ both must be `https`.
 rather than a one-time code, so it must name this deployment's own site
 application and nothing else.
 
-The site serves the API to a browser at `/api` and forwards those calls itself.
+`/api` is the API's own route root. It answers at `/api/me`, `/api/login` and
+the rest whichever origin it is reached on, so the site forwards a browser's
+call with the path unchanged and a reverse proxy passes the request URI
+through. Both settings above are origins and neither carries `/api`.
+
 `ABANDON_AUTH_URL` is the origin the browser and the registered callback URIs
 use, and it does not resolve to the API from inside the stack, so
 `ABANDON_AUTH_API_ADDRESS` is where the site's own server dials instead —
-`http://abandonauth:8000` on the compose network. The `/api` prefix is this
-site's, and is removed before the call is made: the API answers at `/me`.
+`http://abandonauth:8000` on the compose network.
+
+Each provider callback setting, and the callback registered for the developer
+application this deployment treats as its own site, is compared byte for byte.
+Every one of them names the whole `/api` address.
 
 ## The signing secret
 
@@ -146,8 +157,11 @@ a new identity per request and never be limited.
 The default, `127.0.0.1/32,::1/128`, is right when nothing is in front of the
 service, and when the proxy is a sidecar sharing the loopback interface.
 
-The site is one of the things in front of it: it forwards the browser's `/api`
-calls from its own container, so on the compose network those arrive from a
+This is about who a request arrives from, not about the address it asks for;
+routing makes no assumption about what is in front of the service.
+
+The site is one of the things in front of it: it forwards the browser's calls
+from its own container, so on the compose network those arrive from a
 container address the default does not cover. Until an operator names that
 range, every browser reaching the API through the site counts against one
 address. Do not reach for a broad range such as `172.16.0.0/12` to fix it:
@@ -183,7 +197,9 @@ not root, and holds nothing but the binary and a certificate bundle. Migrations
 travel inside the binary, so no schema file is deployed alongside it.
 
 This is a public API, so the documentation and the schema are in that image and
-are served at `/docs` and `/openapi.json` whatever the configuration.
+are served at `/api/docs` and `/api/openapi.json` whatever the configuration.
+The schema names those whole addresses and declares no server of its own, so a
+reader joins it to the origin the document came from.
 
 `compose.yml` builds that target unless `API_BUILD_TARGET` names the other one.
 Deploy with:
@@ -259,17 +275,19 @@ the API build carrying password sign-in, which also needs `DEBUG=true`; the
 `deployment` build refuses to start with `DEBUG` set at all.
 
 The site is on `WEBSITE_PORT` and the API on `API_PORT`, 3000 and 8000 in the
-sample. Reach the API through the site, at `/api`: that is the origin the
-sign-in cookies belong to, and a provider that returns a browser straight to
-port 8000 sends none of them.
+sample. Sign in through the site, on port 3000: that is the origin the sign-in
+cookies belong to, and a provider that returns a browser straight to port 8000
+sends none of them.
 
-The documentation is at <http://localhost:3000/api/docs>, and is served by
-every build.
+The same addresses answer on the API's own port, so
+<http://localhost:8000/api/me> and <http://localhost:8000/api/docs> work while
+you are looking at the service directly. The documentation is at
+<http://localhost:3000/api/docs> through the site, and is served by every build.
 
 Password sign-in additionally requires a listener no other machine can reach,
-which a container publishing a port does not have. To use `/create_test_user`
-and `/login_test_user`, run the API directly with `BIND_ADDRESS=127.0.0.1:8000`
-instead.
+which a container publishing a port does not have. To use
+`/api/create_test_user` and `/api/login_test_user`, run the API directly with
+`BIND_ADDRESS=127.0.0.1:8000` instead.
 
 ## Checks
 

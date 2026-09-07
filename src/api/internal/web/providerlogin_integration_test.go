@@ -13,6 +13,7 @@ import (
 
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
 	"github.com/abandontech/abandonauth/src/api/internal/services/providers/providertest"
+	"github.com/abandontech/abandonauth/src/api/internal/services/ratelimit"
 	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
 )
 
@@ -115,6 +116,8 @@ func TestALoginOnlyNamesARegisteredCallback(t *testing.T) {
 		"a callback the application did not register":  "https://elsewhere.example.test/callback",
 		"a callback that is nearly the registered one": service.Site.CallbackURI + "?extra=1",
 		"no callback at all":                           "",
+		"the site's origin without the API's path":     servertest.SiteOrigin + "/ui",
+		"the API's origin rather than the site's":      servertest.APIOrigin + "/api/ui",
 	}
 
 	for name, callback := range refusals {
@@ -130,6 +133,58 @@ func TestALoginOnlyNamesARegisteredCallback(t *testing.T) {
 				ExpectDetail("Invalid application ID or callback_uri")
 		})
 	}
+
+	// The positive control: the one spelling the site registered is accepted,
+	// so the refusals above are refusals of the callback and not of everything.
+	service.GET("/ui/discord/authorize?" + url.Values{
+		"application_id": {service.Site.ApplicationID.String()},
+		"callback_uri":   {service.Site.CallbackURI},
+	}.Encode()).ExpectStatus(http.StatusTemporaryRedirect)
+}
+
+// A callback target spelled a way this service does not serve reaches nothing.
+// It spends neither the login it names nor the budget that protects the
+// exchange with the provider, so the address it is refused at cannot be used to
+// wear either of them down.
+func TestACallbackSpelledAnotherWaySpendsNeitherTheLoginNorItsBudget(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t, servertest.WithSteadyClock())
+	started := service.StartLogin(oauth.Discord, service.Site.ApplicationID, service.Site.CallbackURI)
+
+	budget, known := ratelimit.PolicyFor(ratelimit.ProviderCallback)
+	if !known {
+		t.Fatal("returning from a provider has no budget")
+	}
+
+	query := "?" + url.Values{
+		"code":  {"a-code-the-provider-never-issued"},
+		"state": {started.State},
+	}.Encode()
+
+	spellings := []string{
+		"/ui/discord-callback",
+		"/api//ui/discord-callback",
+		"/api/ui/../ui/discord-callback",
+		"/api/ui/%2e%2e/ui/discord-callback",
+		"/api/ui%2fdiscord-callback",
+		"/api/ui/discord-callback/",
+	}
+
+	for attempt := int64(0); attempt <= budget.Limit; attempt++ {
+		target := spellings[attempt%int64(len(spellings))]
+
+		service.AtExactTarget(http.MethodGet, target+query, asClient("198.51.100.30")).
+			ExpectStatus(http.StatusNotFound)
+	}
+
+	service.FinishLogin(
+		started,
+		service.Providers.Someone(oauth.Discord, "the person who really came back"),
+		asClient("198.51.100.30"),
+	).
+		ExpectStatus(http.StatusTemporaryRedirect).
+		ExpectRedirectTo(service.Site.CallbackURI)
 }
 
 // An application nobody registered is refused in the same words as a callback
@@ -322,7 +377,7 @@ func TestOneLoginStateCompletesAtMostOnce(t *testing.T) {
 			Nonce:     started.Nonce,
 		})
 
-		address := service.URL() + servertest.CallbackPath(oauth.Discord) + "?" + url.Values{
+		address := service.EndpointURL(servertest.CallbackPath(oauth.Discord)) + "?" + url.Values{
 			"code":  {code},
 			"state": {started.State},
 		}.Encode()

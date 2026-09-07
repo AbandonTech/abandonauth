@@ -9,12 +9,14 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/services/accounts"
 	"github.com/abandontech/abandonauth/src/api/internal/services/applications"
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
+	"github.com/abandontech/abandonauth/src/api/internal/web"
 )
 
-// SiteCallbackURI is where the site's own sign-in returns a browser: this
-// service's entry point, which reads the session the callback created and sends
-// the person on to the site.
-const SiteCallbackURI = APIOrigin + "/ui/"
+// SiteCallbackURI is where the site's own sign-in returns a browser: the site's
+// own origin, which forwards the call to this service's entry point. The
+// session the callback created belongs to that origin, so a browser returned to
+// the API's origin instead would carry none of it.
+const SiteCallbackURI = SiteOrigin + web.APIRoot + "/ui"
 
 // Site is the developer application that stands for AbandonAuth's own site.
 type Site struct {

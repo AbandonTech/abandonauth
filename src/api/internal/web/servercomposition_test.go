@@ -56,7 +56,7 @@ func TestAPanicIsAnsweredAndDoesNotEscape(t *testing.T) {
 	}))
 
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/me", nil))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, APIRoot+"/me", nil))
 
 	if recorder.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want %d", recorder.Code, http.StatusInternalServerError)
@@ -84,7 +84,7 @@ func TestAnAnswerCarriesAnIdentifierEvenWhenTheHandlerFails(t *testing.T) {
 	}))
 
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/me", nil))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, APIRoot+"/me", nil))
 
 	if recorder.Header().Get(RequestIDHeader) == "" {
 		t.Error("a failed request cannot be found in the log")
