@@ -20,8 +20,3 @@ DISCORD_CLIENT_ID=<Client ID in step 3>
 DISCORD_CLIENT_SECRET=<Client Secret in step 3>
 ABANDON_AUTH_DISCORD_CALLBACK=http://localhost:3000/api/ui/discord-callback
 ```
-
-Register that same address with Discord in step 4, exactly. A sign-in starts at
-the site on port 3000, which is where the cookie binding the attempt to your
-browser is set, so a redirect back to the API's own port carries no such cookie
-and the login cannot be matched to one that was started.

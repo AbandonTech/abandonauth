@@ -39,8 +39,6 @@ jobs:
           tag=$(cut -c 1-7 <<< $GITHUB_SHA)
           echo "tag=$tag" >> $GITHUB_OUTPUT
 
-      # The site no longer builds provider authorization URLs, so it is told
-      # only where the API is and which application it signs in as.
       - name: Build and push
         uses: docker/build-push-action@v6
         with:

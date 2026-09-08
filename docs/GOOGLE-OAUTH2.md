@@ -34,19 +34,3 @@ GOOGLE_CALLBACK=http://localhost:3000/api/google
 
 Note that Google's callback is `GOOGLE_CALLBACK`, without the
 `ABANDON_AUTH_` prefix that Discord's and GitHub's carry.
-
-Register that same address with Google in step 3, exactly. A sign-in starts at
-the site on port 3000, which is where the cookie binding the attempt to your
-browser is set, so a redirect back to the API's own port carries no such cookie
-and the login cannot be matched to one that was started.
-
-There is no setting holding a provider's authorization URL. The API builds it
-from the client ID and callback above, so that the address, the scopes and the
-per-attempt state are decided in one place.
-
-Google is the one provider that returns an identity token as well as an access
-token, and this service checks it: the issuer, the audience and authorized
-party, an RS256 signature against Google's published keys, the nonce it was
-started with, and the clock claims. Its endpoints are compiled in and are
-compared against Google's discovery document rather than taken from it, so a
-discovery response naming other addresses is refused rather than followed.

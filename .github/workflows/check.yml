@@ -18,8 +18,6 @@ jobs:
           go-version-file: src/api/go.mod
           cache-dependency-path: src/api/go.sum
 
-      # No service block and no TEST_DATABASE_URL: the script brings its own
-      # database up, which is what keeps this identical to a local run.
       - name: Check
         run: ./scripts/check.sh --integration
 
