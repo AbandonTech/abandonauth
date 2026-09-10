@@ -85,7 +85,7 @@ exactly what was run:
 
 ```text
 ./scripts/check.sh                 codegen, formatting, lint, both builds, unit tests
-./scripts/check.sh --integration   also the race, database and coverage checks
+./scripts/check.sh --integration   the tests in a container instead: integration, race, database, coverage
 ./scripts/db.sh down               remove the test database afterwards
 
 npm --prefix src/website test
@@ -96,13 +96,32 @@ On Windows, invoke them with
 `& "C:\Program Files\Git\bin\bash.exe" scripts/check.sh ...`; never execute a
 `.sh` file directly through PowerShell, which opens the OS application chooser.
 
-`--integration` is authoritative for coverage and is the one to run after a
-change to database or concurrency behaviour. Both images are built on every pull
-request by `.github/workflows/`, which is what covers a Dockerfile change.
+`--integration` is authoritative for coverage, and is required after a change to
+an integration test, to `internal/database/testdatabase`, to
+`internal/web/servertest`, or to the container check scripts. Both images are
+built on every pull request by `.github/workflows/`, which is what covers a
+Dockerfile change.
+
+Each test function runs once per invocation. The deployment build runs the one
+complete suite; the devtools build runs only `^TestDevtools`, the tests that
+exist because it carries password sign-in. `scripts/check.sh` runs the two on the
+host, `--integration` runs them in the container under the race detector with a
+database, and `scripts/testmatrix.sh` fails the run when the set the devtools
+build adds is not exactly the set that selector picks. A development-only test
+therefore has to be both `devtools`-constrained and named `TestDevtools...`, and
+a test written for both builds must not carry that prefix.
 
 The coverage profile is built with `-tags=integration` and **not** `devtools`,
 so a test written under `integration && devtools` earns no coverage against the
 gate; deliberately, since those files are not in the published binary.
+
+`internal/web/servertest` stores credentials at bcrypt's minimum cost. The
+constructor for it is compiled only under the `integration` tag, so nothing a
+deployment or a development binary can build reaches it, and the deployed work
+factor is asserted separately in
+`internal/services/credentials/credentials_test.go`. Hashing under test is still
+bcrypt and still refuses a secret it was not made from; do not replace it with a
+stub.
 
 `./scripts/check.sh` reports formatting rather than correcting it, so a check
 never rewrites the worktree unannounced; `--fix-fmt` corrects it. Generated sqlc

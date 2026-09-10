@@ -39,6 +39,13 @@ jobs:
           tag=$(cut -c 1-7 <<< $GITHUB_SHA)
           echo "tag=$tag" >> $GITHUB_OUTPUT
 
+      - name: Build the development target
+        uses: docker/build-push-action@v6
+        with:
+          context: src/api
+          target: development
+          push: false
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:

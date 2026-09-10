@@ -11,14 +11,12 @@ cd "$API_DIR"
 
 COVERAGE_PROFILE=/tmp/coverage.out
 
-run_stage "go test -race" go test -race -count=1 -timeout "$TEST_TIMEOUT" ./...
-run_stage "go test -race (-tags=devtools)" \
-    go test -race -count=1 -timeout "$TEST_TIMEOUT" -tags=devtools ./...
-
-# The password routes are only compiled into this variant, so the endpoints
-# that drive them need both tags and a database.
-run_stage "go test -race (-tags='integration devtools')" \
-    go test -race -count=1 -timeout "$TEST_TIMEOUT" -tags='integration devtools' ./...
+# The password routes are only compiled into this variant, so the journeys that
+# drive them need both tags and a database. Only those run here: everything else
+# under these tags is in the deployment suite below, and running it twice is
+# what put this stage over the timeout.
+run_stage "go test -race ^TestDevtools (-tags='integration devtools')" \
+    go test -race -count=1 -timeout "$TEST_TIMEOUT" -tags='integration devtools' -run '^TestDevtools' ./...
 
 # -covermode=atomic is required whenever coverage and -race are combined. The
 # output is captured rather than run through run_stage because it is also the
@@ -28,6 +26,9 @@ run_stage "go test -race (-tags='integration devtools')" \
 # endpoints, so the services and the persistence behind them are reached through
 # internal/web; measuring each package only from its own tests would score that
 # work zero and push the suite towards testing units nobody calls.
+#
+# This is the one complete suite: every test that is not development-only, unit
+# and integration alike, runs here and only here.
 info "go test -race (-tags=integration, with coverage)"
 if ! integration_output=$(go test \
     -race \

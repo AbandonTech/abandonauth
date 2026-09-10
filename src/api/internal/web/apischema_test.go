@@ -193,19 +193,14 @@ func TestAPISchemaHoldsNoCredentials(t *testing.T) {
 
 // Every documented route must appear in the schema and every schema operation
 // must be served, so documentation cannot drift away from the router.
-func TestDocumentedRoutesMatchAPISchema(t *testing.T) {
+func TestDocumentedRoutesMatchTheDeployedAPISchema(t *testing.T) {
 	t.Parallel()
 
-	schemaFile := apiSchemaFile
-	if DevtoolsBuild {
-		schemaFile = apiSchemaDevtoolsFile
-	}
-
-	want := documentedOperations(loadAPISchema(t, schemaFile))
+	want := documentedOperations(loadAPISchema(t, apiSchemaFile))
 	got := documentedRoutes(Routes())
 
 	if !slices.Equal(got, want) {
-		t.Errorf("documented routes do not match %s\n got: %v\nwant: %v", schemaFile, got, want)
+		t.Errorf("documented routes do not match %s\n got: %v\nwant: %v", apiSchemaFile, got, want)
 	}
 }
 
@@ -245,21 +240,23 @@ func TestUndocumentedRoutesAreExpected(t *testing.T) {
 	}
 }
 
-// The password routes exist only to seed local development data. Compiling them
-// into the production binary would expose account creation without a provider.
-func TestPasswordRoutesAreDevtoolsOnly(t *testing.T) {
+// The password routes exist only to seed local development data. Serving them
+// from a deployment would expose account creation without a provider.
+func TestADeploymentDeclaresNoPasswordRoute(t *testing.T) {
 	t.Parallel()
 
-	passwordRoutes := []string{"POST /api/create_test_user", "POST /api/login_test_user"}
+	if DevtoolsBuild {
+		t.Fatal("this build serves the development routes, so it cannot state what a deployment declares")
+	}
 
 	served := make(map[string]bool, len(Routes()))
 	for _, route := range Routes() {
 		served[fmt.Sprintf("%s %s", route.Method, route.Path())] = true
 	}
 
-	for _, route := range passwordRoutes {
-		if served[route] != DevtoolsBuild {
-			t.Errorf("route %s served = %v, want %v", route, served[route], DevtoolsBuild)
+	for _, route := range []string{"POST /api/create_test_user", "POST /api/login_test_user"} {
+		if served[route] {
+			t.Errorf("route %s is declared by a build that does not carry password sign-in", route)
 		}
 	}
 }

@@ -27,7 +27,7 @@ Run from the repository root, not from here:
 ./scripts/check.sh                 codegen, formatting, lint, both builds, unit tests
 ./scripts/check.sh --quick         the same, skipping codegen and go mod tidy
 ./scripts/check.sh --fix-fmt       format the source, then check
-./scripts/check.sh --integration   also the race, database and coverage checks
+./scripts/check.sh --integration   the tests in a container instead: integration-tagged, race, database, coverage
 ./scripts/db.sh down               remove the test database afterwards
 ```
 
@@ -36,7 +36,13 @@ On Windows run them through Git Bash —
 the `.sh` file from PowerShell, which opens the application chooser.
 
 CI runs the same script, so it cannot drift from a local run. `--integration`
-holds every package to 80% statement coverage.
+holds every package to 80% statement coverage, and does not repeat the unit
+tests on the host: the container's deployment run carries them.
+
+Each test function runs once per invocation. The deployment build runs the whole
+suite; the devtools build runs only `^TestDevtools`, the tests that exist because
+it carries password sign-in. `scripts/testmatrix.sh` runs first and fails the
+check when a development-only test is not named that way, or a shared one is.
 
 ## Generated code
 

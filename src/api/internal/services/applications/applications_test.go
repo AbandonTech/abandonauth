@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/abandontech/abandonauth/src/api/internal/services/applications"
+	"github.com/abandontech/abandonauth/src/api/internal/services/credentials"
 	"github.com/abandontech/abandonauth/src/api/internal/urlpolicy"
 )
 
@@ -57,7 +58,9 @@ func TestARefusedCallbackKeepsTheRuleItBroke(t *testing.T) {
 func TestAnEmptyCallbackIsNotRegistered(t *testing.T) {
 	t.Parallel()
 
-	registered, err := applications.New(nil).CallbackIsRegistered(t.Context(), uuid.New(), "")
+	service := applications.New(nil, credentials.NewHasher())
+
+	registered, err := service.CallbackIsRegistered(t.Context(), uuid.New(), "")
 	if err != nil {
 		t.Fatalf("checking an empty callback URI: %v", err)
 	}

@@ -66,22 +66,57 @@ type Application struct {
 	credentialHash string
 }
 
+// credentialHasher makes and checks an application's stored credential. It is
+// unexported so that a test in this package can count comparisons while no
+// caller can compose the service with a hashing implementation of its own.
+type credentialHasher interface {
+	Hash(secret string) (string, error)
+	Matches(secret, hashed string) bool
+}
+
 // Applications reads and changes developer applications.
 type Applications struct {
 	pool    *pgxpool.Pool
 	queries *query.Queries
+	hasher  credentialHasher
+
+	// unmatchableHash is what a presented credential is compared against when
+	// no application has the identifier it was presented for. It is made once,
+	// at the same cost as a stored credential, from a value that is discarded.
+	unmatchableHash func() string
 }
 
 // New builds the service over the connection pool, which replacing a set of
-// callbacks needs so that it happens all at once or not at all.
-func New(pool *pgxpool.Pool) *Applications {
-	return &Applications{pool: pool, queries: query.New(pool)}
+// callbacks needs so that it happens all at once or not at all, and over the
+// hasher the composition stores application credentials with.
+func New(pool *pgxpool.Pool, hasher credentials.Hasher) *Applications {
+	return newApplications(pool, hasher)
+}
+
+func newApplications(pool *pgxpool.Pool, hasher credentialHasher) *Applications {
+	service := &Applications{pool: pool, queries: query.New(pool), hasher: hasher}
+
+	service.unmatchableHash = sync.OnceValue(func() string {
+		value, err := credentials.NewOpaqueValue()
+		if err != nil {
+			return ""
+		}
+
+		hashed, err := hasher.Hash(value)
+		if err != nil {
+			return ""
+		}
+
+		return hashed
+	})
+
+	return service
 }
 
 // Create registers an application and returns its refresh token, which is not
 // recoverable afterwards.
 func (a *Applications) Create(ctx context.Context, ownerID uuid.UUID, name string) (Application, string, error) {
-	token, hashed, err := newCredential()
+	token, hashed, err := a.newCredential()
 	if err != nil {
 		return Application{}, "", err
 	}
@@ -182,7 +217,7 @@ func (a *Applications) Delete(ctx context.Context, id uuid.UUID) (Application, e
 // ReplaceCredential issues a new refresh token and withdraws every access token
 // issued against the one it replaces.
 func (a *Applications) ReplaceCredential(ctx context.Context, id uuid.UUID) (Application, string, error) {
-	token, hashed, err := newCredential()
+	token, hashed, err := a.newCredential()
 	if err != nil {
 		return Application{}, "", err
 	}
@@ -213,10 +248,10 @@ func (a *Applications) ReplaceCredential(ctx context.Context, id uuid.UUID) (App
 func (a *Applications) Authenticate(ctx context.Context, id uuid.UUID, refreshToken string) (Application, error) {
 	found, err := a.Get(ctx, id)
 	if errors.Is(err, ErrNoSuchApplication) {
-		// Compared against a hash of nothing so that an application that does
-		// not exist costs the same as one that does, and the time taken does
-		// not say which it was.
-		credentials.Matches(refreshToken, hashOfNothing())
+		// Compared against a hash nothing matches so that an application that
+		// does not exist costs the same as one that does, and the time taken
+		// does not say which it was.
+		a.hasher.Matches(refreshToken, a.unmatchableHash())
 
 		return Application{}, ErrInvalidCredential
 	}
@@ -225,7 +260,7 @@ func (a *Applications) Authenticate(ctx context.Context, id uuid.UUID, refreshTo
 		return Application{}, err
 	}
 
-	if !credentials.Matches(refreshToken, found.credentialHash) {
+	if !a.hasher.Matches(refreshToken, found.credentialHash) {
 		return Application{}, ErrInvalidCredential
 	}
 
@@ -343,29 +378,13 @@ func acceptableURIs(uris []string) (map[string]struct{}, error) {
 	return accepted, nil
 }
 
-// hashOfNothing is a hash of a value generated once at first use and never kept,
-// so nothing can match it.
-var hashOfNothing = sync.OnceValue(func() string {
-	value, err := credentials.NewOpaqueValue()
-	if err != nil {
-		return ""
-	}
-
-	hashed, err := credentials.Hash(value)
-	if err != nil {
-		return ""
-	}
-
-	return hashed
-})
-
-func newCredential() (string, string, error) {
+func (a *Applications) newCredential() (string, string, error) {
 	token, err := credentials.NewOpaqueValue()
 	if err != nil {
 		return "", "", err
 	}
 
-	hashed, err := credentials.Hash(token)
+	hashed, err := a.hasher.Hash(token)
 	if err != nil {
 		return "", "", err
 	}

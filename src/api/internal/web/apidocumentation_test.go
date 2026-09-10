@@ -55,13 +55,8 @@ func TestThePublishedSchemaDocumentsExactlyWhatIsServed(t *testing.T) {
 		t.Errorf("the published schema and the routes disagree\n got: %v\nwant: %v", published, want)
 	}
 
-	schemaFile := apiSchemaFile
-	if DevtoolsBuild {
-		schemaFile = apiSchemaDevtoolsFile
-	}
-
-	if want := documentedOperations(loadAPISchema(t, schemaFile)); !slices.Equal(published, want) {
-		t.Errorf("the published schema and %s disagree\n got: %v\nwant: %v", schemaFile, published, want)
+	if want := documentedOperations(loadAPISchema(t, apiSchemaFile)); !slices.Equal(published, want) {
+		t.Errorf("the published schema and %s disagree\n got: %v\nwant: %v", apiSchemaFile, published, want)
 	}
 }
 
@@ -69,8 +64,12 @@ func TestThePublishedSchemaDocumentsExactlyWhatIsServed(t *testing.T) {
 // and swag reads the annotations without honouring that. Narrowing the document
 // to what is served is the only thing that keeps a deployment from publishing
 // an address it answers 404 at.
-func TestThePublishedSchemaNamesPasswordSignInOnlyWhereItIsServed(t *testing.T) {
+func TestADeploymentPublishesNoPasswordSignIn(t *testing.T) {
 	t.Parallel()
+
+	if DevtoolsBuild {
+		t.Fatal("this build serves the development routes, so it cannot state what a deployment publishes")
+	}
 
 	published := documentedOperations(publishedSchema(t))
 	generated := documentedOperations(generatedSchema(t))
@@ -80,9 +79,8 @@ func TestThePublishedSchemaNamesPasswordSignInOnlyWhereItIsServed(t *testing.T) 
 			t.Errorf("the annotations no longer describe %s, so this proves nothing", operation)
 		}
 
-		if slices.Contains(published, operation) != DevtoolsBuild {
-			t.Errorf("the published schema names %s = %v, want %v",
-				operation, slices.Contains(published, operation), DevtoolsBuild)
+		if slices.Contains(published, operation) {
+			t.Errorf("the published schema names %s, which a deployment answers 404 at", operation)
 		}
 	}
 }

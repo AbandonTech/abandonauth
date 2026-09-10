@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/abandontech/abandonauth/src/api/internal/services/credentials"
 )
 
@@ -17,11 +19,13 @@ const storedHashOfPlaceholder = "$2b$12$y1VEjPD3pK94NqbpzDZi9eKLEPpj6XMO5sykgHNA
 func TestAStoredHashStillAcceptsItsSecret(t *testing.T) {
 	t.Parallel()
 
-	if !credentials.Matches("placeholder", storedHashOfPlaceholder) {
+	hasher := credentials.NewHasher()
+
+	if !hasher.Matches("placeholder", storedHashOfPlaceholder) {
 		t.Error("a hash already in the accounts table no longer accepts its secret")
 	}
 
-	if credentials.Matches("Placeholder", storedHashOfPlaceholder) {
+	if hasher.Matches("Placeholder", storedHashOfPlaceholder) {
 		t.Error("a stored hash accepted the wrong secret")
 	}
 }
@@ -29,7 +33,9 @@ func TestAStoredHashStillAcceptsItsSecret(t *testing.T) {
 func TestHashingProducesAValueThatOnlyItsSecretMatches(t *testing.T) {
 	t.Parallel()
 
-	hashed, err := credentials.Hash("placeholder-secret")
+	hasher := credentials.NewHasher()
+
+	hashed, err := hasher.Hash("placeholder-secret")
 	if err != nil {
 		t.Fatalf("hashing: %v", err)
 	}
@@ -38,39 +44,60 @@ func TestHashingProducesAValueThatOnlyItsSecretMatches(t *testing.T) {
 		t.Error("the hash contains the secret")
 	}
 
-	if !credentials.Matches("placeholder-secret", hashed) {
+	if !hasher.Matches("placeholder-secret", hashed) {
 		t.Error("the hash does not accept the secret it was made from")
 	}
 
-	if credentials.Matches("placeholder-secre", hashed) {
+	if hasher.Matches("placeholder-secre", hashed) {
 		t.Error("the hash accepted a different secret")
 	}
 }
 
 // Cost is what a hash costs an attacker who has the table. It is recorded in
-// the hash itself, so it can be read back and must not silently fall.
-func TestNewHashesUseTheConfiguredCost(t *testing.T) {
+// the hash itself, so it can be read back and must not silently fall. Both ways
+// a hasher comes into existence are covered: a composition that leaves the field
+// out produces the unconstructed value, and one that fell through to bcrypt's own
+// default would store a secret at a factor nobody chose.
+func TestEveryWayOfHashingUsesTheConfiguredCost(t *testing.T) {
 	t.Parallel()
 
-	hashed, err := credentials.Hash("placeholder-secret")
-	if err != nil {
-		t.Fatalf("hashing: %v", err)
+	hashers := map[string]func(string) (string, error){
+		"a hasher nobody constructed": credentials.Hasher{}.Hash,
+		"the constructed hasher":      credentials.NewHasher().Hash,
 	}
 
-	if want := "$2a$12$"; !strings.HasPrefix(hashed, want) {
-		t.Errorf("hash prefix = %q, want %q", hashed[:min(len(hashed), len(want))], want)
+	for name, hash := range hashers {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			hashed, err := hash("placeholder-secret")
+			if err != nil {
+				t.Fatalf("hashing: %v", err)
+			}
+
+			cost, err := bcrypt.Cost([]byte(hashed))
+			if err != nil {
+				t.Fatalf("the hash records no cost: %v", err)
+			}
+
+			if cost != credentials.HashCost {
+				t.Errorf("cost = %d, want %d", cost, credentials.HashCost)
+			}
+		})
 	}
 }
 
 func TestTheSameSecretHashesDifferentlyEachTime(t *testing.T) {
 	t.Parallel()
 
-	first, err := credentials.Hash("placeholder-secret")
+	hasher := credentials.NewHasher()
+
+	first, err := hasher.Hash("placeholder-secret")
 	if err != nil {
 		t.Fatalf("hashing: %v", err)
 	}
 
-	second, err := credentials.Hash("placeholder-secret")
+	second, err := hasher.Hash("placeholder-secret")
 	if err != nil {
 		t.Fatalf("hashing: %v", err)
 	}
@@ -83,6 +110,8 @@ func TestTheSameSecretHashesDifferentlyEachTime(t *testing.T) {
 func TestUnusableInputsAreRefusedWithoutRepeatingThem(t *testing.T) {
 	t.Parallel()
 
+	hasher := credentials.NewHasher()
+
 	tests := map[string]string{
 		"empty":    "",
 		"too long": strings.Repeat("x", credentials.MaxSecretBytes+1),
@@ -92,7 +121,7 @@ func TestUnusableInputsAreRefusedWithoutRepeatingThem(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := credentials.Hash(secret)
+			_, err := hasher.Hash(secret)
 			if err == nil {
 				t.Fatal("the secret was accepted")
 			}
@@ -106,6 +135,8 @@ func TestUnusableInputsAreRefusedWithoutRepeatingThem(t *testing.T) {
 
 func TestMatchingRefusesAnythingThatIsNotAHashAndItsSecret(t *testing.T) {
 	t.Parallel()
+
+	hasher := credentials.NewHasher()
 
 	tests := map[string]struct {
 		secret string
@@ -123,7 +154,7 @@ func TestMatchingRefusesAnythingThatIsNotAHashAndItsSecret(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			if credentials.Matches(test.secret, test.hashed) {
+			if hasher.Matches(test.secret, test.hashed) {
 				t.Error("the pair was accepted")
 			}
 		})

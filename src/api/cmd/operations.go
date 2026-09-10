@@ -13,6 +13,7 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/config"
 	"github.com/abandontech/abandonauth/src/api/internal/database"
 	"github.com/abandontech/abandonauth/src/api/internal/logging"
+	"github.com/abandontech/abandonauth/src/api/internal/services/credentials"
 	"github.com/abandontech/abandonauth/src/api/internal/services/housekeeping"
 	"github.com/abandontech/abandonauth/src/api/internal/web"
 )
@@ -35,7 +36,11 @@ func (service) Serve(ctx context.Context, configuration config.Config) error {
 		return err
 	}
 
-	server, err := web.NewServer(configuration, web.Dependencies{Pool: pool, Logger: logger})
+	server, err := web.NewServer(configuration, web.Dependencies{
+		Pool:             pool,
+		Logger:           logger,
+		CredentialHasher: credentials.NewHasher(),
+	})
 	if err != nil {
 		return err
 	}

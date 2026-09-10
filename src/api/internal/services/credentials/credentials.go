@@ -61,8 +61,25 @@ const (
 // be spelled as a short label and a long value.
 const domainSeparator = 0x00
 
+// Hasher makes and checks stored secrets at one work factor.
+//
+// The factor is unexported and no caller can supply a number, so the only
+// hasher a binary can build is the one its build constrains it to.
+type Hasher struct {
+	cost int
+}
+
+// NewHasher returns the hasher stored secrets are made with.
+func NewHasher() Hasher {
+	return Hasher{cost: HashCost}
+}
+
 // Hash returns the value a secret is stored as.
-func Hash(secret string) (string, error) {
+//
+// A Hasher nobody constructed hashes at HashCost rather than at bcrypt's own
+// default, so a dependency left out of a composition cannot lower the work
+// factor a stored secret was made with.
+func (h Hasher) Hash(secret string) (string, error) {
 	if secret == "" {
 		return "", ErrEmptySecret
 	}
@@ -71,7 +88,12 @@ func Hash(secret string) (string, error) {
 		return "", ErrSecretTooLong
 	}
 
-	hashed, err := bcrypt.GenerateFromPassword([]byte(secret), HashCost)
+	cost := h.cost
+	if cost == 0 {
+		cost = HashCost
+	}
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(secret), cost)
 	if err != nil {
 		return "", fmt.Errorf("hashing a secret: %w", err)
 	}
@@ -82,8 +104,9 @@ func Hash(secret string) (string, error) {
 // Matches reports whether a secret is the one a stored hash was made from.
 //
 // Every way of failing returns the same answer, so a caller cannot learn from
-// it whether the stored value was a hash at all.
-func Matches(secret, hashed string) bool {
+// it whether the stored value was a hash at all. The cost is the one recorded
+// in the stored hash, so a hasher checks what it did not make.
+func (h Hasher) Matches(secret, hashed string) bool {
 	if secret == "" || hashed == "" || len(secret) > MaxSecretBytes {
 		return false
 	}

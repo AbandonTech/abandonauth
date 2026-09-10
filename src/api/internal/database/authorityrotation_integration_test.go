@@ -14,6 +14,7 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/services/accounts"
 	"github.com/abandontech/abandonauth/src/api/internal/services/applications"
 	"github.com/abandontech/abandonauth/src/api/internal/services/authority"
+	"github.com/abandontech/abandonauth/src/api/internal/services/credentials"
 	"github.com/abandontech/abandonauth/src/api/internal/services/keyring"
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
 	"github.com/abandontech/abandonauth/src/api/internal/services/sessions"
@@ -46,7 +47,9 @@ func TestRotatingTheAuthorityWithdrawsEverythingOutstanding(t *testing.T) {
 		t.Fatalf("registering an account: %v", err)
 	}
 
-	application, _, err := applications.New(pool).Create(ctx, person.ID, "an application")
+	registry := applications.New(pool, credentials.NewInexpensiveHasher())
+
+	application, _, err := registry.Create(ctx, person.ID, "an application")
 	if err != nil {
 		t.Fatalf("registering an application: %v", err)
 	}

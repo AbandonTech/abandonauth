@@ -128,6 +128,26 @@ A change to a control above extends these rather than replacing them:
 - `internal/services/tokens/tokens_test.go` — the token abuse matrix.
 - `internal/web/passwordaccounts_default_integration_test.go` — a deployment
   serving neither account-seeding address.
+- `internal/web/passwordaccounts_devtools_integration_test.go`,
+  `passwordroutes_devtools_test.go` — the development build's counterpart: the
+  `TestDevtools` journeys through reachability, session and CSRF behaviour, a
+  refusal that says nothing about the account, the password at rest, budgets,
+  CORS and log redaction, and the route, handler and schema declarations only
+  this build carries.
 - `internal/web/apidocumentation_test.go` — the published schema naming password
   sign-in only in the build that serves it, and refusing to publish a document
   it cannot narrow.
+
+A service under test stores credentials at bcrypt's minimum cost, through
+`credentials.NewInexpensiveHasher`. That constructor is behind `//go:build
+integration`, so no deployment or development binary can compile it; the work
+factor is unexported and no caller supplies a number; and an unset
+`web.Dependencies.CredentialHasher` hashes at `credentials.HashCost`. A
+deployment does not rely on that: `cmd/operations.go` names
+`credentials.NewHasher()`, so the unset value is a fail-safe for a composition
+that omits the field rather than the path a service takes. That the
+deployed factor is still 12 is asserted in
+`internal/services/credentials/credentials_test.go`, and that no product build
+selects the cheap hasher is asserted by `scripts/testmatrix.sh` and by building
+both Docker targets. No reachability control, response, or stored credential
+format changes with it.

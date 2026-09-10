@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/abandontech/abandonauth/src/api/internal/database/query"
-	"github.com/abandontech/abandonauth/src/api/internal/services/credentials"
 	"github.com/abandontech/abandonauth/src/api/internal/services/ratelimit"
 	"github.com/abandontech/abandonauth/src/api/internal/web/models"
 	inputs "github.com/abandontech/abandonauth/src/api/internal/web/request"
@@ -58,7 +57,7 @@ func (s *Server) createPasswordAccount() http.Handler {
 			return
 		}
 
-		hashed, err := credentials.Hash(password)
+		hashed, err := s.credentialHasher.Hash(password)
 		if err != nil {
 			response.Error(writer, http.StatusBadRequest, detailPasswordRejected)
 
@@ -193,7 +192,7 @@ func (s *Server) passwordAccepted(
 		return false
 	}
 
-	if !credentials.Matches(password, account.Password) {
+	if !s.credentialHasher.Matches(password, account.Password) {
 		response.Error(writer, http.StatusUnauthorized, detailPasswordRejected)
 
 		return false

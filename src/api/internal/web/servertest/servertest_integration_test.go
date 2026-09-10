@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"testing"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
 	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
 )
@@ -85,6 +87,33 @@ func TestTheExactTargetHelperAddsNothing(t *testing.T) {
 	service.AtExactTarget(http.MethodGet, "/openapi.json").
 		ExpectStatus(http.StatusNotFound).
 		ExpectDetail("Not Found")
+}
+
+// Every service registers an application before it starts, and at the deployed
+// work factor that alone exhausts the suite's time budget. The hash the harness
+// left behind is where the cheaper factor is either in use or silently not.
+func TestTheHarnessStoresCredentialsAtTheInexpensiveCost(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+
+	var stored string
+
+	err := service.Pool.QueryRow(t.Context(),
+		`SELECT "refresh_token" FROM "DeveloperApplication" WHERE "id" = $1`, service.Site.ApplicationID,
+	).Scan(&stored)
+	if err != nil {
+		t.Fatalf("reading the site application's credential: %v", err)
+	}
+
+	cost, err := bcrypt.Cost([]byte(stored))
+	if err != nil {
+		t.Fatalf("the stored credential records no cost: %v", err)
+	}
+
+	if cost != bcrypt.MinCost {
+		t.Errorf("the site application's credential was stored at cost %d, want %d", cost, bcrypt.MinCost)
+	}
 }
 
 func TestTheConfigurationIsAvailableToTests(t *testing.T) {

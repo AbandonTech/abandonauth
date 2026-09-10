@@ -5,7 +5,7 @@
 #   scripts/check.sh --quick         skip codegen and tidy (no SQL or annotation change)
 #   scripts/check.sh --gen-only      only sqlc + swag + tidy, then stop
 #   scripts/check.sh --fix-fmt       format the source, then run the default checks
-#   scripts/check.sh --integration   also run the database, race and coverage checks
+#   scripts/check.sh --integration   run the tests in a container instead: integration, race, database, coverage
 #   scripts/check.sh --verbose       stream each stage's output instead of capturing it
 #
 # Quiet on success. On failure the offending stage's output is dumped.
@@ -53,6 +53,11 @@ cd "$API_DIR"
 # Both variants are built and tested, because the production build's job is to
 # not contain password sign-in.
 DEVTOOLS_TAG=devtools
+
+# The devtools build repeats every test the deployment build already ran, so it
+# runs only the ones that exist for it. scripts/testmatrix.sh is what makes the
+# naming convention behind this an enforced fact rather than a hope.
+DEVTOOLS_SELECTOR='^TestDevtools'
 
 fmt_stage() {
     unformatted=$(gofmt -l . 2>&1)
@@ -122,21 +127,28 @@ run_stage "go vet (-tags=integration)" go vet -tags=integration ./...
 run_stage "go vet (-tags='integration $DEVTOOLS_TAG')" \
     go vet -tags="integration $DEVTOOLS_TAG" ./...
 
-# -count=1 disables the test cache, which can conceal a failure caused by state
-# outside a package's compiled Go inputs.
-run_stage "go test" go test -count=1 -timeout "$TEST_TIMEOUT" ./...
-run_stage "go test (-tags=$DEVTOOLS_TAG)" \
-    go test -count=1 -timeout "$TEST_TIMEOUT" -tags="$DEVTOOLS_TAG" ./...
+# The runs below select tests by build tag and by name, so what they add up to
+# is checked before any of them starts.
+stream_stage "test matrix" sh "$REPO_ROOT/scripts/testmatrix.sh"
 
-if [ "$integration" -eq 0 ]; then
-    info "all checks passed (the database, race and coverage checks need --integration)"
+if [ "$integration" -eq 1 ]; then
+    require_command docker 'Install Docker from https://docs.docker.com/get-docker/.'
+
+    # Each test runs once per invocation, and with --integration that once is in
+    # the container, under the race detector and against a database. This stage
+    # streams rather than going quiet, because building and pulling take long
+    # enough that silence looks like a hang.
+    stream_stage "container checks" compose run --rm --build check
+
+    info "all checks passed"
     exit 0
 fi
 
-require_command docker 'Install Docker from https://docs.docker.com/get-docker/.'
+# -count=1 disables the test cache, which can conceal a failure caused by state
+# outside a package's compiled Go inputs.
+run_stage "go test" go test -count=1 -timeout "$TEST_TIMEOUT" ./...
+# Only what the deployment suite above cannot carry, so nothing runs twice.
+run_stage "go test $DEVTOOLS_SELECTOR (-tags=$DEVTOOLS_TAG)" \
+    go test -count=1 -timeout "$TEST_TIMEOUT" -tags="$DEVTOOLS_TAG" -run "$DEVTOOLS_SELECTOR" ./...
 
-# This streams rather than going quiet, because building and pulling take long
-# enough that silence looks like a hang.
-stream_stage "container checks" compose run --rm --build check
-
-info "all checks passed"
+info "all checks passed (the integration, database, race and coverage checks need --integration)"
