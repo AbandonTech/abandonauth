@@ -5,7 +5,7 @@ on:
 
 jobs:
   api:
-    name: Runs the check pipeline
+    name: Run checks
     runs-on: ubuntu-latest
 
     steps:
@@ -22,7 +22,7 @@ jobs:
         run: ./scripts/check.sh --integration
 
   website:
-    name: Tests and builds the site
+    name: Build and test site
     runs-on: ubuntu-latest
 
     steps:
