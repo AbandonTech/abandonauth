@@ -5,7 +5,8 @@
 The API has unit and integration tests, and CI runs the same
 `./scripts/check.sh` a developer runs. Every package containing statements is
 held to 80% statement coverage, measured from a real profile; the gate fails the
-run, and it currently passes.
+run, and it currently passes. Integration tests are build-constrained, and a
+selected one fails without PostgreSQL rather than skipping.
 
 The site has Vitest tests and a production build. There is still **no frontend
 lint or typecheck command**. Do not claim one passed.
@@ -102,26 +103,31 @@ an integration test, to `internal/database/testdatabase`, to
 built on every pull request by `.github/workflows/`, which is what covers a
 Dockerfile change.
 
-Each test function runs once per invocation. The deployment build runs the one
-complete suite; the devtools build runs only `^TestDevtools`, the tests that
-exist because it carries password sign-in. `scripts/check.sh` runs the two on the
-host, `--integration` runs them in the container under the race detector with a
-database, and `scripts/testmatrix.sh` fails the run when the set the devtools
-build adds is not exactly the set that selector picks. A development-only test
-therefore has to be both `devtools`-constrained and named `TestDevtools...`, and
-a test written for both builds must not carry that prefix.
+Suites are selected by package pattern and build constraint, never by test
+name or by a maintained package list. `scripts/check.sh` runs
+`go test ./...` and `go test -tags=devtools ./...` on the host. `--integration`
+runs `-tags='integration devtools' ./...` and then `-tags=integration ./...` in
+the container under the race detector with a database. Every deployment
+integration file carries `integration && !devtools`, so the development run
+carries the development unit and integration packages without repeating the
+deployment journeys; the password sign-in journeys live in
+`internal/web/passwordsignintest` under `integration && devtools`. An assertion
+that holds only for a deployment goes in a `!devtools` file; one that holds for
+either build runs under both.
+
+Selecting an integration-tagged test is an explicit request for PostgreSQL:
+`internal/database/testdatabase` fails the test through `testing.T` when
+`TEST_DATABASE_URL` is absent or unusable. A plain `go test ./...` needs no
+database because the integration files are build-constrained.
 
 The coverage profile is built with `-tags=integration` and **not** `devtools`,
 so a test written under `integration && devtools` earns no coverage against the
 gate; deliberately, since those files are not in the published binary.
 
-`internal/web/servertest` stores credentials at bcrypt's minimum cost. The
-constructor for it is compiled only under the `integration` tag, so nothing a
-deployment or a development binary can build reaches it, and the deployed work
-factor is asserted separately in
-`internal/services/credentials/credentials_test.go`. Hashing under test is still
-bcrypt and still refuses a secret it was not made from; do not replace it with a
-stub.
+Every credential a test creates or compares goes through `credentials.Hash` and
+`credentials.Matches` at `credentials.HashCost`. There is no alternate work
+factor, injected hasher or stub; runtime is controlled by test scheduling and
+per-test isolation, not by cheaper hashing.
 
 `./scripts/check.sh` reports formatting rather than correcting it, so a check
 never rewrites the worktree unannounced; `--fix-fmt` corrects it. Generated sqlc

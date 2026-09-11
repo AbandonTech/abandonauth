@@ -1,6 +1,8 @@
 //go:build integration && devtools
 
-package web_test
+// Package passwordsignintest drives the password sign-in routes only the
+// development build carries, through the running service.
+package passwordsignintest
 
 import (
 	"net/http"
@@ -11,6 +13,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/abandontech/abandonauth/src/api/internal/config"
+	"github.com/abandontech/abandonauth/src/api/internal/services/credentials"
 	"github.com/abandontech/abandonauth/src/api/internal/services/ratelimit"
 	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
 )
@@ -33,6 +36,12 @@ func developmentService(t *testing.T, choices ...servertest.Option) *servertest.
 	})
 
 	return servertest.New(t, append([]servertest.Option{development}, choices...)...)
+}
+
+// fromForwardedClient makes requests look as though they came from one client
+// behind the reverse proxy, which is how the deployment sees them.
+func fromForwardedClient(address string) func(*http.Request) {
+	return servertest.Header("X-Forwarded-For", address)
 }
 
 // seedAccount creates an account that signs in with a password and returns who
@@ -65,7 +74,7 @@ func seedAccount(t *testing.T, service *servertest.Service, username string) str
 // router would clean or decode into one of them is refused before it gets
 // there, so seeding an account has exactly the one way in that the three
 // conditions above guard.
-func TestDevtoolsSeedingAnAccountHasOnlyOneAddress(t *testing.T) {
+func TestSeedingAnAccountHasOnlyOneAddress(t *testing.T) {
 	t.Parallel()
 
 	service := developmentService(t)
@@ -89,7 +98,7 @@ func TestDevtoolsSeedingAnAccountHasOnlyOneAddress(t *testing.T) {
 
 // A developer with no provider credentials can still get an account and sign in
 // as it, which is the whole reason these routes exist.
-func TestDevtoolsAnAccountSeededWithAPasswordCanSignIn(t *testing.T) {
+func TestAnAccountSeededWithAPasswordCanSignIn(t *testing.T) {
 	t.Parallel()
 
 	service := developmentService(t)
@@ -115,7 +124,7 @@ func TestDevtoolsAnAccountSeededWithAPasswordCanSignIn(t *testing.T) {
 // Signing in this way leaves the browser holding the same session a provider
 // sign-in leaves, so development exercises the session and its cross-site
 // checks rather than a credential a script could read out of the browser.
-func TestDevtoolsPasswordSignInEstablishesTheSameSessionAProviderWould(t *testing.T) {
+func TestPasswordSignInEstablishesTheSameSessionAProviderWould(t *testing.T) {
 	t.Parallel()
 
 	service := developmentService(t)
@@ -153,7 +162,7 @@ func TestDevtoolsPasswordSignInEstablishesTheSameSessionAProviderWould(t *testin
 
 // The session is the authority, so a request that changes something is subject
 // to the same cross-site check as any other.
-func TestDevtoolsASessionFromAPasswordSignInIsSubjectToTheSiteCheck(t *testing.T) {
+func TestASessionFromAPasswordSignInIsSubjectToTheSiteCheck(t *testing.T) {
 	t.Parallel()
 
 	service := developmentService(t)
@@ -175,7 +184,7 @@ func TestDevtoolsASessionFromAPasswordSignInIsSubjectToTheSiteCheck(t *testing.T
 }
 
 // Whether the account exists is not something an attempt reveals.
-func TestDevtoolsARefusedPasswordSaysNothingAboutTheAccount(t *testing.T) {
+func TestARefusedPasswordSaysNothingAboutTheAccount(t *testing.T) {
 	t.Parallel()
 
 	service := developmentService(t)
@@ -200,8 +209,8 @@ func TestDevtoolsARefusedPasswordSaysNothingAboutTheAccount(t *testing.T) {
 }
 
 // The password is stored as something a reader of the database cannot sign in
-// with.
-func TestDevtoolsTheStoredPasswordIsNotThePasswordThatWasSent(t *testing.T) {
+// with, at the work factor every stored secret is made with.
+func TestTheStoredPasswordIsNotThePasswordThatWasSent(t *testing.T) {
 	t.Parallel()
 
 	service := developmentService(t)
@@ -224,22 +233,19 @@ func TestDevtoolsTheStoredPasswordIsNotThePasswordThatWasSent(t *testing.T) {
 		t.Error("the stored value does not verify the password it was made from")
 	}
 
-	// The handler hashes through the hasher the service was composed with, and
-	// this is where a service under test either got the cheap one or quietly
-	// went on spending the deployed work factor on every seeded account.
 	cost, err := bcrypt.Cost([]byte(stored))
 	if err != nil {
 		t.Fatalf("the stored password records no cost: %v", err)
 	}
 
-	if cost != bcrypt.MinCost {
-		t.Errorf("the password was stored at cost %d, want %d", cost, bcrypt.MinCost)
+	if cost != credentials.HashCost {
+		t.Errorf("the password was stored at cost %d, want %d", cost, credentials.HashCost)
 	}
 }
 
 // Both routes report that they do not exist unless every condition holds,
 // because in a deployment they do not.
-func TestDevtoolsThePasswordRoutesAnswerOnlyOnADevelopersOwnMachine(t *testing.T) {
+func TestThePasswordRoutesAnswerOnlyOnADevelopersOwnMachine(t *testing.T) {
 	t.Parallel()
 
 	unreachable := map[string]servertest.Option{
@@ -275,7 +281,7 @@ func TestDevtoolsThePasswordRoutesAnswerOnlyOnADevelopersOwnMachine(t *testing.T
 }
 
 // A request that leaves out what it needs is refused for the input it left out.
-func TestDevtoolsSeedingAnAccountRefusesIncompleteRequests(t *testing.T) {
+func TestSeedingAnAccountRefusesIncompleteRequests(t *testing.T) {
 	t.Parallel()
 
 	service := developmentService(t)
@@ -294,7 +300,7 @@ func TestDevtoolsSeedingAnAccountRefusesIncompleteRequests(t *testing.T) {
 
 // Guessing is budgeted here as it is everywhere else, so a machine left
 // listening is not a way to try passwords without limit.
-func TestDevtoolsGuessingASeededPasswordRunsOut(t *testing.T) {
+func TestGuessingASeededPasswordRunsOut(t *testing.T) {
 	t.Parallel()
 
 	service := developmentService(t, servertest.WithSteadyClock())
@@ -308,11 +314,11 @@ func TestDevtoolsGuessingASeededPasswordRunsOut(t *testing.T) {
 	guess := map[string]string{"user_id": userID, "password": "not-the-password"}
 
 	for attempt := int64(0); attempt < policy.Limit; attempt++ {
-		service.POSTJSON("/login_test_user", guess, asClient("198.51.100.20")).
+		service.POSTJSON("/login_test_user", guess, fromForwardedClient("198.51.100.20")).
 			ExpectStatus(http.StatusUnauthorized)
 	}
 
-	refused := service.POSTJSON("/login_test_user", guess, asClient("198.51.100.20")).
+	refused := service.POSTJSON("/login_test_user", guess, fromForwardedClient("198.51.100.20")).
 		ExpectStatus(http.StatusTooManyRequests).
 		ExpectDetail("Too many requests. Try again later.")
 
@@ -325,12 +331,12 @@ func TestDevtoolsGuessingASeededPasswordRunsOut(t *testing.T) {
 	service.POSTJSON("/login_test_user", map[string]string{
 		"user_id":  userID,
 		"password": developerPassword,
-	}, asClient("198.51.100.20")).ExpectStatus(http.StatusTooManyRequests)
+	}, fromForwardedClient("198.51.100.20")).ExpectStatus(http.StatusTooManyRequests)
 }
 
 // Debug mode relaxes what the service will talk over. It does not relax who may
 // talk to it.
-func TestDevtoolsDebugModeStillAnswersOnlyTheSite(t *testing.T) {
+func TestDebugModeStillAnswersOnlyTheSite(t *testing.T) {
 	t.Parallel()
 
 	service := developmentService(t)
@@ -359,7 +365,7 @@ func TestDevtoolsDebugModeStillAnswersOnlyTheSite(t *testing.T) {
 }
 
 // A password is a credential, and no credential reaches the logs.
-func TestDevtoolsThePasswordNeverReachesTheLogs(t *testing.T) {
+func TestThePasswordNeverReachesTheLogs(t *testing.T) {
 	t.Parallel()
 
 	service := developmentService(t)

@@ -44,8 +44,18 @@ func decodeSchema(t *testing.T, document string) apiSchema {
 	return schema
 }
 
-// The annotations and the route table are written separately, so nothing but a
-// comparison keeps the published document describing what is served.
+// referenceSchemaFile is the committed reference for what this build publishes.
+func referenceSchemaFile() string {
+	if DevtoolsBuild {
+		return apiSchemaDevtoolsFile
+	}
+
+	return apiSchemaFile
+}
+
+// The annotations, the route table and the committed reference are written
+// separately, so nothing but a comparison keeps the published document
+// describing what this build serves.
 func TestThePublishedSchemaDocumentsExactlyWhatIsServed(t *testing.T) {
 	t.Parallel()
 
@@ -55,33 +65,10 @@ func TestThePublishedSchemaDocumentsExactlyWhatIsServed(t *testing.T) {
 		t.Errorf("the published schema and the routes disagree\n got: %v\nwant: %v", published, want)
 	}
 
-	if want := documentedOperations(loadAPISchema(t, apiSchemaFile)); !slices.Equal(published, want) {
-		t.Errorf("the published schema and %s disagree\n got: %v\nwant: %v", apiSchemaFile, published, want)
-	}
-}
+	reference := referenceSchemaFile()
 
-// Password sign-in is annotated in a file only the development build compiles,
-// and swag reads the annotations without honouring that. Narrowing the document
-// to what is served is the only thing that keeps a deployment from publishing
-// an address it answers 404 at.
-func TestADeploymentPublishesNoPasswordSignIn(t *testing.T) {
-	t.Parallel()
-
-	if DevtoolsBuild {
-		t.Fatal("this build serves the development routes, so it cannot state what a deployment publishes")
-	}
-
-	published := documentedOperations(publishedSchema(t))
-	generated := documentedOperations(generatedSchema(t))
-
-	for _, operation := range []string{"POST /api/create_test_user", "POST /api/login_test_user"} {
-		if !slices.Contains(generated, operation) {
-			t.Errorf("the annotations no longer describe %s, so this proves nothing", operation)
-		}
-
-		if slices.Contains(published, operation) {
-			t.Errorf("the published schema names %s, which a deployment answers 404 at", operation)
-		}
+	if want := documentedOperations(loadAPISchema(t, reference)); !slices.Equal(published, want) {
+		t.Errorf("the published schema and %s disagree\n got: %v\nwant: %v", reference, published, want)
 	}
 }
 

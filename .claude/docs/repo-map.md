@@ -64,13 +64,13 @@ endpoints that stop accepting credentials in
 - `internal/services/keyring/` — per-purpose keys derived from the signing root
 - `internal/services/tokens/` — issues and validates the two access token
   classes
-- `internal/services/credentials/` — bcrypt hashing, random credentials;
-  `Hasher` carries the work factor, and the minimum-cost constructor exists only
-  under the `integration` tag
+- `internal/services/credentials/` — bcrypt hashing and random credentials;
+  `Hash` always creates at `HashCost`, and there is no other work factor
 - `internal/services/accounts/` — resolves a provider identity to a user,
   creating one atomically
 - `internal/services/applications/` — developer applications, credentials,
-  callback URIs
+  callback URIs; an unknown application is checked against a fixed comparison
+  hash so the attempt costs what a wrong credential costs
 - `internal/services/oauth/` — authorization state with PKCE, one-time exchange
   codes
 - `internal/services/sessions/` — browser sessions and their CSRF tokens
@@ -89,8 +89,7 @@ endpoints that stop accepting credentials in
 
 - `internal/web/routes.go` — the route table: `APIRoot` and every URL, once
 - `internal/web/handlers.go` — binds each route name to its handler
-- `internal/web/server.go` — composition, middleware order, deadlines; the
-  credential hasher the services and the password handler share
+- `internal/web/server.go` — composition, middleware order, deadlines
 - `internal/web/requesttarget.go` — the one spelling of a target that is served
 - `internal/web/index.go` — `GET /api`, `GET /api/`
 - `internal/web/currentuser.go` — `GET /api/me`
@@ -116,13 +115,17 @@ endpoints that stop accepting credentials in
   shapes
 - `internal/web/servertest/` — the real service against its own database; tests
   give the path below the route root, and `AtExactTarget` writes a target in
-  full; `credentialhasher_*.go` chooses the work factor the service under test
-  stores credentials at
+  full
+- `internal/web/passwordsignintest/` — the password sign-in journeys, under
+  `integration && devtools`
 - `internal/web/testdata/` — the API schema the service must publish
 
 Files ending `_devtools.go` compile only with `-tags=devtools`: password
-sign-in, absent from a deployment. A test in one of them is named
-`TestDevtools...`, which is how a run selects the tests only that build carries.
+sign-in, absent from a deployment. Files ending `_default_test.go` carry
+`!devtools` and state what a deployment does not serve. Every deployment
+integration file carries `integration && !devtools`, so a broad
+`-tags='integration devtools'` run carries the development packages without
+repeating the deployment journeys.
 
 An endpoint that reads structured input keeps that reading in an unexported
 reader beside its handler. `<endpoint>_test.go` drives the reader;
@@ -178,21 +181,18 @@ rewrite live data for no functional gain and is deliberately out of scope.
 ## Validation
 
 - `./scripts/check.sh` — codegen, formatting, tidiness, both builds, revive, vet
-  on every tag set, the test matrix, then the deployment suite and the
-  `^TestDevtools` selection
-- `./scripts/check.sh --integration` — the same up to the matrix, then those two
-  runs in a container with race detection, a database and coverage
-- `./scripts/testmatrix.sh` — the inventory each build's run must contain, and
-  the tag sets the inexpensive credential hasher may be compiled into
+  on every tag set, then `go test ./...` and `go test -tags=devtools ./...`
+- `./scripts/check.sh --integration` — the same up to vet, then the container:
+  `-tags='integration devtools' ./...` and `-tags=integration ./...` with race
+  detection, a database and coverage
 - `./scripts/containercheck.sh` — what runs inside the container, and the
   coverage gate
 - `./scripts/db.sh up` / `down` — the throwaway database
 
-Each test function runs once per invocation: the deployment build carries the one
-complete suite, and the devtools build runs only the tests that exist for it.
-`go test -race` links a C runtime, so the race, integration and coverage checks
-run only in the container; nothing here needs a C compiler on the host. When to
-run which, and what to report, is in `.claude/docs/testing.md`.
+Suites are selected by package pattern and build constraint, never by test
+name. `go test -race` links a C runtime, so the race, integration and coverage
+checks run only in the container; nothing here needs a C compiler on the host.
+When to run which, and what to report, is in `.claude/docs/testing.md`.
 
 ## Tooling and CI
 

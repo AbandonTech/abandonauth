@@ -128,26 +128,34 @@ A change to a control above extends these rather than replacing them:
 - `internal/services/tokens/tokens_test.go` — the token abuse matrix.
 - `internal/web/passwordaccounts_default_integration_test.go` — a deployment
   serving neither account-seeding address.
-- `internal/web/passwordaccounts_devtools_integration_test.go`,
-  `passwordroutes_devtools_test.go` — the development build's counterpart: the
-  `TestDevtools` journeys through reachability, session and CSRF behaviour, a
-  refusal that says nothing about the account, the password at rest, budgets,
-  CORS and log redaction, and the route, handler and schema declarations only
-  this build carries.
-- `internal/web/apidocumentation_test.go` — the published schema naming password
-  sign-in only in the build that serves it, and refusing to publish a document
-  it cannot narrow.
+- `internal/web/passwordsignintest/` — the development build's counterpart:
+  the journeys through reachability, session and CSRF behaviour, a refusal that
+  says nothing about the account, the password at rest at `HashCost`, budgets,
+  CORS and log redaction. The route, handler and schema declarations that build
+  carries are proved by the build-neutral tests in `internal/web` run under
+  `-tags=devtools`.
+- `internal/web/passwordroutes_default_test.go`,
+  `apidocumentation_default_test.go` — a deployment declaring no password route
+  and publishing none.
+- `internal/web/apidocumentation_test.go` — the published schema agreeing with
+  the reference for the build that produced it, and refusing to publish a
+  document it cannot narrow.
+- `internal/web/developerapplication_integration_test.go` — an unknown
+  application refused in the same words as a wrong credential, for a valid
+  credential, the published comparison input, an empty and an overlength one,
+  with no token or session granted.
+- `internal/services/applications/credentialhash_test.go` — the comparison hash
+  an unknown application is checked against is bcrypt at `HashCost`, made from
+  its published input.
 
-A service under test stores credentials at bcrypt's minimum cost, through
-`credentials.NewInexpensiveHasher`. That constructor is behind `//go:build
-integration`, so no deployment or development binary can compile it; the work
-factor is unexported and no caller supplies a number; and an unset
-`web.Dependencies.CredentialHasher` hashes at `credentials.HashCost`. A
-deployment does not rely on that: `cmd/operations.go` names
-`credentials.NewHasher()`, so the unset value is a fail-safe for a composition
-that omits the field rather than the path a service takes. That the
-deployed factor is still 12 is asserted in
-`internal/services/credentials/credentials_test.go`, and that no product build
-selects the cheap hasher is asserted by `scripts/testmatrix.sh` and by building
-both Docker targets. No reachability control, response, or stored credential
-format changes with it.
+Credential hashing is one production path: `credentials.Hash` creates bcrypt at
+`credentials.HashCost` and `credentials.Matches` verifies it. No build carries
+another work factor, a `Hasher` value or an injected implementation, so a test
+cannot be composed with a cheaper one; the deployed factor is asserted in
+`internal/services/credentials/credentials_test.go`.
+`applications.Authenticate` refuses an empty or overlength credential before
+looking the identifier up, then compares a valid one against either the stored
+hash or a fixed comparison hash at `HashCost`, and only then combines that
+result with whether the application exists. The comparison hash is valid from
+process start, so the first unknown request creates nothing, and the input it
+was made from is published because matching it grants nothing.

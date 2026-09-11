@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/abandontech/abandonauth/src/api/internal/services/applications"
-	"github.com/abandontech/abandonauth/src/api/internal/services/credentials"
 	"github.com/abandontech/abandonauth/src/api/internal/urlpolicy"
 )
 
@@ -58,7 +57,7 @@ func TestARefusedCallbackKeepsTheRuleItBroke(t *testing.T) {
 func TestAnEmptyCallbackIsNotRegistered(t *testing.T) {
 	t.Parallel()
 
-	service := applications.New(nil, credentials.NewHasher())
+	service := applications.New(nil)
 
 	registered, err := service.CallbackIsRegistered(t.Context(), uuid.New(), "")
 	if err != nil {

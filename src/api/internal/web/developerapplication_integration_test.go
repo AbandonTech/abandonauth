@@ -1,14 +1,17 @@
-//go:build integration
+//go:build integration && !devtools
 
 package web_test
 
 import (
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 
+	"github.com/abandontech/abandonauth/src/api/internal/services/applications"
+	"github.com/abandontech/abandonauth/src/api/internal/services/credentials"
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
 	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
 )
@@ -334,7 +337,9 @@ func TestAnApplicationAuthenticatesWithTheCredentialItWasGiven(t *testing.T) {
 }
 
 // A credential that is not the application's is refused, whether the
-// application exists or not, and in the same words.
+// application exists or not, and in the same words. That holds for the one
+// value that does match the comparison an unknown application is checked
+// against: it is published, and it grants nothing.
 func TestAnApplicationsCredentialIsNotGuessable(t *testing.T) {
 	t.Parallel()
 
@@ -343,18 +348,89 @@ func TestAnApplicationsCredentialIsNotGuessable(t *testing.T) {
 
 	application := service.RegisterApplication("an application")
 
-	wrong := service.POSTJSON("/developer_application/login", map[string]string{
-		"id":            application.ID.String(),
-		"refresh_token": "not-the-credential",
-	}).ExpectStatus(http.StatusUnauthorized)
+	// The session that registered the application must not be what a later
+	// answer is measured against.
+	service.Forget(service.SessionCookieName())
+	service.Forget(service.CSRFCookieName())
 
-	absent := service.POSTJSON("/developer_application/login", map[string]string{
-		"id":            uuid.New().String(),
-		"refresh_token": application.RefreshToken,
-	}).ExpectStatus(http.StatusUnauthorized)
+	presented := map[string]string{
+		"a valid credential":    application.RefreshToken,
+		"the published input":   applications.UnknownApplicationComparisonInput,
+		"an empty credential":   "",
+		"a credential too long": strings.Repeat("x", credentials.MaxSecretBytes+1),
+	}
 
-	if string(wrong.Body) != string(absent.Body) {
-		t.Errorf("a wrong credential answers %s and an unknown application answers %s", wrong.Body, absent.Body)
+	for name, credential := range presented {
+		t.Run(name, func(t *testing.T) {
+			wrong := service.POSTJSON("/developer_application/login", map[string]string{
+				"id":            application.ID.String(),
+				"refresh_token": "not-the-credential",
+			}).ExpectStatus(http.StatusUnauthorized)
+
+			absent := service.POSTJSON("/developer_application/login", map[string]string{
+				"id":            uuid.New().String(),
+				"refresh_token": credential,
+			}).ExpectStatus(http.StatusUnauthorized)
+
+			if string(wrong.Body) != string(absent.Body) {
+				t.Errorf("a wrong credential answers %s and an unknown application answers %s", wrong.Body, absent.Body)
+			}
+
+			if len(absent.Cookies) != 0 {
+				t.Errorf("an unknown application presenting %s was given cookies", name)
+			}
+
+			var granted struct {
+				Token string `json:"token"`
+			}
+
+			absent.DecodeInto(&granted)
+
+			if granted.Token != "" {
+				t.Errorf("an unknown application presenting %s was granted a token", name)
+			}
+
+			if service.CookieValue(service.SessionCookieName()) != "" {
+				t.Errorf("an unknown application presenting %s left the browser holding a session", name)
+			}
+		})
+	}
+}
+
+// A credential bcrypt could not have made a hash from is refused in the same
+// words for an application that exists as for one that does not.
+func TestAnUnusableCredentialIsRefusedTheSameForEveryApplication(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	service.SignIn(service.Providers.Someone(oauth.Discord, "the owner"))
+
+	application := service.RegisterApplication("an application")
+
+	service.Forget(service.SessionCookieName())
+	service.Forget(service.CSRFCookieName())
+
+	unusable := map[string]string{
+		"empty":    "",
+		"too long": strings.Repeat("x", credentials.MaxSecretBytes+1),
+	}
+
+	for name, credential := range unusable {
+		t.Run(name, func(t *testing.T) {
+			known := service.POSTJSON("/developer_application/login", map[string]string{
+				"id":            application.ID.String(),
+				"refresh_token": credential,
+			}).ExpectStatus(http.StatusUnauthorized)
+
+			absent := service.POSTJSON("/developer_application/login", map[string]string{
+				"id":            uuid.New().String(),
+				"refresh_token": credential,
+			}).ExpectStatus(http.StatusUnauthorized)
+
+			if string(known.Body) != string(absent.Body) {
+				t.Errorf("a known application answers %s and an unknown one answers %s", known.Body, absent.Body)
+			}
+		})
 	}
 }
 

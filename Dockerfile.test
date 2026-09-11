@@ -21,11 +21,4 @@ RUN go tool sqlc generate && \
         --parseDependency=false \
         --quiet
 
-# Each check runs in a fresh container, so without this the race-instrumented
-# dependency tree is rebuilt on every pass, costing minutes per run. These are
-# the tag sets containercheck.sh executes. -run NONE matches no test, so nothing
-# is executed here.
-RUN go test -race -count=1 -run NONE -tags=integration ./... && \
-    go test -race -count=1 -run NONE -tags='integration devtools' ./...
-
 CMD ["sh", "/repo/scripts/containercheck.sh"]

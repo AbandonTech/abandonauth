@@ -54,11 +54,6 @@ cd "$API_DIR"
 # not contain password sign-in.
 DEVTOOLS_TAG=devtools
 
-# The devtools build repeats every test the deployment build already ran, so it
-# runs only the ones that exist for it. scripts/testmatrix.sh is what makes the
-# naming convention behind this an enforced fact rather than a hope.
-DEVTOOLS_SELECTOR='^TestDevtools'
-
 fmt_stage() {
     unformatted=$(gofmt -l . 2>&1)
     if [ -z "$unformatted" ]; then
@@ -127,10 +122,6 @@ run_stage "go vet (-tags=integration)" go vet -tags=integration ./...
 run_stage "go vet (-tags='integration $DEVTOOLS_TAG')" \
     go vet -tags="integration $DEVTOOLS_TAG" ./...
 
-# The runs below select tests by build tag and by name, so what they add up to
-# is checked before any of them starts.
-stream_stage "test matrix" sh "$REPO_ROOT/scripts/testmatrix.sh"
-
 if [ "$integration" -eq 1 ]; then
     require_command docker 'Install Docker from https://docs.docker.com/get-docker/.'
 
@@ -147,8 +138,7 @@ fi
 # -count=1 disables the test cache, which can conceal a failure caused by state
 # outside a package's compiled Go inputs.
 run_stage "go test" go test -count=1 -timeout "$TEST_TIMEOUT" ./...
-# Only what the deployment suite above cannot carry, so nothing runs twice.
-run_stage "go test $DEVTOOLS_SELECTOR (-tags=$DEVTOOLS_TAG)" \
-    go test -count=1 -timeout "$TEST_TIMEOUT" -tags="$DEVTOOLS_TAG" -run "$DEVTOOLS_SELECTOR" ./...
+run_stage "go test (-tags=$DEVTOOLS_TAG)" \
+    go test -count=1 -timeout "$TEST_TIMEOUT" -tags="$DEVTOOLS_TAG" ./...
 
 info "all checks passed (the integration, database, race and coverage checks need --integration)"

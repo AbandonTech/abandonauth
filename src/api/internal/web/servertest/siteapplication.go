@@ -8,7 +8,6 @@ import (
 
 	"github.com/abandontech/abandonauth/src/api/internal/services/accounts"
 	"github.com/abandontech/abandonauth/src/api/internal/services/applications"
-	"github.com/abandontech/abandonauth/src/api/internal/services/credentials"
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
 	"github.com/abandontech/abandonauth/src/api/internal/web"
 )
@@ -40,7 +39,7 @@ type Site struct {
 // so nothing the service serves can produce the first of the three. The
 // identifier that comes out is what the service is then configured with, which
 // is what New does with it.
-func registerSite(t *testing.T, pool *pgxpool.Pool, hasher credentials.Hasher) Site {
+func registerSite(t *testing.T, pool *pgxpool.Pool) Site {
 	t.Helper()
 
 	owner, err := accounts.New(pool).Resolve(t.Context(), accounts.Identity{
@@ -52,7 +51,7 @@ func registerSite(t *testing.T, pool *pgxpool.Pool, hasher credentials.Hasher) S
 		t.Fatalf("registering the operator account: %v", err)
 	}
 
-	registry := applications.New(pool, hasher)
+	registry := applications.New(pool)
 
 	application, token, err := registry.Create(t.Context(), owner.ID, "AbandonAuth")
 	if err != nil {

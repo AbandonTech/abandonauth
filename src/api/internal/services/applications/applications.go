@@ -12,7 +12,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -66,51 +65,28 @@ type Application struct {
 	credentialHash string
 }
 
-// credentialHasher makes and checks an application's stored credential. It is
-// unexported so that a test in this package can count comparisons while no
-// caller can compose the service with a hashing implementation of its own.
-type credentialHasher interface {
-	Hash(secret string) (string, error)
-	Matches(secret, hashed string) bool
-}
+// UnknownApplicationComparisonInput is the published value the comparison hash
+// below was made from. Presenting it for an application that does not exist
+// makes the comparison succeed and grants nothing, because no application is
+// found to grant.
+const UnknownApplicationComparisonInput = "unknown-application-placeholder"
+
+// unknownApplicationComparisonHash is what a presented credential is compared
+// against when no application has the identifier it was presented for. It is
+// bcrypt at HashCost, so the attempt costs what a stored credential costs, and
+// it is valid from process start, so the first unknown request creates nothing.
+const unknownApplicationComparisonHash = "$2a$12$YHRnbj5/MjY3jGMLwtZ5S.m44ZzB7aLchXMwhFCIQh/4CxCs6HAwe"
 
 // Applications reads and changes developer applications.
 type Applications struct {
 	pool    *pgxpool.Pool
 	queries *query.Queries
-	hasher  credentialHasher
-
-	// unmatchableHash is what a presented credential is compared against when
-	// no application has the identifier it was presented for. It is made once,
-	// at the same cost as a stored credential, from a value that is discarded.
-	unmatchableHash func() string
 }
 
 // New builds the service over the connection pool, which replacing a set of
-// callbacks needs so that it happens all at once or not at all, and over the
-// hasher the composition stores application credentials with.
-func New(pool *pgxpool.Pool, hasher credentials.Hasher) *Applications {
-	return newApplications(pool, hasher)
-}
-
-func newApplications(pool *pgxpool.Pool, hasher credentialHasher) *Applications {
-	service := &Applications{pool: pool, queries: query.New(pool), hasher: hasher}
-
-	service.unmatchableHash = sync.OnceValue(func() string {
-		value, err := credentials.NewOpaqueValue()
-		if err != nil {
-			return ""
-		}
-
-		hashed, err := hasher.Hash(value)
-		if err != nil {
-			return ""
-		}
-
-		return hashed
-	})
-
-	return service
+// callbacks needs so that it happens all at once or not at all.
+func New(pool *pgxpool.Pool) *Applications {
+	return &Applications{pool: pool, queries: query.New(pool)}
 }
 
 // Create registers an application and returns its refresh token, which is not
@@ -244,23 +220,31 @@ func (a *Applications) ReplaceCredential(ctx context.Context, id uuid.UUID) (App
 // Authenticate returns the application a refresh token belongs to.
 //
 // An unknown application and a wrong token are refused identically, and both
-// take a hash comparison, so the refusal does not say which of the two it was.
+// take one hash comparison, so the refusal does not say which of the two it
+// was. A token bcrypt could not have made a hash from is refused before the
+// identifier is looked up, so that refusal is the same for every identifier.
 func (a *Applications) Authenticate(ctx context.Context, id uuid.UUID, refreshToken string) (Application, error) {
-	found, err := a.Get(ctx, id)
-	if errors.Is(err, ErrNoSuchApplication) {
-		// Compared against a hash nothing matches so that an application that
-		// does not exist costs the same as one that does, and the time taken
-		// does not say which it was.
-		a.hasher.Matches(refreshToken, a.unmatchableHash())
-
+	if refreshToken == "" || len(refreshToken) > credentials.MaxSecretBytes {
 		return Application{}, ErrInvalidCredential
 	}
 
-	if err != nil {
+	found, err := a.Get(ctx, id)
+	if err != nil && !errors.Is(err, ErrNoSuchApplication) {
 		return Application{}, err
 	}
 
-	if !a.hasher.Matches(refreshToken, found.credentialHash) {
+	exists := err == nil
+
+	comparedTo := unknownApplicationComparisonHash
+	if exists {
+		comparedTo = found.credentialHash
+	}
+
+	// The comparison runs before the existence result is consulted, so neither
+	// branch can skip it.
+	matched := credentials.Matches(refreshToken, comparedTo)
+
+	if !exists || !matched {
 		return Application{}, ErrInvalidCredential
 	}
 
@@ -384,7 +368,7 @@ func (a *Applications) newCredential() (string, string, error) {
 		return "", "", err
 	}
 
-	hashed, err := a.hasher.Hash(token)
+	hashed, err := credentials.Hash(token)
 	if err != nil {
 		return "", "", err
 	}

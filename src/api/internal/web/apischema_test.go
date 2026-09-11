@@ -191,19 +191,6 @@ func TestAPISchemaHoldsNoCredentials(t *testing.T) {
 	}
 }
 
-// Every documented route must appear in the schema and every schema operation
-// must be served, so documentation cannot drift away from the router.
-func TestDocumentedRoutesMatchTheDeployedAPISchema(t *testing.T) {
-	t.Parallel()
-
-	want := documentedOperations(loadAPISchema(t, apiSchemaFile))
-	got := documentedRoutes(Routes())
-
-	if !slices.Equal(got, want) {
-		t.Errorf("documented routes do not match %s\n got: %v\nwant: %v", apiSchemaFile, got, want)
-	}
-}
-
 // Undocumented routes are deliberate: browser redirects and the documentation
 // UI are not part of the published API. Listing them here keeps that decision
 // visible and stops a route from becoming undocumented by accident.
@@ -237,42 +224,6 @@ func TestUndocumentedRoutesAreExpected(t *testing.T) {
 
 	if !slices.Equal(got, want) {
 		t.Errorf("undocumented routes\n got: %v\nwant: %v", got, want)
-	}
-}
-
-// The password routes exist only to seed local development data. Serving them
-// from a deployment would expose account creation without a provider.
-func TestADeploymentDeclaresNoPasswordRoute(t *testing.T) {
-	t.Parallel()
-
-	if DevtoolsBuild {
-		t.Fatal("this build serves the development routes, so it cannot state what a deployment declares")
-	}
-
-	served := make(map[string]bool, len(Routes()))
-	for _, route := range Routes() {
-		served[fmt.Sprintf("%s %s", route.Method, route.Path())] = true
-	}
-
-	for _, route := range []string{"POST /api/create_test_user", "POST /api/login_test_user"} {
-		if served[route] {
-			t.Errorf("route %s is declared by a build that does not carry password sign-in", route)
-		}
-	}
-}
-
-// The reference for what a deployment publishes is committed, so an operation
-// added to it is a decision to serve that address in every build. Password
-// sign-in is not one a deployment carries.
-func TestThePublishedReferencePromisesNoPasswordSignIn(t *testing.T) {
-	t.Parallel()
-
-	published := documentedOperations(loadAPISchema(t, apiSchemaFile))
-
-	for _, operation := range []string{"POST /api/create_test_user", "POST /api/login_test_user"} {
-		if slices.Contains(published, operation) {
-			t.Errorf("%s names %s, which a deployment does not serve", apiSchemaFile, operation)
-		}
 	}
 }
 

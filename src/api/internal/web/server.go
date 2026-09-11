@@ -11,7 +11,6 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/services/accounts"
 	"github.com/abandontech/abandonauth/src/api/internal/services/applications"
 	"github.com/abandontech/abandonauth/src/api/internal/services/authority"
-	"github.com/abandontech/abandonauth/src/api/internal/services/credentials"
 	"github.com/abandontech/abandonauth/src/api/internal/services/housekeeping"
 	"github.com/abandontech/abandonauth/src/api/internal/services/keyring"
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
@@ -50,11 +49,6 @@ type Dependencies struct {
 	// Now is the clock. Only tests set it.
 	Now func() time.Time
 
-	// CredentialHasher stores and checks the secrets this service holds. Its
-	// zero value is the work factor a deployment stores them at, so leaving it
-	// out cannot make a stored secret cheaper to attack.
-	CredentialHasher credentials.Hasher
-
 	DiscordEndpoints providers.Endpoints
 	GitHubEndpoints  providers.Endpoints
 	GoogleEndpoints  providers.GoogleEndpoints
@@ -69,10 +63,6 @@ type Server struct {
 	logger zerolog.Logger
 	pool   *pgxpool.Pool
 	now    func() time.Time
-
-	// credentialHasher is the one the services were built with, so a handler
-	// that stores a secret itself stores it at the same work factor.
-	credentialHasher credentials.Hasher
 
 	accounts     *accounts.Accounts
 	applications *applications.Applications
@@ -141,19 +131,18 @@ func NewServer(configuration config.Config, dependencies Dependencies) (*Server,
 	}
 
 	return &Server{
-		config:           configuration,
-		logger:           dependencies.Logger,
-		pool:             dependencies.Pool,
-		now:              now,
-		credentialHasher: dependencies.CredentialHasher,
-		accounts:         accounts.New(dependencies.Pool),
-		applications:     applications.New(dependencies.Pool, dependencies.CredentialHasher),
-		authority:        authority.New(dependencies.Pool),
-		sessions:         browserSessions,
-		logins:           logins,
-		codes:            codes,
-		limiter:          limiter,
-		signer:           signer,
+		config:       configuration,
+		logger:       dependencies.Logger,
+		pool:         dependencies.Pool,
+		now:          now,
+		accounts:     accounts.New(dependencies.Pool),
+		applications: applications.New(dependencies.Pool),
+		authority:    authority.New(dependencies.Pool),
+		sessions:     browserSessions,
+		logins:       logins,
+		codes:        codes,
+		limiter:      limiter,
+		signer:       signer,
 		discord: providers.NewDiscord(
 			configuration.Discord, dependencies.DiscordEndpoints, dependencies.ProviderTransport,
 		),

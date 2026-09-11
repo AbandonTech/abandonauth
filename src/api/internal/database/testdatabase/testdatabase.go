@@ -1,8 +1,8 @@
 // Package testdatabase gives a test its own PostgreSQL database, so tests run
 // in parallel and cannot see each other's rows.
 //
-// The server is named by TEST_DATABASE_URL. Without it a test skips rather than
-// fails, because a plain `go test` run has no PostgreSQL. Never point it at a
+// The server is named by TEST_DATABASE_URL. Selecting a test that needs one is
+// asking for PostgreSQL, so without it the test fails. Never point it at a
 // database holding real accounts: these helpers create databases, drop them,
 // and rewrite migration history.
 package testdatabase
@@ -27,22 +27,18 @@ import (
 // ServerURLVariable names the environment variable that points at the server.
 const ServerURLVariable = "TEST_DATABASE_URL"
 
-// skipReason is matched by the check script, which fails a run where the
-// database tests silently skipped instead of proving the schema works.
-const skipReason = ServerURLVariable + " is not set, so the database tests cannot run"
-
 // statementTimeout bounds every helper's work, so a test that deadlocks against
 // another connection fails with its own message instead of the suite timing out.
 const statementTimeout = 30 * time.Second
 
-// ServerURL returns the server the database tests connect to, skipping the test
+// ServerURL returns the server the database tests connect to, failing the test
 // when none is configured.
 func ServerURL(t *testing.T) string {
 	t.Helper()
 
 	value := strings.TrimSpace(os.Getenv(ServerURLVariable))
 	if value == "" {
-		t.Skip(skipReason)
+		t.Fatalf("%s is not set, so the database tests cannot run", ServerURLVariable)
 	}
 
 	return value

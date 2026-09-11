@@ -71,15 +71,12 @@ func New(t *testing.T, choices ...Option) *Service {
 	pool := testdatabase.NewMigrated(t)
 
 	chosen := options{settings: placeholderSettings()}
-	chosen.dependencies.CredentialHasher = testCredentialHasher()
 
 	for _, choose := range choices {
 		choose(&chosen)
 	}
 
-	// The site is registered with the hasher the service is about to be built
-	// with, so the credential it hands back is one that service accepts.
-	site := registerSite(t, pool, chosen.dependencies.CredentialHasher)
+	site := registerSite(t, pool)
 	chosen.settings.InternalApplicationID = site.ApplicationID.String()
 
 	configuration, err := config.Load(chosen.settings)

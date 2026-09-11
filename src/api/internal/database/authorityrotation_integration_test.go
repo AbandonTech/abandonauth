@@ -1,4 +1,4 @@
-//go:build integration
+//go:build integration && !devtools
 
 package database_test
 
@@ -14,7 +14,6 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/services/accounts"
 	"github.com/abandontech/abandonauth/src/api/internal/services/applications"
 	"github.com/abandontech/abandonauth/src/api/internal/services/authority"
-	"github.com/abandontech/abandonauth/src/api/internal/services/credentials"
 	"github.com/abandontech/abandonauth/src/api/internal/services/keyring"
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
 	"github.com/abandontech/abandonauth/src/api/internal/services/sessions"
@@ -47,7 +46,7 @@ func TestRotatingTheAuthorityWithdrawsEverythingOutstanding(t *testing.T) {
 		t.Fatalf("registering an account: %v", err)
 	}
 
-	registry := applications.New(pool, credentials.NewInexpensiveHasher())
+	registry := applications.New(pool)
 
 	application, _, err := registry.Create(ctx, person.ID, "an application")
 	if err != nil {

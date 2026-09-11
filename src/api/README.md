@@ -35,14 +35,11 @@ On Windows run them through Git Bash —
 `& "C:\Program Files\Git\bin\bash.exe" scripts/check.sh` — rather than invoking
 the `.sh` file from PowerShell, which opens the application chooser.
 
-CI runs the same script, so it cannot drift from a local run. `--integration`
-holds every package to 80% statement coverage, and does not repeat the unit
-tests on the host: the container's deployment run carries them.
+CI runs the same script, so it cannot drift from a local run.
 
-Each test function runs once per invocation. The deployment build runs the whole
-suite; the devtools build runs only `^TestDevtools`, the tests that exist because
-it carries password sign-in. `scripts/testmatrix.sh` runs first and fails the
-check when a development-only test is not named that way, or a shared one is.
+`--integration` requires Docker: it starts a PostgreSQL container and runs the
+suite in a second container. It also holds every package to 80% statement
+coverage.
 
 ## Generated code
 
