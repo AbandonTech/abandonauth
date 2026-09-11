@@ -31,6 +31,3 @@ GOOGLE_CLIENT_ID=<Client ID in step 4>
 GOOGLE_CLIENT_SECRET=<Client Secret in step 4>
 GOOGLE_CALLBACK=http://localhost:3000/api/google
 ```
-
-Note that Google's callback is `GOOGLE_CALLBACK`, without the
-`ABANDON_AUTH_` prefix that Discord's and GitHub's carry.

@@ -25,7 +25,7 @@ not name, and everything it names is under `/api`, the route root. Paths below
 are relative to `src/api/`.
 
 - `go.mod` — module, pinned dependencies, `tool` directives fixing the sqlc,
-  swag and revive versions
+  swag, revive and goose versions
 - `sqlc.yaml` — how `queries/` becomes the generated `query` package
 - `revive.toml` — lint rules
 - `cmd/abandonauth.go` — commands, flags, environment binding, Swagger metadata;
@@ -238,6 +238,6 @@ Each subject has one owner; everything else links to it.
   validation
 - `README.md` — integrating an application, running the service, local
   development
-- `src/api/README.md` — the API's commands, checks, codegen, migrations, builds
+- `src/api/README.md` — the API's commands, codegen, migrations, builds
 - `docs/DISCORD-OAUTH2.md`, `GITHUB-OAUTH2.md`, `GOOGLE-OAUTH2.md` — registering
   with each provider
