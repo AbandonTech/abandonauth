@@ -4,90 +4,240 @@ Read this before searching. Keep it current when files, routes, packages,
 services, schemas, or agent workflow components move or change.
 
 ```text
-src/api/          FastAPI API and Prisma schema/migrations
+src/api/          Go API, SQL queries, and migrations
 src/website/      Nuxt login and developer-application site
 docs/             external provider setup guides and images
+scripts/          the validation pipeline, shared by local runs and CI
 .github/          CI, image builds, and Dependabot configuration
 .agents/          shared planner-to-implementer workflow
 .opencode/        OpenCode planner and security reviewer
-.claude/          Claude implementer, command, and repository guidance
+.claude/          Claude implementer, skill, and repository guidance
 .plans/           cross-session implementation plans
-compose.yml       local API, website, and PostgreSQL orchestration
+compose.yml       the stack: API, website, and PostgreSQL
+compose.test.yml  the throwaway database and check container
 ```
 
 ## API
 
-| Path | Holds |
-| --- | --- |
-| `src/api/pyproject.toml` | Python 3.11 dependencies, Ruff, Pyright, and the currently broken `dev` script target |
-| `src/api/poetry.lock` | locked Python dependencies |
-| `src/api/Dockerfile` | API image and Uvicorn startup |
-| `src/api/abandonauth/main.py` | FastAPI app, CORS, router mounting, and Prisma lifecycle |
-| `src/api/abandonauth/settings.py` | typed environment settings, including all runtime secrets |
-| `src/api/abandonauth/database.py` | shared Prisma client |
-| `src/api/abandonauth/models/` | auth, provider, developer-application, and user DTOs |
-| `src/api/abandonauth/dependencies/services.py` | user lookup and exchange-token conversion |
-| `src/api/abandonauth/dependencies/auth/hash.py` | password and developer credential hashing |
-| `src/api/abandonauth/dependencies/auth/jwt.py` | JWT issue/decode, bearer dependencies, scopes, and in-memory exchange-token cache |
-| `src/api/abandonauth/dependencies/auth/developer_application_deps.py` | developer application credential authentication |
-| `src/api/prisma/schema.prisma` | PostgreSQL models and relationships |
-| `src/api/prisma/migrations/` | existing database migration history |
+A `net/http` router in front of interface-backed services in front of sqlc
+queries over pgx. Nothing is served that `src/api/internal/web/routes.go` does
+not name, and everything it names is under `/api`, the route root. Paths below
+are relative to `src/api/`.
 
-### API routers
+- `go.mod` — module, pinned dependencies, `tool` directives fixing the sqlc,
+  swag, revive and goose versions
+- `sqlc.yaml` — how `queries/` becomes the generated `query` package
+- `revive.toml` — lint rules
+- `cmd/abandonauth.go` — commands, flags, environment binding, Swagger metadata;
+  secrets are environment-only and have no flag
+- `cmd/operations.go` — `serve`, `maintenance`, `database rotate-auth-epoch`
+- `internal/config/` — validated immutable configuration;
+  `PasswordSignInEnabled`
+- `internal/buildmode/` — which variant compiled, by the `devtools` tag
+- `internal/logging/` — the logger; never a query string, header or cookie
+- `internal/urlpolicy/` — callback URI policy and origin parsing; `Callback`
+  keeps the registered spelling beside the parsed form
 
-| Path | Routes or responsibility |
-| --- | --- |
-| `routers/__init__.py` | router registry; includes password routes only when `DEBUG` is true |
-| `routers/index.py` | `/`, `/me`, `/user/applications`, `/login`, `/burn-token` |
-| `routers/developer_application.py` | developer application creation, credentials, ownership, callback URIs, and deletion |
-| `routers/ui.py` | UI session handoff and Discord/GitHub OAuth callbacks |
-| `routers/discord.py` | Discord code exchange and account lookup/link creation helper |
-| `routers/github.py` | GitHub code exchange and account lookup/link creation helper |
-| `routers/google.py` | Google callback, account lookup/link creation, and redirect |
-| `routers/password_login.py` | debug-only test-user creation and password login |
+### Database
 
-Routers currently call Prisma models directly. Do not invent a service layer in
-a narrow change; architecture changes require an explicit plan and tests.
+- `internal/database/migrations/` — embedded goose migrations: baseline schema
+  and its `schema_identity` marker, then auth state, sessions, revocation, rate
+  limits
+- `internal/database/queries/` — the SQL source; edit this, never generated code
+- `internal/database/query/` — sqlc output: gitignored, regenerated every run
+- `internal/database/pool.go` — connection pool lifecycle
+- `internal/database/migrate.go` — the embedded runner; inspects and migrates
+  under one advisory lock
+- `internal/database/schemastate.go` — what a database looks like untouched, and
+  which states may be migrated
+- `internal/database/authorityrotation.go` — `rotate-auth-epoch`: every token,
+  state, code and session invalidated in one transaction
+- `internal/database/testdatabase/` — a migrated database per test
+
+`RotateAuthority` is proved twice: against the database in
+`internal/database/authorityrotation_integration_test.go`, and through the
+endpoints that stop accepting credentials in
+`internal/web/authorityrotation_integration_test.go`.
+
+### Services
+
+- `internal/services/keyring/` — per-purpose keys derived from the signing root
+- `internal/services/tokens/` — issues and validates the two access token
+  classes
+- `internal/services/credentials/` — bcrypt hashing and random credentials;
+  `Hash` always creates at `HashCost`, and there is no other work factor
+- `internal/services/accounts/` — resolves a provider identity to a user,
+  creating one atomically
+- `internal/services/applications/` — developer applications, credentials,
+  callback URIs; an unknown application is checked against a fixed comparison
+  hash so the attempt costs what a wrong credential costs
+- `internal/services/oauth/` — authorization state with PKCE, one-time exchange
+  codes
+- `internal/services/sessions/` — browser sessions and their CSRF tokens
+- `internal/services/authority/` — the auth epoch every check is measured
+  against
+- `internal/services/ratelimit/` — fixed-window budgets, keyed so a public
+  identifier cannot lock anyone out
+- `internal/services/housekeeping/` — expiry sweeps on a ticker `serve` owns:
+  logins, codes, sessions, withdrawals, budget windows
+- `internal/services/providers/` — Discord, GitHub and Google clients against
+  fixed HTTPS endpoints
+- `internal/services/providers/providertest/` — local servers answering as the
+  providers; no test leaves the machine
+
+### Web
+
+- `internal/web/routes.go` — the route table: `APIRoot` and every URL, once
+- `internal/web/handlers.go` — binds each route name to its handler
+- `internal/web/server.go` — composition, middleware order, deadlines
+- `internal/web/requesttarget.go` — the one spelling of a target that is served
+- `internal/web/index.go` — `GET /api`, `GET /api/`
+- `internal/web/currentuser.go` — `GET /api/me`
+- `internal/web/userapplications.go` — `GET /api/user/applications`
+- `internal/web/login.go` — `POST /api/login`, spending an exchange code
+- `internal/web/burntoken.go` — `POST /api/burn-token`
+- `internal/web/developerapplication.go` — the seven
+  `/api/developer_application` routes
+- `internal/web/providerlogin.go` — `GET /api/ui/{provider}/authorize`
+- `internal/web/providercallback.go` — the Discord, GitHub, Google callbacks
+- `internal/web/browsersession.go` — `/api/ui/`, `POST /api/ui/logout`, session
+  and CSRF checks
+- `internal/web/authentication.go` — bearer and session authorization per route
+- `internal/web/cors.go` — exactly one permitted origin, declared addresses only
+- `internal/web/middleware.go` — panic recovery, request identifiers, request log
+- `internal/web/requestlimit.go` — applies the budgets
+- `internal/web/maintenance.go` — the static 503 a failed deployment serves
+- `internal/web/apidocumentation.go` — `/api/docs`, `/api/docs/`,
+  `/api/docs/oauth2-redirect`, `/api/openapi.json`, and the narrowing to what
+  this build serves
+- `internal/web/models/` — request and response bodies
+- `internal/web/request/`, `internal/web/response/` — input reading, answer
+  shapes
+- `internal/web/servertest/` — the real service against its own database; tests
+  give the path below the route root, and `AtExactTarget` writes a target in
+  full
+- `internal/web/passwordsignintest/` — the password sign-in journeys, under
+  `integration && devtools`
+- `internal/web/testdata/` — the API schema the service must publish
+
+Files ending `_devtools.go` compile only with `-tags=devtools`: password
+sign-in, absent from a deployment. Files ending `_default_test.go` carry
+`!devtools` and state what a deployment does not serve. Every deployment
+integration file carries `integration && !devtools`, so a broad
+`-tags='integration devtools'` run carries the development packages without
+repeating the deployment journeys.
+
+An endpoint that reads structured input keeps that reading in an unexported
+reader beside its handler. `<endpoint>_test.go` drives the reader;
+`<endpoint>_integration_test.go` holds the complete request journeys.
 
 ## Website
 
-| Path | Holds |
-| --- | --- |
-| `src/website/package.json` | Nuxt scripts and dependencies; npm is represented by the tracked lockfile |
-| `src/website/package-lock.json` | canonical tracked frontend lockfile |
-| `src/website/nuxt.config.ts` | dev proxy and public OAuth/login runtime configuration |
-| `src/website/server/api/[...].ts` | Nitro proxy from `/api/**` to the API |
-| `src/website/middleware/auth.global.ts` | client-side cookie-presence route gate |
-| `src/website/pages/login.vue` | Discord/GitHub authorization URL construction |
-| `src/website/pages/developer-applications/` | developer application and callback URI administration |
-| `src/website/layouts/dashboard.vue` | authenticated site layout |
-| `src/website/components/` | shared Vue components |
-| `src/website/types/` | frontend user and developer application DTOs |
-| `src/website/assets/css/main.css` | Tailwind CSS entrypoint |
+Paths are relative to `src/website/`. Everything the browser runs is under
+`app/`, which is what `~` names.
 
-## Data and deployment
+- `package.json` — scripts and dependencies; npm and `package-lock.json` are
+  canonical
+- `nuxt.config.ts` — the development forwarder, Tailwind, public runtime
+  settings
+- `vitest.config.ts` — test settings; `// @vitest-environment nuxt` opts into a
+  real Nuxt runtime
+- `test/` — the site's tests
+- `server/api/[...].ts` — forwards `/api/**` to the API, path unchanged
+- `server/utils/apiProxy.ts` — where a forwarded call goes, what the development
+  forwarder targets, why redirects go back to the browser
+- `server/utils/siteCallback.ts` — where the site's own sign-in returns the
+  browser
+- `app/utils/providerLogin.ts` — the address that asks the API to start a
+  sign-in
+- `app/utils/browserSession.ts` — CSRF header, session paths, signed-in check
+- `app/middleware/auth.global.ts` — route gate; asks `/api/me`
+- `app/pages/login.vue` — the provider sign-in buttons
+- `app/pages/developer-applications/` — developer application and callback URI
+  administration
+- `app/layouts/dashboard.vue` — authenticated layout, including logout
+- `app/components/` — shared Vue components
+- `app/types/` — user and developer application DTOs
+- `app/assets/css/main.css` — stylesheet entrypoint, theme tokens, daisyUI
+  themes
 
-`src/api/prisma/schema.prisma` defines `User`, provider accounts,
-`PasswordAccount`, `DeveloperApplication`, and `CallbackUri`. Provider accounts
-are one-to-one with users. Users own developer applications, and callback URIs
-belong to applications. Passwords and developer refresh tokens are stored as
-hashes.
+The site holds no access token: it sends the session cookie the API set, copies
+the readable CSRF cookie into `X-CSRF-Token` on writes, and builds no provider
+address. `/api` is the API's route root, so a browser's path is forwarded whole.
 
-`compose.yml` starts the API, website, and PostgreSQL. Its Prisma bind mount
-currently points at the empty root `prisma/` directory instead of
-`src/api/prisma/`; do not assume Compose migrations work until that is fixed.
+## Data
+
+`internal/database/migrations/` defines `User`, the provider accounts,
+`PasswordAccount`, `DeveloperApplication` and `CallbackUri`, then the auth
+epoch, OAuth state, exchange codes, browser sessions, JWT revocations and rate
+limit buckets. Provider accounts are one-to-one with users; users own developer
+applications; callback URIs belong to applications. Passwords and developer
+credentials are stored only as hashes, every one-time credential only as a
+domain-separated hash.
+
+Table and column identifiers are quoted and mixed case. Renaming them would
+rewrite live data for no functional gain and is deliberately out of scope.
+
+## Validation
+
+- `./scripts/check.sh` — codegen, formatting, tidiness, both builds, revive, vet
+  on every tag set, then `go test ./...` and `go test -tags=devtools ./...`
+- `./scripts/check.sh --integration` — the same up to vet, then the container:
+  `-tags='integration devtools' ./...` and `-tags=integration ./...` with race
+  detection, a database and coverage
+- `./scripts/containercheck.sh` — what runs inside the container, and the
+  coverage gate
+- `./scripts/db.sh up` / `down` — the throwaway database
+
+Suites are selected by package pattern and build constraint, never by test
+name. `go test -race` links a C runtime, so the race, integration and coverage
+checks run only in the container; nothing here needs a C compiler on the host.
+When to run which, and what to report, is in `.claude/docs/testing.md`.
 
 ## Tooling and CI
 
-| Path | Holds |
-| --- | --- |
-| `.pre-commit-config.yaml` | whitespace checks plus mutating Ruff, Prisma format/generate, and Pyright hooks |
-| `.github/workflows/linting.yml` | reusable API lint workflow |
-| `.github/workflows/build_api.yml` | API container build/publish workflow |
-| `.github/workflows/build_frontend.yml` | website container build/publish workflow |
-| `.github/workflows/pull_request.yml` | PR lint and image builds |
-| `.github/workflows/main.yml` | main-branch lint and image publication |
-| `.github/dependabot.yml` | GitHub Actions and Python dependency updates |
+- `src/api/Dockerfile` — one build, two runtime targets: `deployment` (default)
+  and `development`
+- `Dockerfile.test` — the image the container checks run in
+- `.pre-commit-config.yaml` — whitespace checks and `scripts/check.sh`
+- `.github/workflows/check.yml` — the check pipeline, and the site's tests and
+  build
+- `.github/workflows/linting.yml` — pre-commit, skipping the hook `check.yml`
+  runs
+- `.github/workflows/` — image build and publish, push and pull-request entry
+  points
+- `.github/dependabot.yml` — dependency updates
 
-There is no tracked automated test suite and no frontend lint or typecheck
-script. See `.claude/docs/testing.md` before claiming validation.
+The published deployment image carries no password sign-in, refuses
+`DEBUG=true`, runs as an account that is not root, and holds only the binary and
+a certificate bundle; it does carry the documentation and schema every build
+serves. `compose.yml` builds it unless `API_BUILD_TARGET` in `.env` names the
+`development` target, the variant the password routes compile into. Both images
+are built on every pull request by `.github/workflows/`.
+
+## Documentation and agent tooling
+
+Each subject has one owner; everything else links to it.
+
+- `CLAUDE.md` — entry point: required reading, repository constraints, naming
+  and comment rules
+- `.agents/abandonauth-agent-workflow.md` — authorization, roles, plan contract,
+  security classification and review, plan lifecycle
+- `.claude/docs/repo-map.md` — this inventory
+- `.claude/docs/architecture.md` — how the parts fit and how a sign-in travels
+  through them
+- `.claude/docs/security.md` — security requirements, the controls in force,
+  where their negative tests are
+- `.claude/docs/testing.md` — what a test may assert, and the checks to run
+- `.opencode/agent/abandonauth-planner.md` — planner permissions and bootstrap
+- `.opencode/agent/abandonauth-security-reviewer.md` — reviewer permissions,
+  bootstrap, output contract
+- `.claude/agents/abandonauth-implementer.md` — implementer tools and refusal
+  gates
+- `.claude/skills/implement-plan/SKILL.md` — user-only invocation, plan-path
+  validation
+- `README.md` — integrating an application, running the service, local
+  development
+- `src/api/README.md` — the API's commands, codegen, migrations, builds
+- `docs/DISCORD-OAUTH2.md`, `GITHUB-OAUTH2.md`, `GOOGLE-OAUTH2.md` — registering
+  with each provider

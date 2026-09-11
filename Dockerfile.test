@@ -1,0 +1,24 @@
+# `go test -race` links ThreadSanitizer, a C library, and requires a compiler to link it with.
+FROM golang:1.27
+
+WORKDIR /repo/src/api
+
+COPY src/api/go.mod src/api/go.sum ./
+RUN go mod download
+
+COPY src/api/ ./
+COPY scripts/ /repo/scripts/
+COPY .env.sample /repo/.env.sample
+
+# Tool versions come from the tool directives in go.mod.
+RUN go tool sqlc generate && \
+    go tool swag init \
+        --v3.1 \
+        --generalInfo cmd/abandonauth.go \
+        --dir . \
+        --output docs \
+        --outputTypes go,json \
+        --parseDependency=false \
+        --quiet
+
+CMD ["sh", "/repo/scripts/containercheck.sh"]

@@ -1,0 +1,1010 @@
+{
+  "components": {
+    "schemas": {
+      "CreateDeveloperApplicationDto": {
+        "description": "Basic info for a developer application as well as the refresh token.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner_id": {
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "owner_id",
+          "token"
+        ],
+        "title": "CreateDeveloperApplicationDto",
+        "type": "object"
+      },
+      "DeveloperApplicationDto": {
+        "description": "Basic data for developer applications.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner_id": {
+            "title": "Owner Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "owner_id"
+        ],
+        "title": "DeveloperApplicationDto",
+        "type": "object"
+      },
+      "DeveloperApplicationName": {
+        "description": "Name of the application.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "DeveloperApplicationName",
+        "type": "object"
+      },
+      "DeveloperApplicationWithCallbackUriDto": {
+        "description": "Basic data for developer applications as well as the Callback URIs for the app.",
+        "properties": {
+          "callback_uris": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Callback Uris",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner_id": {
+            "title": "Owner Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "owner_id",
+          "callback_uris"
+        ],
+        "title": "DeveloperApplicationWithCallbackUriDto",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "JwtDto": {
+        "description": "Contains jwt token data to be sent to a client.",
+        "properties": {
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "JwtDto",
+        "type": "object"
+      },
+      "LoginDeveloperApplicationDto": {
+        "description": "Data for logging in a developer application.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "refresh_token": {
+            "title": "Refresh Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "refresh_token"
+        ],
+        "title": "LoginDeveloperApplicationDto",
+        "type": "object"
+      },
+      "PasswordAccountSchema": {
+        "description": "Data required to create User and PasswordAccount.",
+        "properties": {
+          "password": {
+            "title": "Password",
+            "type": "string"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "PasswordAccountSchema",
+        "type": "object"
+      },
+      "PasswordLoginDto": {
+        "description": "Data required to login using password.",
+        "properties": {
+          "password": {
+            "title": "Password",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "password"
+        ],
+        "title": "PasswordLoginDto",
+        "type": "object"
+      },
+      "UserDto": {
+        "description": "Contains sanitized user-safe data.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username"
+        ],
+        "title": "UserDto",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "DeveloperAppJwtBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      },
+      "JWTBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      },
+      "OptionalDeveloperAppJwtBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "AbandonAuth",
+    "version": "0.0.1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/burn-token": {
+      "post": {
+        "description": "Invalidate the given JWT.\n\nAttempts to delete the given token. Returns 200 response regardless of if the token existed.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JwtDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Burn Jwt"
+      }
+    },
+    "/api/create_test_user": {
+      "post": {
+        "description": "Create the supplied test user.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordAccountSchema"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Creates User and PasswordAccount",
+        "tags": [
+          "Password Accounts"
+        ]
+      }
+    },
+    "/api/developer_application": {
+      "post": {
+        "description": "Create a new developer application owned by the currently authenticated User.\n\nReturns the permanent refresh token for the account. This token can only be manually changed.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeveloperApplicationName"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateDeveloperApplicationDto"
+                }
+              }
+            },
+            "description": "The refresh token for the new developer account."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "JWTBearer": []
+          }
+        ],
+        "summary": "Create a new developer application and retrieve a refresh token. This token will never be visible again.",
+        "tags": [
+          "Developer Applications"
+        ]
+      }
+    },
+    "/api/developer_application/login": {
+      "post": {
+        "description": "Authenticate a developer application given a long-term refresh token or raise a **401** response.\n\nReturns a short-lived exchange token for the developer application.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginDeveloperApplicationDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JwtDto"
+                }
+              }
+            },
+            "description": "A short-lived JWT to authenticate a developer application"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Exchange a developer application refresh token for a short-lived AbandonAuth JWT",
+        "tags": [
+          "Developer Applications"
+        ]
+      }
+    },
+    "/api/developer_application/me": {
+      "get": {
+        "description": "Get information about the developer application from its access token.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeveloperApplicationDto"
+                }
+              }
+            },
+            "description": "General information about the authenticated developer application"
+          }
+        },
+        "security": [
+          {
+            "DeveloperAppJwtBearer": []
+          }
+        ],
+        "summary": "Verify and retrieve information for a developer application",
+        "tags": [
+          "Developer Applications"
+        ]
+      }
+    },
+    "/api/developer_application/{application_id}": {
+      "delete": {
+        "description": "Delete the given developer application if the current user owns the application.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "application_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Application Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeveloperApplicationDto"
+                }
+              }
+            },
+            "description": "The deleted application data"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "JWTBearer": []
+          }
+        ],
+        "summary": "Delete the developer application with the given id",
+        "tags": [
+          "Developer Applications"
+        ]
+      },
+      "get": {
+        "description": "Get information about the given developer application if the requesting user owns the developer app.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "application_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Application Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeveloperApplicationWithCallbackUriDto"
+                }
+              }
+            },
+            "description": "General information about the developer application"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "JWTBearer": []
+          }
+        ],
+        "summary": "Retrieve the given application if it belongs to the currently authenticated user",
+        "tags": [
+          "Developer Applications"
+        ]
+      }
+    },
+    "/api/developer_application/{application_id}/callback_uris": {
+      "patch": {
+        "description": "Replace the valid callback URIs for the given developer application and return the given developer application.\n\nCreate all callback URIs that do not exist yet.\nDelete all callback URIs that already exist and were not given in this request.\nCallback URIs that already exist and were given in this request will remain in the database unaltered.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "application_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Application Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Callback Uris",
+                "type": "array"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeveloperApplicationDto"
+                }
+              }
+            },
+            "description": "The new list of callback URIs for the developer application"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "JWTBearer": []
+          }
+        ],
+        "summary": "Update the callback URIs for the given developer application",
+        "tags": [
+          "Developer Applications"
+        ]
+      }
+    },
+    "/api/developer_application/{application_id}/reset_token": {
+      "patch": {
+        "description": "Generate and set a new refresh token for the given developer application.\n\nThis action is not reversible and destroys the existing refresh token for the application.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "application_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Application Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateDeveloperApplicationDto"
+                }
+              }
+            },
+            "description": "The newly generated refresh token for the application."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "JWTBearer": []
+          }
+        ],
+        "summary": "Change the refresh token on a developer application. This is not reversible.",
+        "tags": [
+          "Developer Applications"
+        ]
+      }
+    },
+    "/api/google": {
+      "get": {
+        "description": "Log a user in using Google's OAuth2 as validation.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": true,
+            "schema": {
+              "title": "State",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JwtDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login With Google",
+        "tags": [
+          "Google"
+        ]
+      }
+    },
+    "/api/login": {
+      "post": {
+        "description": "Log in the user, using a short-term or long-term AbandonAuth JWT.\n\nNew JWT's aud must match the developer application's ID as an additional security check.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "exchange-token",
+            "required": true,
+            "schema": {
+              "title": "Exchange-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/LoginDeveloperApplicationDto"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Login Data"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JwtDto"
+                }
+              }
+            },
+            "description": "A long-lived JWT to authenticate the user on AbandonAuth."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OptionalDeveloperAppJwtBearer": []
+          }
+        ],
+        "summary": "Exchange a temporary AbandonAuth token for a permanent user token."
+      }
+    },
+    "/api/login_test_user": {
+      "post": {
+        "description": "Login as the given test user.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordLoginDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JwtDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login using password",
+        "tags": [
+          "Password Accounts"
+        ]
+      }
+    },
+    "/api/me": {
+      "get": {
+        "description": "Get information about the user from a jwt token.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "JWTBearer": []
+          }
+        ],
+        "summary": "Current User Information"
+      }
+    },
+    "/api/ui/discord-callback": {
+      "get": {
+        "description": "Discord callback endpoint for authenticating with Discord OAuth with AbandonAuth UI.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Discord Callback"
+      }
+    },
+    "/api/ui/github-callback": {
+      "get": {
+        "description": "GitHub callback endpoint for authenticating with GitHub OAuth with AbandonAuth UI.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Github Callback"
+      }
+    },
+    "/api/ui/logout": {
+      "post": {
+        "description": "End the browser session.\n\nDeletes the session on the server before clearing the session and CSRF cookies, so a copy of the cookie taken before logout is not usable afterwards. The request must carry the value of the CSRF cookie in the X-CSRF-Token header and originate from the AbandonAuth site.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-csrf-token",
+            "required": true,
+            "schema": {
+              "title": "X-Csrf-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The session was ended and the cookies were cleared"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Missing or invalid session, origin, or CSRF token"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Log out of the browser session"
+      }
+    },
+    "/api/ui/{provider}/authorize": {
+      "get": {
+        "description": "Start an OAuth login with the named provider.\n\nChecks that the callback URI is registered to the developer application, binds the attempt to the calling browser, and redirects to the provider's authorization endpoint. The browser must return to the matching provider callback for the login to complete.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "enum": [
+                "discord",
+                "github",
+                "google"
+              ],
+              "title": "Provider",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "application_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Application Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "callback_uri",
+            "required": true,
+            "schema": {
+              "title": "Callback Uri",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "307": {
+            "description": "Redirect to the provider's authorization endpoint"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The application ID or callback URI is not registered"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Too many login attempts"
+          }
+        },
+        "summary": "Start a login with an OAuth provider"
+      }
+    },
+    "/api/user/applications": {
+      "get": {
+        "description": "List all developer applications owned by the authenticated user.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeveloperApplicationDto"
+                  },
+                  "title": "Response Get User Applications User Applications Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "List of developer applications"
+          }
+        },
+        "security": [
+          {
+            "JWTBearer": []
+          }
+        ],
+        "summary": "List all developer applications owned by the current user."
+      }
+    }
+  }
+}

@@ -18,5 +18,5 @@ Note: Every time you wish to see your client secret, you must regenerate it.
 # Discord Application Details for OAuth2
 DISCORD_CLIENT_ID=<Client ID in step 3>
 DISCORD_CLIENT_SECRET=<Client Secret in step 3>
-DISCORD_CALLBACK=http://localhost:8000
+ABANDON_AUTH_DISCORD_CALLBACK=http://localhost:3000/api/ui/discord-callback
 ```

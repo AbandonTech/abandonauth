@@ -30,11 +30,15 @@ permission:
   websearch: deny
 ---
 
-Follow the Security reviewer role in
-`.agents/abandonauth-agent-workflow.md`. Read `.claude/docs/security.md`, the
-proposed plan, and only the source needed to verify the plan's claims. Use Glob
-to locate named files and read them directly; Grep is intentionally disabled
-because it cannot enforce file-level secret exclusions.
+Follow `.agents/abandonauth-agent-workflow.md` → "Security reviewer role". Read
+`.claude/docs/security.md`, the proposed plan, and only the source needed to
+verify the plan's claims. Use Glob to locate named files and read them
+directly; Grep is intentionally disabled because it cannot enforce file-level
+secret exclusions.
+
+Verify the plan's security impact yourself against "Security classification" in
+that workflow. A plan labeled `none` whose work is sensitive is a finding in its
+own right; never accept the label on trust.
 
 Do not edit files or propose implementation outside the plan's scope. Return
 findings first, ordered by severity, with precise file, symbol, or plan-section
