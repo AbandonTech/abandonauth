@@ -85,7 +85,7 @@ Run what a change could have broken, from the repository root, and report
 exactly what was run:
 
 ```text
-./scripts/check.sh                 codegen, formatting, lint, both builds, unit tests
+./scripts/check.sh                 codegen, formatting, lint, static analysis, dead code, both builds, unit tests
 ./scripts/check.sh --integration   the tests in a container instead: integration, race, database, coverage
 ./scripts/db.sh down               remove the test database afterwards
 
@@ -102,6 +102,19 @@ an integration test, to `internal/database/testdatabase`, to
 `internal/web/servertest`, or to the container check scripts. Both images are
 built on every pull request by `.github/workflows/`, which is what covers a
 Dockerfile change.
+
+Besides revive and vet, `scripts/check.sh` runs Staticcheck on all four tag
+sets (none, `devtools`, `integration`, `integration devtools`) and a dead-code
+analysis, `deadcode -test -tags=integration ./...`, that fails on any
+unreachable function. The dead-code analysis covers the deployment integration
+graph only: the `integration && !devtools` and `integration && devtools` files
+exclude each other, so no single whole-program graph holds both, and the
+`devtools` files are covered by the build, vet, Staticcheck and test stages
+instead. revive lints only the untagged graph, because it resolves packages
+without build tags: a `devtools` or `integration` file gets build, vet,
+Staticcheck and tests, and nothing enforces revive's rules on it, so review
+them there by hand. An exported function nobody reaches is reported by the
+dead-code stage; an unexported one by Staticcheck first.
 
 Suites are selected by package pattern and build constraint, never by test
 name or by a maintained package list. `scripts/check.sh` runs
@@ -133,7 +146,9 @@ per-test isolation, not by cheaper hashing.
 never rewrites the worktree unannounced; `--fix-fmt` corrects it. Generated sqlc
 and Swagger output is regenerated every run and is never edited.
 
-A test that spends a request budget should hold the clock with
-`servertest.WithSteadyClock()`: budgets are counted in windows fixed to the
-clock, so a slow test can otherwise build a count in one window and be measured
-against the next.
+A test that spends a request budget states the budget's number itself, as the
+contract the service promises, rather than reading it back from the service.
+Budget windows are decided by the database clock and are at least a minute
+long, so a test spends a budget with requests rather than by moving a clock.
+For a test that has to wait on another connection, `testdatabase.AwaitLockWaiters`
+is the bounded way to know the other side has blocked; a fixed sleep is not.

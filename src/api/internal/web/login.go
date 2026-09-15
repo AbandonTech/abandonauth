@@ -37,16 +37,16 @@ const detailNoApplicationCredential = "Either a developer application JWT must b
 // attempt on a code fails whether it arrives a minute later or at the same
 // instant on another worker.
 //
-// @Summary     Exchange a temporary AbandonAuth token for a permanent user token.
-// @Description Log in the user, using a one-time code issued by a provider callback.
+// @Summary     Spend a one-time code for a short-lived user access token
+// @Description Spend the one-time code a provider callback returned the browser with, for an access token that identifies the person who signed in.
 // @Description
-// @Description The application collecting the token must prove who it is, and the code must be one that was issued to that application.
+// @Description The application collecting the token must prove who it is, with its own access token in the Authorization header or with its credentials in the body, and the code must be one that was issued to that application. A code is spent at most once. The access token expires after fifteen minutes.
 // @Accept      json
 // @Produce     json
 // @Param       exchange-token header   string                              true  "The one-time code to spend"
-// @Param       login_data     body     models.LoginDeveloperApplicationDto false "The application's own credentials"
+// @Param       login_data     body     models.LoginDeveloperApplicationDto false "The application's own credentials, when no access token is sent"
 // @Success     200            {object} models.JwtDto
-// @Failure     401            {object} response.Failed "The code could not be spent"
+// @Failure     401            {object} response.Failed "The code could not be spent, or no application credential was given"
 // @Failure     403            {object} response.Failed "The application was not accepted"
 // @Failure     422            {object} response.Invalidated
 // @Failure     429            {object} response.Failed "Too many attempts"

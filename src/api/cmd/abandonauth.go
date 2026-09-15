@@ -62,25 +62,6 @@ const (
 	environmentGoogleClientSecret  = "GOOGLE_CLIENT_SECRET"
 )
 
-// secretEnvironment lists those variables for the checks that must cover every
-// one of them.
-func secretEnvironment() []string {
-	return []string{
-		environmentDatabaseURL,
-		environmentSigningSecret,
-		environmentDiscordClientSecret,
-		environmentGitHubClientSecret,
-		environmentGoogleClientSecret,
-	}
-}
-
-// Lifetimes a deployment that does not set them explicitly gets. Both are also
-// bounded by the configuration rules, which reject a longer value.
-const (
-	defaultExchangeCodeSeconds   = 120
-	defaultBrowserSessionSeconds = 2592000
-)
-
 // operations is the work behind each command, kept behind an interface so the
 // command tree, the settings it collects and the validation it applies can be
 // exercised without opening a listener or a database connection.
@@ -251,13 +232,13 @@ func settingFlags() []cli.Flag {
 		&cli.IntFlag{
 			Name:    flagExchangeCodeSeconds,
 			Usage:   "how many `SECONDS` a one-time code handed to an application stays usable",
-			Value:   defaultExchangeCodeSeconds,
+			Value:   config.DefaultExchangeCodeSeconds,
 			Sources: cli.EnvVars("JWT_EXPIRES_IN_SECONDS_SHORT_LIVED"),
 		},
 		&cli.IntFlag{
 			Name:    flagBrowserSessionSeconds,
 			Usage:   "how many `SECONDS` a browser stays signed in",
-			Value:   defaultBrowserSessionSeconds,
+			Value:   config.DefaultBrowserSessionSeconds,
 			Sources: cli.EnvVars("JWT_EXPIRES_IN_SECONDS_LONG_LIVED"),
 		},
 		&cli.StringFlag{

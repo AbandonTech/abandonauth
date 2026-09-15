@@ -6,6 +6,7 @@
 package response
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -40,16 +41,30 @@ type Invalidated struct {
 	Detail []Failure `json:"detail"`
 }
 
+// unencodableBody is the whole answer to a payload that cannot be encoded. It
+// is written as bytes rather than encoded, so it cannot itself fail.
+const unencodableBody = "{\"detail\":\"Internal Server Error\"}\n"
+
 // JSON writes a value as the body of a response.
 //
-// A value that cannot be encoded is a defect in the handler, not something the
-// client can act on, so the status is already written and the body is truncated
-// rather than followed by a second, contradictory response.
+// The body is encoded in full before anything is committed. A value that cannot
+// be encoded is a defect in the handler, not something the client can act on,
+// so it is answered with the service's fixed failure shape and none of the
+// payload, rather than with a status the body then contradicts.
 func JSON(writer http.ResponseWriter, status int, payload any) {
+	var body bytes.Buffer
+
+	if err := json.NewEncoder(&body).Encode(payload); err != nil {
+		status = http.StatusInternalServerError
+
+		body.Reset()
+		body.WriteString(unencodableBody)
+	}
+
 	writer.Header().Set(headerContentType, ContentTypeJSON)
 	writer.WriteHeader(status)
 
-	_ = json.NewEncoder(writer).Encode(payload)
+	_, _ = writer.Write(body.Bytes())
 }
 
 // Empty writes a response with no body.

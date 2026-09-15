@@ -258,11 +258,6 @@ func (i *Inputs) Header(name string) string {
 	return value
 }
 
-// OptionalHeader reads a request header that need not be present.
-func (i *Inputs) OptionalHeader(name string) string {
-	return i.request.Header.Get(name)
-}
-
 // Query reads a required query parameter.
 func (i *Inputs) Query(name string) string {
 	values, present := i.request.URL.Query()[name]
@@ -290,11 +285,6 @@ func (i *Inputs) QueryUUID(name string) uuid.UUID {
 	}
 
 	return parsed
-}
-
-// OptionalQuery reads a query parameter that need not be present.
-func (i *Inputs) OptionalQuery(name string) string {
-	return i.request.URL.Query().Get(name)
 }
 
 // bodyMember returns a member of the decoded object body, recording that it is

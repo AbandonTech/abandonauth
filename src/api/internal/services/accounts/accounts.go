@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/abandontech/abandonauth/src/api/internal/database"
 	"github.com/abandontech/abandonauth/src/api/internal/database/query"
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
 )
@@ -165,7 +166,7 @@ func (a *Accounts) create(ctx context.Context, identity Identity) (User, error) 
 		return User{}, fmt.Errorf("creating an account: %w", err)
 	}
 
-	defer func() { _ = transaction.Rollback(ctx) }()
+	defer func() { _ = database.Rollback(ctx, transaction) }()
 
 	queries := a.queries.WithTx(transaction)
 

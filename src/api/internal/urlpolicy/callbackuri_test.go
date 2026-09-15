@@ -94,7 +94,21 @@ func TestParseCallbackURIRejects(t *testing.T) {
 	}
 }
 
-// A registered callback must not already carry the query key the service adds
+// The keys a browser is returned under are the lowercase spellings applications
+// already read.
+func TestTheResponseQueryKeysAreWhatApplicationsRead(t *testing.T) {
+	t.Parallel()
+
+	if urlpolicy.ExchangeCodeQueryKey != "code" {
+		t.Errorf("ExchangeCodeQueryKey = %q, want code", urlpolicy.ExchangeCodeQueryKey)
+	}
+
+	if urlpolicy.IdentityQueryKey != "authentication" {
+		t.Errorf("IdentityQueryKey = %q, want authentication", urlpolicy.IdentityQueryKey)
+	}
+}
+
+// A registered callback must not already carry a query key the service adds
 // when it redirects, or the receiving application would see two values for it.
 func TestParseRegisteredCallbackURIRejectsReservedQueryKeys(t *testing.T) {
 	t.Parallel()
@@ -103,13 +117,14 @@ func TestParseRegisteredCallbackURIRejectsReservedQueryKeys(t *testing.T) {
 		name string
 		uri  string
 	}{
-		{"code", "https://example.test/callback?code=x"},
-		{"authentication", "https://example.test/callback?authentication=x"},
+		{"code", "https://example.test/callback?" + urlpolicy.ExchangeCodeQueryKey + "=x"},
+		{"authentication", "https://example.test/callback?" + urlpolicy.IdentityQueryKey + "=x"},
 		{"code with no value", "https://example.test/callback?code"},
 		{"code among others", "https://example.test/callback?tenant=acme&code=x"},
 		{"percent encoded code key", "https://example.test/callback?%63ode=x"},
 		{"percent encoded authentication key", "https://example.test/callback?%61uthentication=x"},
 		{"uppercase is a different key but still reserved", "https://example.test/callback?CODE=x"},
+		{"mixed case authentication", "https://example.test/callback?Authentication=x"},
 	}
 
 	for _, testCase := range cases {
@@ -149,37 +164,44 @@ func TestWithResponseParameter(t *testing.T) {
 		{
 			name:  "no existing query",
 			uri:   "https://example.test/callback",
-			key:   "code",
+			key:   urlpolicy.ExchangeCodeQueryKey,
 			value: "abc",
 			want:  "https://example.test/callback?code=abc",
 		},
 		{
 			name:  "existing query is preserved",
 			uri:   "https://example.test/callback?tenant=acme",
-			key:   "code",
+			key:   urlpolicy.ExchangeCodeQueryKey,
 			value: "abc",
 			want:  "https://example.test/callback?tenant=acme&code=abc",
 		},
 		{
 			name:  "value is encoded rather than concatenated",
 			uri:   "https://example.test/callback",
-			key:   "authentication",
+			key:   urlpolicy.IdentityQueryKey,
 			value: "a b&c=d/e?f#g",
 			want:  "https://example.test/callback?authentication=a+b%26c%3Dd%2Fe%3Ff%23g",
 		},
 		{
 			name:  "encoded values in the existing query are not rewritten",
 			uri:   "https://example.test/callback?next=%2Fhome%3Fa%3Db",
-			key:   "code",
+			key:   urlpolicy.ExchangeCodeQueryKey,
 			value: "abc",
 			want:  "https://example.test/callback?next=%2Fhome%3Fa%3Db&code=abc",
 		},
 		{
 			name:  "path is untouched",
 			uri:   "https://example.test/a%20b/callback",
-			key:   "code",
+			key:   urlpolicy.ExchangeCodeQueryKey,
 			value: "abc",
 			want:  "https://example.test/a%20b/callback?code=abc",
+		},
+		{
+			name:  "a registered spelling in upper case is kept, and the key is not",
+			uri:   "HTTPS://Example.TEST/Callback?Tenant=Acme",
+			key:   urlpolicy.IdentityQueryKey,
+			value: "abc",
+			want:  "HTTPS://Example.TEST/Callback?Tenant=Acme&authentication=abc",
 		},
 	}
 

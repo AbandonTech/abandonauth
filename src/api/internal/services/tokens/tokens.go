@@ -6,6 +6,12 @@
 // made; every one of those is checked on the way back in, and none of them is
 // taken from the token's own choice of algorithm or key.
 //
+// Each class has exactly one shape: one key, one key identifier, one scope
+// string for a given audience, one rule for its audience and one for its
+// credential version, and a validity interval of exactly the access lifetime.
+// A token is accepted only when it is that shape in full, so a token this
+// service could not have issued is refused however it was signed.
+//
 // What this package cannot decide is whether the authority behind a valid token
 // still stands: whether the epoch is current, whether the token has been
 // withdrawn, and whether the principal still exists. Those are database
@@ -14,8 +20,6 @@ package tokens
 
 import (
 	"errors"
-	"fmt"
-	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -140,9 +144,22 @@ type Options struct {
 type Signer struct {
 	issuer                string
 	internalApplicationID uuid.UUID
-	userKey               []byte
-	developerKey          []byte
+	classes               map[Class]classPolicy
 	now                   func() time.Time
+}
+
+// classPolicy is the one shape a class of token has: what signs it, and what
+// its claims must say.
+type classPolicy struct {
+	keyID string
+	key   []byte
+
+	// internalAudience requires the audience to be the AbandonAuth site.
+	internalAudience bool
+
+	// credentialVersion requires a positive credential version; without it the
+	// claim must be absent.
+	credentialVersion bool
 }
 
 // NewSigner builds the signer from the keys and identity of the service.
@@ -170,303 +187,51 @@ func NewSigner(options Options) (*Signer, error) {
 	return &Signer{
 		issuer:                options.Issuer,
 		internalApplicationID: options.InternalApplicationID,
-		userKey:               userKey,
-		developerKey:          developerKey,
-		now:                   now,
+		classes: map[Class]classPolicy{
+			UserAccess: {keyID: UserAccessKeyID, key: userKey},
+			DeveloperApplicationAccess: {
+				keyID:             DeveloperAccessKeyID,
+				key:               developerKey,
+				internalAudience:  true,
+				credentialVersion: true,
+			},
+		},
+		now: now,
 	}, nil
 }
 
-// IssueUserAccess signs a token that speaks for a person to one application.
-//
-// A token for the AbandonAuth site itself carries the scope that manages
-// developer applications; a token for any other application only identifies the
-// person, so an application cannot use a token it was given to act on its
-// owner's account.
-func (s *Signer) IssueUserAccess(subject, audience, authEpoch uuid.UUID) (string, Token, error) {
-	if subject == uuid.Nil {
-		return "", Token{}, errors.New("a user token needs a subject")
+// policyFor returns the shape of a class, and refuses a class that has none:
+// there is no key to sign or verify it with.
+func (s *Signer) policyFor(class Class) (classPolicy, error) {
+	policy, known := s.classes[class]
+	if !known {
+		return classPolicy{}, errors.New("there is no such class of token")
 	}
 
-	if audience == uuid.Nil {
-		return "", Token{}, errors.New("a user token needs an audience")
-	}
-
-	scopes := []string{ScopeIdentify}
-	if audience == s.internalApplicationID {
-		scopes = []string{ScopeAbandonauth, ScopeIdentify}
-	}
-
-	return s.issue(UserAccess, subject, audience, authEpoch, scopes, 0)
+	return policy, nil
 }
 
-// IssueDeveloperApplicationAccess signs a token that speaks for an application.
-//
-// The version is the application's credential version at the moment of issue.
-// Resetting the application's refresh token raises it, which is what stops a
-// token minted a moment before the reset from outliving it.
-func (s *Signer) IssueDeveloperApplicationAccess(
-	applicationID, authEpoch uuid.UUID, credentialVersion int64,
-) (string, Token, error) {
-	if applicationID == uuid.Nil {
-		return "", Token{}, errors.New("an application token needs an application")
-	}
-
-	if credentialVersion <= 0 {
-		return "", Token{}, errors.New("an application token needs a credential version")
-	}
-
-	return s.issue(
-		DeveloperApplicationAccess,
-		applicationID,
-		s.internalApplicationID,
-		authEpoch,
-		[]string{ScopeAbandonauth, ScopeIdentify},
-		credentialVersion,
-	)
-}
-
-func (s *Signer) issue(
-	class Class,
-	subject, audience, authEpoch uuid.UUID,
-	scopes []string,
-	credentialVersion int64,
-) (string, Token, error) {
-	if authEpoch == uuid.Nil {
-		return "", Token{}, errors.New("a token needs the authority epoch it is issued under")
-	}
-
-	identifier, err := uuid.NewRandom()
-	if err != nil {
-		return "", Token{}, fmt.Errorf("generating a token identifier: %w", err)
-	}
-
-	issuedAt := s.now().UTC().Truncate(time.Second)
-	expiresAt := issuedAt.Add(AccessLifetime)
-
-	body := claims{
-		UserID:    subject.String(),
-		Subject:   subject.String(),
-		Issuer:    s.issuer,
-		Audience:  audience.String(),
-		Scope:     strings.Join(scopes, " "),
-		Lifespan:  lifespan,
-		TokenType: string(class),
-		AuthEpoch: authEpoch.String(),
-		TokenID:   identifier.String(),
-		IssuedAt:  seconds(issuedAt),
-		NotBefore: seconds(issuedAt),
-		ExpiresAt: seconds(expiresAt),
-	}
-
-	if credentialVersion > 0 {
-		body.CredentialVersion = &credentialVersion
-	}
-
-	signed := jwt.NewWithClaims(signingMethod, body)
-	signed.Header["kid"] = keyIDFor(class)
-
-	key, err := s.keyFor(class)
-	if err != nil {
-		return "", Token{}, err
-	}
-
-	raw, err := signed.SignedString(key)
-	if err != nil {
-		return "", Token{}, fmt.Errorf("signing a token: %w", err)
-	}
-
-	return raw, Token{
-		Class:             class,
-		Subject:           subject,
-		Audience:          audience,
-		Scopes:            scopes,
-		AuthEpoch:         authEpoch,
-		ID:                identifier,
-		CredentialVersion: credentialVersion,
-		IssuedAt:          issuedAt,
-		ExpiresAt:         expiresAt,
-	}, nil
-}
-
-// Verify checks a token's signature and every claim the service commits to, and
-// returns what it says.
-func (s *Signer) Verify(raw string) (Token, error) {
-	if raw == "" {
-		return Token{}, fmt.Errorf("%w: it is empty", ErrInvalid)
-	}
-
-	var (
-		body  claims
-		class Class
-	)
-
-	parser := jwt.NewParser(
-		jwt.WithValidMethods([]string{signingMethod.Alg()}),
-		// Every temporal and identity claim is checked below against the
-		// service's own clock and rules, so the library's defaults are not also
-		// applied with a second, looser set.
-		jwt.WithoutClaimsValidation(),
-	)
-
-	_, err := parser.ParseWithClaims(raw, &body, func(token *jwt.Token) (any, error) {
-		identifier, present := token.Header["kid"].(string)
-		if !present {
-			return nil, errors.New("the token names no key")
+// classForKeyID returns the class a key identifier signs, and refuses one this
+// service does not sign with.
+func (s *Signer) classForKeyID(keyID string) (Class, bool) {
+	for class, policy := range s.classes {
+		if policy.keyID == keyID {
+			return class, true
 		}
-
-		switch identifier {
-		case UserAccessKeyID:
-			class = UserAccess
-		case DeveloperAccessKeyID:
-			class = DeveloperApplicationAccess
-		default:
-			return nil, errors.New("the token names a key this service does not sign with")
-		}
-
-		return s.keyFor(class)
-	})
-	if err != nil {
-		return Token{}, fmt.Errorf("%w: %s", ErrInvalid, err)
 	}
 
-	return s.verifyClaims(body, class)
+	return "", false
 }
 
-func (s *Signer) verifyClaims(body claims, class Class) (Token, error) {
-	if body.TokenType != string(class) {
-		return Token{}, fmt.Errorf("%w: its class does not match the key that signed it", ErrInvalid)
+// scopesFor is the one scope list a class carries for an audience. The site
+// itself needs to manage applications; an application acting for a person only
+// needs to identify them; an application acting for itself gets both.
+func (s *Signer) scopesFor(class Class, audience uuid.UUID) []string {
+	if class == DeveloperApplicationAccess || audience == s.internalApplicationID {
+		return []string{ScopeAbandonauth, ScopeIdentify}
 	}
 
-	if body.Issuer != s.issuer {
-		return Token{}, fmt.Errorf("%w: it was not issued by this service", ErrInvalid)
-	}
-
-	if body.Lifespan != lifespan {
-		return Token{}, fmt.Errorf("%w: it does not carry the lifespan of an access token", ErrInvalid)
-	}
-
-	if body.Subject == "" || body.Subject != body.UserID {
-		return Token{}, fmt.Errorf("%w: it does not agree on who it speaks for", ErrInvalid)
-	}
-
-	subject, err := uuid.Parse(body.Subject)
-	if err != nil {
-		return Token{}, fmt.Errorf("%w: the subject is not an identifier", ErrInvalid)
-	}
-
-	audience, err := uuid.Parse(body.Audience)
-	if err != nil {
-		return Token{}, fmt.Errorf("%w: the audience is not an application", ErrInvalid)
-	}
-
-	authEpoch, err := uuid.Parse(body.AuthEpoch)
-	if err != nil {
-		return Token{}, fmt.Errorf("%w: the authority epoch is not an identifier", ErrInvalid)
-	}
-
-	identifier, err := uuid.Parse(body.TokenID)
-	if err != nil {
-		return Token{}, fmt.Errorf("%w: it cannot be identified, so it could not be withdrawn", ErrInvalid)
-	}
-
-	if body.Scope == "" {
-		return Token{}, fmt.Errorf("%w: it carries no scope", ErrInvalid)
-	}
-
-	version, err := credentialVersionOf(body, class)
-	if err != nil {
-		return Token{}, err
-	}
-
-	issuedAt, expiresAt, err := s.verifyValidity(body)
-	if err != nil {
-		return Token{}, err
-	}
-
-	return Token{
-		Class:             class,
-		Subject:           subject,
-		Audience:          audience,
-		Scopes:            strings.Fields(body.Scope),
-		AuthEpoch:         authEpoch,
-		ID:                identifier,
-		CredentialVersion: version,
-		IssuedAt:          issuedAt,
-		ExpiresAt:         expiresAt,
-	}, nil
-}
-
-// verifyValidity checks that the token is inside its own window, that the
-// window is no longer than an access token is allowed to live, and that it was
-// not issued in the future.
-func (s *Signer) verifyValidity(body claims) (time.Time, time.Time, error) {
-	if body.IssuedAt == nil || body.NotBefore == nil || body.ExpiresAt == nil {
-		return time.Time{}, time.Time{}, fmt.Errorf("%w: it does not say when it is valid", ErrInvalid)
-	}
-
-	issuedAt := time.Unix(*body.IssuedAt, 0).UTC()
-	notBefore := time.Unix(*body.NotBefore, 0).UTC()
-	expiresAt := time.Unix(*body.ExpiresAt, 0).UTC()
-
-	if expiresAt.Sub(issuedAt) > AccessLifetime {
-		return time.Time{}, time.Time{}, fmt.Errorf(
-			"%w: it claims to live longer than an access token may", ErrInvalid,
-		)
-	}
-
-	now := s.now().UTC()
-
-	if now.After(expiresAt.Add(MaxClockSkew)) {
-		return time.Time{}, time.Time{}, ErrExpired
-	}
-
-	if now.Before(notBefore.Add(-MaxClockSkew)) {
-		return time.Time{}, time.Time{}, fmt.Errorf("%w: it is not valid yet", ErrInvalid)
-	}
-
-	if now.Before(issuedAt.Add(-MaxClockSkew)) {
-		return time.Time{}, time.Time{}, fmt.Errorf("%w: it was issued in the future", ErrInvalid)
-	}
-
-	return issuedAt, expiresAt, nil
-}
-
-// credentialVersionOf reads the version an application token was issued
-// against, and refuses a token of the other class that carries one: it would
-// otherwise be a token about an application dressed as a person.
-func credentialVersionOf(body claims, class Class) (int64, error) {
-	if class != DeveloperApplicationAccess {
-		if body.CredentialVersion != nil {
-			return 0, fmt.Errorf("%w: it carries a credential version it has no use for", ErrInvalid)
-		}
-
-		return 0, nil
-	}
-
-	if body.CredentialVersion == nil || *body.CredentialVersion <= 0 {
-		return 0, fmt.Errorf("%w: it does not say which credential it was issued against", ErrInvalid)
-	}
-
-	return *body.CredentialVersion, nil
-}
-
-func (s *Signer) keyFor(class Class) ([]byte, error) {
-	switch class {
-	case UserAccess:
-		return s.userKey, nil
-	case DeveloperApplicationAccess:
-		return s.developerKey, nil
-	default:
-		return nil, errors.New("there is no key for this class of token")
-	}
-}
-
-func keyIDFor(class Class) string {
-	if class == DeveloperApplicationAccess {
-		return DeveloperAccessKeyID
-	}
-
-	return UserAccessKeyID
+	return []string{ScopeIdentify}
 }
 
 func seconds(at time.Time) *int64 {

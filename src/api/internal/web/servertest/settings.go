@@ -25,8 +25,8 @@ func placeholderSettings() config.Settings {
 
 		SigningSecret:         SigningSecret,
 		SigningAlgorithm:      config.SigningAlgorithm,
-		ExchangeCodeSeconds:   120,
-		BrowserSessionSeconds: 2592000,
+		ExchangeCodeSeconds:   config.DefaultExchangeCodeSeconds,
+		BrowserSessionSeconds: config.DefaultBrowserSessionSeconds,
 
 		// InternalApplicationID is filled in by New, from the application it
 		// registers for the site.

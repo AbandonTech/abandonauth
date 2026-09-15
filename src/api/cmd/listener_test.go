@@ -23,23 +23,17 @@ func quietLogger() zerolog.Logger {
 	return logging.New(logging.Options{Output: io.Discard})
 }
 
-// freeAddress reserves a port and releases it, so the address is one nothing
-// else on the machine is using.
-func freeAddress(t *testing.T) string {
+// openListener binds a port of the machine's choosing, so the address is one
+// nothing else is using and is open before anything is served on it.
+func openListener(t *testing.T) net.Listener {
 	t.Helper()
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := listen("127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("reserving a port: %v", err)
+		t.Fatalf("opening a listener: %v", err)
 	}
 
-	address := listener.Addr().String()
-
-	if err := listener.Close(); err != nil {
-		t.Fatalf("releasing the reserved port: %v", err)
-	}
-
-	return address
+	return listener
 }
 
 func waitUntilAccepting(t *testing.T, address string) {
@@ -80,8 +74,23 @@ func waitUntilRefusing(t *testing.T, address string) {
 	t.Fatalf("%s was still accepting connections", address)
 }
 
+// awaitStop reads how serving ended, or fails the test if it never did.
+func awaitStop(t *testing.T, stopped <-chan error) error {
+	t.Helper()
+
+	select {
+	case err := <-stopped:
+		return err
+	case <-time.After(settleTimeout):
+		t.Fatal("serving did not stop")
+
+		return nil
+	}
+}
+
 func TestStoppingClosesTheListener(t *testing.T) {
-	address := freeAddress(t)
+	listener := openListener(t)
+	address := listener.Addr().String()
 
 	ctx, stop := context.WithCancel(t.Context())
 	defer stop()
@@ -89,19 +98,14 @@ func TestStoppingClosesTheListener(t *testing.T) {
 	stopped := make(chan error, 1)
 
 	go func() {
-		stopped <- listenUntilStopped(ctx, quietLogger(), address, http.NotFoundHandler())
+		stopped <- serveUntilStopped(ctx, quietLogger(), listener, http.NotFoundHandler())
 	}()
 
 	waitUntilAccepting(t, address)
 	stop()
 
-	select {
-	case err := <-stopped:
-		if err != nil {
-			t.Fatalf("stopping reported an error: %v", err)
-		}
-	case <-time.After(settleTimeout):
-		t.Fatal("serving did not stop when the context was cancelled")
+	if err := awaitStop(t, stopped); err != nil {
+		t.Fatalf("stopping reported an error: %v", err)
 	}
 
 	if connection, err := net.DialTimeout("tcp", address, time.Second); err == nil {
@@ -112,7 +116,8 @@ func TestStoppingClosesTheListener(t *testing.T) {
 }
 
 func TestARequestInFlightIsAllowedToFinish(t *testing.T) {
-	address := freeAddress(t)
+	listener := openListener(t)
+	address := listener.Addr().String()
 
 	ctx, stop := context.WithCancel(t.Context())
 	defer stop()
@@ -134,10 +139,8 @@ func TestARequestInFlightIsAllowedToFinish(t *testing.T) {
 	stopped := make(chan error, 1)
 
 	go func() {
-		stopped <- listenUntilStopped(ctx, quietLogger(), address, handler)
+		stopped <- serveUntilStopped(ctx, quietLogger(), listener, handler)
 	}()
-
-	waitUntilAccepting(t, address)
 
 	type outcome struct {
 		status int
@@ -191,31 +194,73 @@ func TestARequestInFlightIsAllowedToFinish(t *testing.T) {
 		t.Fatal("the request in flight was never answered")
 	}
 
-	select {
-	case err := <-stopped:
-		if err != nil {
-			t.Fatalf("stopping reported an error: %v", err)
-		}
-	case <-time.After(settleTimeout):
-		t.Fatal("serving did not return after the request finished")
+	if err := awaitStop(t, stopped); err != nil {
+		t.Fatalf("stopping reported an error: %v", err)
 	}
 }
 
-func TestAnAddressThatCannotBeListenedOnIsReported(t *testing.T) {
-	occupied, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("occupying a port: %v", err)
+// A stop that arrives before anything has been served still closes the
+// listener and returns, rather than serving on or hanging.
+func TestAStopBeforeServingBeginsStillCloses(t *testing.T) {
+	listener := openListener(t)
+	address := listener.Addr().String()
+
+	ctx, stop := context.WithCancel(t.Context())
+	stop()
+
+	stopped := make(chan error, 1)
+
+	go func() {
+		stopped <- serveUntilStopped(ctx, quietLogger(), listener, http.NotFoundHandler())
+	}()
+
+	if err := awaitStop(t, stopped); err != nil {
+		t.Fatalf("stopping reported an error: %v", err)
 	}
+
+	if connection, err := net.DialTimeout("tcp", address, time.Second); err == nil {
+		_ = connection.Close()
+
+		t.Error("the port still accepts connections after the stop returned")
+	}
+}
+
+// An address that cannot be bound is reported before anything is served, and
+// the report names the address.
+func TestAnAddressThatCannotBeListenedOnIsReported(t *testing.T) {
+	occupied := openListener(t)
 	defer func() { _ = occupied.Close() }()
 
 	address := occupied.Addr().String()
 
-	err = listenUntilStopped(t.Context(), quietLogger(), address, http.NotFoundHandler())
+	listener, err := listen(address)
 	if err == nil {
-		t.Fatal("serving reported success on an address already in use")
+		_ = listener.Close()
+
+		t.Fatal("an address already in use was bound")
 	}
 
 	if !strings.Contains(err.Error(), address) {
 		t.Errorf("the error does not name the address it could not listen on: %v", err)
+	}
+}
+
+// A listener that fails while it is being served on ends serving with the
+// failure, rather than leaving the caller waiting for a stop.
+func TestAListenerThatFailsEndsServing(t *testing.T) {
+	listener := openListener(t)
+
+	if err := listener.Close(); err != nil {
+		t.Fatalf("closing the listener: %v", err)
+	}
+
+	stopped := make(chan error, 1)
+
+	go func() {
+		stopped <- serveUntilStopped(t.Context(), quietLogger(), listener, http.NotFoundHandler())
+	}()
+
+	if err := awaitStop(t, stopped); err == nil {
+		t.Fatal("serving on a listener that had failed reported success")
 	}
 }

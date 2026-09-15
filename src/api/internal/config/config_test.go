@@ -3,6 +3,7 @@ package config_test
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -23,8 +24,8 @@ func productionSettings() config.Settings {
 		DatabaseURL:           "postgresql://abandonauth:placeholder@database:5432/abandonauth",
 		SigningSecret:         placeholderSigningSecret,
 		SigningAlgorithm:      "HS512",
-		ExchangeCodeSeconds:   120,
-		BrowserSessionSeconds: 2592000,
+		ExchangeCodeSeconds:   config.DefaultExchangeCodeSeconds,
+		BrowserSessionSeconds: config.DefaultBrowserSessionSeconds,
 		InternalApplicationID: placeholderApplicationID,
 		SiteURL:               "https://auth.example.test",
 		APIURL:                "https://api.example.test",
@@ -77,12 +78,22 @@ func TestLoadAcceptsProductionSettings(t *testing.T) {
 		t.Errorf("InternalApplicationID = %q", loaded.InternalApplicationID)
 	}
 
-	if loaded.ExchangeCodeLifetime != 120*time.Second {
+	if loaded.ExchangeCodeLifetime != config.DefaultExchangeCodeSeconds*time.Second {
 		t.Errorf("ExchangeCodeLifetime = %v, want 2m", loaded.ExchangeCodeLifetime)
 	}
 
-	if loaded.BrowserSessionLifetime != 30*24*time.Hour {
+	if loaded.BrowserSessionLifetime != config.DefaultBrowserSessionSeconds*time.Second {
 		t.Errorf("BrowserSessionLifetime = %v, want 720h", loaded.BrowserSessionLifetime)
+	}
+
+	// The defaults are also the caps, so the boundary the caps are measured at
+	// is the one a deployment runs at.
+	if config.DefaultExchangeCodeSeconds*time.Second > config.MaxExchangeCodeLifetime {
+		t.Error("the default exchange code lifetime exceeds its cap")
+	}
+
+	if config.DefaultBrowserSessionSeconds*time.Second > config.MaxBrowserSessionLifetime {
+		t.Error("the default browser session lifetime exceeds its cap")
 	}
 
 	if loaded.Debug {
@@ -164,6 +175,18 @@ func TestLoadRejects(t *testing.T) {
 			"session lifetime above cap",
 			func(s *config.Settings) { s.BrowserSessionSeconds = 2592001 },
 			"JWT_EXPIRES_IN_SECONDS_LONG_LIVED",
+		},
+		{
+			// Multiplied into a duration first, this many seconds wraps into a
+			// value below the cap.
+			"session lifetime is the largest integer",
+			func(s *config.Settings) { s.BrowserSessionSeconds = math.MaxInt },
+			"JWT_EXPIRES_IN_SECONDS_LONG_LIVED",
+		},
+		{
+			"exchange lifetime is the largest integer",
+			func(s *config.Settings) { s.ExchangeCodeSeconds = math.MaxInt },
+			"JWT_EXPIRES_IN_SECONDS_SHORT_LIVED",
 		},
 		{
 			"application id is not a uuid",
@@ -392,7 +415,6 @@ func TestSecretsAreNotPrintable(t *testing.T) {
 		fmt.Sprintf("%v", loaded),
 		fmt.Sprintf("%+v", loaded),
 		fmt.Sprintf("%#v", loaded),
-		fmt.Sprintf("%s", loaded.SigningSecret),
 		fmt.Sprintf("%v", loaded.SigningSecret),
 		fmt.Sprintf("%#v", loaded.DatabaseURL),
 		loaded.SigningSecret.String(),

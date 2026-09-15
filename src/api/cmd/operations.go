@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -54,17 +55,36 @@ func (service) Serve(ctx context.Context, configuration config.Config) error {
 		return err
 	}
 
-	// Bound to the same context as the listener, so stopping the service stops
-	// the sweeps with it.
-	go keeper.Run(ctx)
+	listener, err := listen(configuration.BindAddress)
+	if err != nil {
+		return err
+	}
+
+	// The sweeps run for exactly as long as requests are answered: they start
+	// once the listener is open, and stop however serving ends, including an
+	// ending the parent context knows nothing about.
+	run, stop := context.WithCancel(ctx)
+
+	swept := make(chan struct{})
+
+	go func() {
+		defer close(swept)
+
+		keeper.Run(run)
+	}()
 
 	logger.Info().
 		Str("build", buildmode.Name).
 		Str("version", version).
-		Str("address", configuration.BindAddress).
+		Str("address", listener.Addr().String()).
 		Msg("serving")
 
-	return listenUntilStopped(ctx, logger, configuration.BindAddress, server.Handler())
+	err = serveUntilStopped(run, logger, listener, server.Handler())
+
+	stop()
+	<-swept
+
+	return err
 }
 
 // Maintenance answers every request with a temporary failure.
@@ -75,13 +95,18 @@ func (service) Serve(ctx context.Context, configuration config.Config) error {
 func (service) Maintenance(ctx context.Context, address string) error {
 	logger := logging.New(logging.Options{})
 
+	listener, err := listen(address)
+	if err != nil {
+		return err
+	}
+
 	logger.Info().
 		Str("build", buildmode.Name).
 		Str("version", version).
-		Str("address", address).
+		Str("address", listener.Addr().String()).
 		Msg("serving maintenance responses only")
 
-	return listenUntilStopped(ctx, logger, address, web.MaintenanceHandler())
+	return serveUntilStopped(ctx, logger, listener, web.MaintenanceHandler())
 }
 
 // RotateAuthority withdraws every credential the service has issued.
@@ -123,26 +148,40 @@ func migrate(ctx context.Context, pool *pgxpool.Pool, logger zerolog.Logger) err
 	return database.Migrate(ctx, handle, database.NewMigrationLog(logger))
 }
 
-// listenUntilStopped serves until the context is cancelled, then stops taking
-// new connections and gives the requests already in flight a bounded time to
-// finish.
-func listenUntilStopped(ctx context.Context, logger zerolog.Logger, address string, handler http.Handler) error {
-	server := web.NewHTTPServer(address, handler)
+// listen opens the address before anything is served on it, so an address that
+// cannot be bound is reported at once rather than from a goroutine racing the
+// caller's cancellation.
+func listen(address string) (net.Listener, error) {
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return nil, fmt.Errorf("listening on %s: %w", address, err)
+	}
 
-	failed := make(chan error, 1)
+	return listener, nil
+}
+
+// serveUntilStopped answers requests on an open listener until the context is
+// cancelled, then stops taking new connections and gives the requests already
+// in flight a bounded time to finish. It closes the listener however it ends.
+func serveUntilStopped(
+	ctx context.Context, logger zerolog.Logger, listener net.Listener, handler http.Handler,
+) error {
+	server := web.NewHTTPServer(listener.Addr().String(), handler)
+
+	ended := make(chan error, 1)
 
 	go func() {
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			failed <- fmt.Errorf("listening on %s: %w", address, err)
+		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			ended <- fmt.Errorf("serving on %s: %w", listener.Addr(), err)
 
 			return
 		}
 
-		failed <- nil
+		ended <- nil
 	}()
 
 	select {
-	case err := <-failed:
+	case err := <-ended:
 		return err
 	case <-ctx.Done():
 	}
@@ -156,5 +195,5 @@ func listenUntilStopped(ctx context.Context, logger zerolog.Logger, address stri
 		return fmt.Errorf("stopping the listener: %w", err)
 	}
 
-	return <-failed
+	return <-ended
 }

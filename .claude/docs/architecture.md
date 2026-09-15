@@ -23,10 +23,19 @@ controls in force, and where they live".
 - One spelling per route: `internal/web/requesttarget.go` refuses a raw target
   carrying an escape, a repeated slash, a backslash or a dot segment, before the
   router can decode or clean it into an address that spends a login, a code or a
-  session.
+  session. Whether an address is one the route table declares, which CORS and
+  the 404/405 answers both need, is asked of a `net/http` router built from the
+  route table with the methods left off, so there is no second matcher to
+  drift from the one that serves.
 - `internal/web/server.go` composes every service from the configuration and the
   pool and fixes the middleware order and connection deadlines;
   `internal/config` validates once at start-up and is immutable afterwards.
+- `cmd/operations.go` opens the listener before it starts anything else, so a
+  bind failure is reported at once; the housekeeping sweeps run under a context
+  that starts once the listener is open and is cancelled however serving ends.
+- The outermost middleware records whether a response has been committed, by a
+  write, a flush or a hijack, and a handler that fails after that point is not
+  answered a second time. The recovered value is never logged.
 
 | Layer | Holds |
 | --- | --- |
@@ -75,8 +84,15 @@ stored only as a digest, spent by a delete a second attempt cannot repeat.
 
 Either way the browser goes to the callback exactly as registered: checks run
 against a copy whose scheme and host are lower cased, the redirect is built from
-the registered string, only the one response parameter is appended. Declining at
-the provider returns the browser to that same validated string, nothing added.
+the registered string, only the one response parameter is appended, under the
+key `internal/urlpolicy` owns (`code`, or `authentication` for Google) and
+refuses at registration. Declining at the provider returns the browser to that
+same validated string, nothing added.
+
+An application's callback set is replaced under the application's row lock, so
+two replacements arriving together run one after the other and leave one
+submitted set; a replacement that finds the application gone is answered as
+not found.
 
 ## Browser authority
 
@@ -105,8 +121,12 @@ stored with the session.
 
 - Two access token classes, never interchangeable: one for a person, one for a
   developer application. `internal/services/keyring` derives their signing keys
-  separately from the signing root, and each token is validated against its own
-  claims.
+  separately from the signing root. Each class has one shape, held in
+  `internal/services/tokens`: its key and key identifier, the scope string it
+  carries for a given audience, whether its audience must be the site, and
+  whether it carries a credential version. A token is accepted only when every
+  claim is exactly that shape, with canonical non-nil identifiers and a validity
+  interval of exactly the access lifetime from the moment of issue.
 - A developer application's token carries the credential version it was issued
   under, so resetting that credential refuses every token issued before.
 - Every check is measured against the auth epoch, which
@@ -114,16 +134,25 @@ stored with the session.
   token, login in progress, one-time code and session at once.
 - `internal/services/ratelimit` counts fixed windows in the database, keyed by a
   digest of whoever is limited rather than a client address in clear, so budgets
-  hold across workers. Anyone can name a public application identifier, so a
-  caller counts against its address until something unguessable is proven.
-  Budgets are constants in the binary.
+  hold across workers. The window a request falls in, and how long a refused
+  caller is told to wait, are decided by the database clock, so instances with
+  different clocks count one client in one window. Anyone can name a public
+  application identifier, so a caller counts against its address until
+  something unguessable is proven. Budgets are constants in the binary.
 - Forwarding headers are believed only from a peer inside
-  `TRUSTED_PROXY_CIDRS`; the deployment section of `README.md` tells an operator
-  what to set it to.
+  `TRUSTED_PROXY_CIDRS`, and `X-Forwarded-For` is read from its trusted end
+  across every header line: trusted hops are skipped and the nearest untrusted
+  address is the client, so nothing a client prepended is counted. A chain that
+  cannot be read in full falls back to the peer. The deployment section of
+  `README.md` tells an operator what to set the ranges to.
+- Every transaction is abandoned through `internal/database/rollback.go`, which
+  detaches from the request's cancellation and bounds the cleanup, so a client
+  that gives up cannot leave a connection or a row lock held.
 - `internal/services/housekeeping` sweeps expired logins, codes, sessions,
-  withdrawn tokens and budget windows on a ticker `serve` starts and stops with
-  its own context. Sweeps are bounded and remove nothing still usable: granting
-  anything from such a row already requires it unexpired.
+  withdrawn tokens and budget windows on a ticker `serve` starts once its
+  listener is open and stops however serving ends. Sweeps are bounded and
+  remove nothing still usable: granting anything from such a row already
+  requires it unexpired.
 - Database time is authoritative for every expiry, so a wrong clock on an API
   host cannot extend a credential.
 

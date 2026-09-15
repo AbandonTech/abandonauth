@@ -1,6 +1,7 @@
-// Package database owns the connection pool, the schema migrations, and the
-// one-off procedure that lets an existing database be brought under their
-// control.
+// Package database owns the connection pool, the embedded schema migrations
+// and the inspection that decides whether a database may receive them, the
+// rotation of the authority every credential is measured against, and the
+// bounded rollback every transaction in the service is abandoned with.
 package database
 
 import (

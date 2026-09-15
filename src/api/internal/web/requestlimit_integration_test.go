@@ -9,8 +9,16 @@ import (
 
 	"github.com/abandontech/abandonauth/src/api/internal/config"
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
-	"github.com/abandontech/abandonauth/src/api/internal/services/ratelimit"
 	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
+)
+
+// The budgets this service promises, stated here rather than read back from the
+// service, so that a change to one fails a test rather than moving its goal.
+const (
+	developerApplicationLoginLimit = 10
+	loginExchangeLimit             = 20
+	burnTokenLimit                 = 60
+	providerCallbackLimit          = 30
 )
 
 // asClient makes requests look as though they came from one client behind the
@@ -19,27 +27,30 @@ func asClient(address string) func(*http.Request) {
 	return servertest.Header("X-Forwarded-For", address)
 }
 
+// appendingHeader adds a header line rather than replacing one, which is what a
+// proxy that appends to whatever it received does.
+func appendingHeader(name, value string) func(*http.Request) {
+	return func(request *http.Request) {
+		request.Header.Add(name, value)
+	}
+}
+
 // Guessing an application's credential is budgeted. When the budget is spent
 // the caller is told to come back later and how long to wait.
 func TestGuessingAnApplicationsCredentialRunsOut(t *testing.T) {
 	t.Parallel()
 
-	service := servertest.New(t, servertest.WithSteadyClock())
+	service := servertest.New(t)
 	service.SignIn(service.Providers.Someone(oauth.Discord, "the owner"))
 
 	application := service.RegisterApplication("an application")
-
-	policy, known := ratelimit.PolicyFor(ratelimit.DeveloperApplicationLogin)
-	if !known {
-		t.Fatal("developer application sign-in has no budget")
-	}
 
 	guess := map[string]string{
 		"id":            application.ID.String(),
 		"refresh_token": "not-the-credential",
 	}
 
-	for attempt := int64(0); attempt < policy.Limit; attempt++ {
+	for attempt := 0; attempt < developerApplicationLoginLimit; attempt++ {
 		service.POSTJSON("/developer_application/login", guess, asClient("198.51.100.10")).
 			ExpectStatus(http.StatusUnauthorized)
 	}
@@ -71,9 +82,7 @@ func TestSpendingABudgetAgainstAnApplicationDoesNotLockItOut(t *testing.T) {
 
 	application := service.RegisterApplication("an application")
 
-	policy, _ := ratelimit.PolicyFor(ratelimit.DeveloperApplicationLogin)
-
-	for attempt := int64(0); attempt <= policy.Limit; attempt++ {
+	for attempt := 0; attempt <= developerApplicationLoginLimit; attempt++ {
 		service.POSTJSON("/developer_application/login", map[string]string{
 			"id":            application.ID.String(),
 			"refresh_token": "not-the-credential",
@@ -96,19 +105,16 @@ func TestAForwardedAddressIsOnlyBelievedFromTheProxy(t *testing.T) {
 		servertest.WithSetting(func(settings *config.Settings) {
 			settings.TrustedProxyCIDRs = "203.0.113.0/24"
 		}),
-		servertest.WithSteadyClock(),
 	)
 
 	service.SignIn(service.Providers.Someone(oauth.Discord, "the owner"))
 	application := service.RegisterApplication("an application")
 
-	policy, _ := ratelimit.PolicyFor(ratelimit.DeveloperApplicationLogin)
-
-	for attempt := int64(0); attempt < policy.Limit; attempt++ {
+	for attempt := 0; attempt < developerApplicationLoginLimit; attempt++ {
 		service.POSTJSON("/developer_application/login", map[string]string{
 			"id":            application.ID.String(),
 			"refresh_token": "not-the-credential",
-		}, asClient("198.51.100."+strconv.FormatInt(attempt, 10))).
+		}, asClient("198.51.100."+strconv.Itoa(attempt))).
 			ExpectStatus(http.StatusUnauthorized)
 	}
 
@@ -118,20 +124,68 @@ func TestAForwardedAddressIsOnlyBelievedFromTheProxy(t *testing.T) {
 	}, asClient("198.51.100.200")).ExpectStatus(http.StatusTooManyRequests)
 }
 
+// A proxy that appends the client it saw to whatever the client sent leaves the
+// client's own value first, in the same field or on a line of its own. The
+// address the request is counted against is the one the proxy appended, so a
+// client varying what it sends still has one budget.
+func TestAClientCannotChooseItsIdentityByPrependingToTheForwardedChain(t *testing.T) {
+	t.Parallel()
+
+	shapes := map[string]func(attempt int) []func(*http.Request){
+		"in the same field": func(attempt int) []func(*http.Request) {
+			return []func(*http.Request){
+				asClient("198.51.100." + strconv.Itoa(attempt) + ", 203.0.113.77"),
+			}
+		},
+		"on a later line": func(attempt int) []func(*http.Request) {
+			return []func(*http.Request){
+				asClient("198.51.100." + strconv.Itoa(attempt)),
+				appendingHeader("X-Forwarded-For", "203.0.113.77"),
+			}
+		},
+	}
+
+	for name, chain := range shapes {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			service := servertest.New(t)
+			service.SignIn(service.Providers.Someone(oauth.Discord, "the owner"))
+			application := service.RegisterApplication("an application")
+
+			guess := map[string]string{
+				"id":            application.ID.String(),
+				"refresh_token": "not-the-credential",
+			}
+
+			for attempt := 0; attempt < developerApplicationLoginLimit; attempt++ {
+				service.POSTJSON("/developer_application/login", guess, chain(attempt)...).
+					ExpectStatus(http.StatusUnauthorized)
+			}
+
+			service.POSTJSON("/developer_application/login", guess, chain(developerApplicationLoginLimit)...).
+				ExpectStatus(http.StatusTooManyRequests)
+
+			// The budget belongs to the appended client alone: another client
+			// behind the same proxy is still served.
+			service.POSTJSON("/developer_application/login", guess, asClient("203.0.113.78")).
+				ExpectStatus(http.StatusUnauthorized)
+		})
+	}
+}
+
 // Guessing a one-time code is budgeted per client, whether or not the code was
 // ever going to work.
 func TestGuessingOneTimeCodesRunsOut(t *testing.T) {
 	t.Parallel()
 
-	service := servertest.New(t, servertest.WithSteadyClock())
+	service := servertest.New(t)
 	service.SignIn(service.Providers.Someone(oauth.Discord, "the owner"))
 
 	application := service.RegisterApplication("a relying application")
 	token := applicationAccessToken(t, service, application.ID, application.RefreshToken)
 
-	policy, _ := ratelimit.PolicyFor(ratelimit.LoginExchange)
-
-	for attempt := int64(0); attempt < policy.Limit; attempt++ {
+	for attempt := 0; attempt < loginExchangeLimit; attempt++ {
 		service.POSTRaw("/login", "",
 			servertest.Bearer(token),
 			servertest.Header("exchange-token", "not-a-code"),
@@ -158,30 +212,25 @@ func TestARequestThatCannotBeReadStillSpendsItsBudget(t *testing.T) {
 	t.Parallel()
 
 	endpoints := map[string]struct {
-		group ratelimit.Group
+		limit int
 		path  string
 	}{
-		"spending a one-time code": {group: ratelimit.LoginExchange, path: "/login"},
-		"withdrawing a credential": {group: ratelimit.BurnToken, path: "/burn-token"},
+		"spending a one-time code": {limit: loginExchangeLimit, path: "/login"},
+		"withdrawing a credential": {limit: burnTokenLimit, path: "/burn-token"},
 	}
 
 	for name, endpoint := range endpoints {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			service := servertest.New(t, servertest.WithSteadyClock())
-
-			policy, known := ratelimit.PolicyFor(endpoint.group)
-			if !known {
-				t.Fatalf("%s has no budget", name)
-			}
+			service := servertest.New(t)
 
 			unreadable := []func(*http.Request){
 				servertest.Header("Content-Type", "application/json"),
 				asClient("198.51.100.50"),
 			}
 
-			for attempt := int64(0); attempt < policy.Limit; attempt++ {
+			for attempt := 0; attempt < endpoint.limit; attempt++ {
 				service.POSTRaw(endpoint.path, "{", unreadable...).
 					ExpectStatus(http.StatusUnprocessableEntity)
 			}

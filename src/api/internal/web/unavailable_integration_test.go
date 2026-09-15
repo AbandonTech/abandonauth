@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
-	"github.com/abandontech/abandonauth/src/api/internal/web"
 	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
 )
 
@@ -134,20 +133,6 @@ func TestATokenIsNotAcceptedOnItsSignatureAlone(t *testing.T) {
 	service.GET("/developer_application/me", servertest.Bearer(issued.Token)).
 		ExpectStatus(http.StatusInternalServerError).
 		ExpectDetail("Internal Server Error")
-}
-
-// Every route the service declares can be looked up by name, which is what lets
-// a handler be attached to one and a test name one without repeating its URL.
-func TestARouteIsFoundByName(t *testing.T) {
-	t.Parallel()
-
-	if _, found := web.Lookup(web.RouteCurrentUser); !found {
-		t.Error("a declared route could not be found by its name")
-	}
-
-	if _, found := web.Lookup(web.RouteName("no-such-route")); found {
-		t.Error("a name no route carries was found anyway")
-	}
 }
 
 // A login started for an application that is deleted before the person returns

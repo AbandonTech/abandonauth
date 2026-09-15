@@ -106,24 +106,23 @@ session. Run it during a maintenance window; everyone signs in again afterwards.
 
 ## Behind a reverse proxy
 
-Request budgets are counted per client address. A forwarding header
-(`X-Forwarded-For`, `X-Real-IP`) is believed only when the connection came from
-an address inside `TRUSTED_PROXY_CIDRS`; from anywhere else it is ignored.
-
-The default, `127.0.0.1/32,::1/128`, covers no proxy and a sidecar on the
-loopback interface. For any other proxy (another container, an ingress, a load
-balancer) set it to the ranges that proxy connects from:
+Request budgets are counted per client address. `X-Forwarded-For` and
+`X-Real-IP` are read only on connections from an address in
+`TRUSTED_PROXY_CIDRS`. The default, `127.0.0.1/32,::1/128`, covers no proxy and
+a loopback sidecar; for anything else list the ranges the proxy connects from:
 
 ```dotenv
 TRUSTED_PROXY_CIDRS=10.0.0.0/8,172.16.0.0/12
 ```
 
-Leaving the default in that situation collapses every request onto the proxy's
-address, so one busy client exhausts a budget shared by everybody. Trusting too
-much is worse: `0.0.0.0/0` lets any client choose the address it is counted as,
-which disables rate limiting. List only the ranges your proxy connects from, and
-make sure that proxy sets the header itself rather than passing through
-whatever it received.
+`X-Forwarded-For` is walked right to left and the first address outside a
+trusted range is the client (the leftmost, if there is none). A header holding
+anything that is not an IP address is discarded and the request is counted
+against the peer. `X-Real-IP` is used only when `X-Forwarded-For` is absent.
+
+List every hop and nothing a client can connect from: an unlisted hop is taken
+for the client, and a listed range a client can reach from lets it choose the
+address it is counted as.
 
 ## The published image
 
@@ -200,7 +199,7 @@ only from a loopback listener, so to use it run the API directly with
 ## Checks
 
 ```shell
-./scripts/check.sh                # codegen, formatting, lint, build, unit tests
+./scripts/check.sh                # codegen, formatting, lint, static analysis, dead code, build, unit tests
 ./scripts/check.sh --quick        # the same, skipping codegen and go mod tidy
 ./scripts/check.sh --fix-fmt      # format the source, then check
 ./scripts/check.sh --integration  # also the race, database and coverage checks; needs Docker
@@ -217,7 +216,9 @@ PowerShell:
 & "C:\Program Files\Git\bin\bash.exe" scripts/check.sh
 ```
 
-CI runs the same script. `--integration` holds every package to 80% statement
+CI runs the same script. The API check runs revive, Staticcheck on every build
+tag set, and a dead-code analysis of the deployment build that fails on any
+unreachable function. `--integration` holds every package to 80% statement
 coverage. The sqlc and Swagger output is generated on every run, is not
 committed, and is never edited by hand.
 

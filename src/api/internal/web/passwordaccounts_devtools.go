@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/abandontech/abandonauth/src/api/internal/database"
 	"github.com/abandontech/abandonauth/src/api/internal/database/query"
 	"github.com/abandontech/abandonauth/src/api/internal/services/credentials"
 	"github.com/abandontech/abandonauth/src/api/internal/services/ratelimit"
@@ -27,8 +28,10 @@ const detailPasswordRejected = "Invalid username or password"
 // other machine can reach. Any of those three missing and the route reports
 // that it does not exist, because in a deployment it does not.
 //
-// @Summary     Creates User and PasswordAccount
-// @Description Create the supplied test user.
+// @Summary     Seed an account that signs in with a password
+// @Description Create an account with a password, for development without a provider.
+// @Description
+// @Description Served only by the development build, in debug mode, on a listener no other machine can reach; otherwise this address does not exist.
 // @Tags        Password Accounts
 // @Accept      json
 // @Produce     json
@@ -72,7 +75,7 @@ func (s *Server) createPasswordAccount() http.Handler {
 			return
 		}
 
-		defer func() { _ = transaction.Rollback(request.Context()) }()
+		defer func() { _ = database.Rollback(request.Context(), transaction) }()
 
 		queries := query.New(transaction)
 
@@ -112,8 +115,10 @@ func (s *Server) createPasswordAccount() http.Handler {
 // development exercises the session and its cross-site checks rather than a
 // credential a script could read.
 //
-// @Summary     Login using password
-// @Description Login as the given test user.
+// @Summary     Sign in with a password
+// @Description Sign the browser in as a seeded account.
+// @Description
+// @Description The browser is given the same session cookies a provider sign-in gives, and the answer carries a short-lived user access token for the site. Served only by the development build, in debug mode, on a listener no other machine can reach; otherwise this address does not exist.
 // @Tags        Password Accounts
 // @Accept      json
 // @Produce     json
@@ -150,15 +155,8 @@ func (s *Server) signInWithPassword() http.Handler {
 			return
 		}
 
-		issued, err := s.sessions.Create(request.Context(), userID)
-		if err != nil {
-			s.refuseUnavailable(writer, request, err)
-
-			return
-		}
-
-		s.startSession(writer, issued)
-
+		// Everything that can fail happens before anything is written, so a
+		// refusal never arrives alongside a session cookie that was already set.
 		epoch, err := s.authority.Current(request.Context())
 		if err != nil {
 			s.refuseUnavailable(writer, request, err)
@@ -173,6 +171,14 @@ func (s *Server) signInWithPassword() http.Handler {
 			return
 		}
 
+		issued, err := s.sessions.Create(request.Context(), userID)
+		if err != nil {
+			s.refuseUnavailable(writer, request, err)
+
+			return
+		}
+
+		s.startSession(writer, issued)
 		response.JSON(writer, http.StatusOK, models.JwtDto{Token: token})
 	})
 }

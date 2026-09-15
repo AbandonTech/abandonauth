@@ -30,11 +30,22 @@ var (
 	ErrReservedQueryKey  = errors.New("url already uses a query key the login response needs")
 )
 
-// ResponseQueryKeys are the query keys AbandonAuth adds when it returns a
-// browser to an application. A registered callback may not already use one,
-// because the application would then receive two values under the same key and
-// could read the attacker-supplied one.
-var ResponseQueryKeys = []string{"code", "authentication"}
+// The query keys AbandonAuth adds when it returns a browser to an application.
+// They are what applications already read. A registered callback may not
+// already use one, in any case, because the application would then receive two
+// values under the same key and could read the attacker-supplied one.
+const (
+	// ExchangeCodeQueryKey carries the one-time code an application spends.
+	ExchangeCodeQueryKey = "code"
+	// IdentityQueryKey carries the one-time code a login through Google ends in.
+	IdentityQueryKey = "authentication"
+)
+
+// isReservedQueryKey reports whether a registered callback's query key would
+// collide with one this service appends.
+func isReservedQueryKey(key string) bool {
+	return strings.EqualFold(key, ExchangeCodeQueryKey) || strings.EqualFold(key, IdentityQueryKey)
+}
 
 // Callback is a URL this service may return a browser to.
 //
@@ -159,7 +170,7 @@ func ParseCallbackURI(raw string) (Callback, error) {
 
 // ParseRegisteredCallbackURI validates a URL an application wants to register.
 // It applies every rule of ParseCallbackURI and additionally refuses URLs that
-// already use one of ResponseQueryKeys.
+// already use a query key this service appends to a callback.
 func ParseRegisteredCallbackURI(raw string) (Callback, error) {
 	callback, err := ParseCallbackURI(raw)
 	if err != nil {
@@ -172,10 +183,8 @@ func ParseRegisteredCallbackURI(raw string) (Callback, error) {
 	}
 
 	for key := range query {
-		for _, reserved := range ResponseQueryKeys {
-			if strings.EqualFold(key, reserved) {
-				return Callback{}, ErrReservedQueryKey
-			}
+		if isReservedQueryKey(key) {
+			return Callback{}, ErrReservedQueryKey
 		}
 	}
 

@@ -2,9 +2,10 @@
 // password, a refresh token or a one-time code is slow, and so that a provider
 // cannot be flooded on this service's behalf.
 //
-// Counting happens in the database, so a limit holds across every worker. What
-// is counted is a keyed hash of whoever is being limited, never a client
-// address in clear.
+// Counting happens in the database, and the window a request falls in is
+// decided by the database clock, so a limit holds across every worker whatever
+// each one's own clock says. What is counted is a keyed hash of whoever is
+// being limited, never a client address in clear.
 //
 // Who is counted matters as much as how often. Anyone can name a public
 // application identifier, so a bucket keyed on one alone would let a stranger
@@ -48,29 +49,22 @@ const (
 	BurnToken Group = "burn_token"
 )
 
-// Policy is how many requests a group allows in one window.
-type Policy struct {
-	Limit  int64
-	Window time.Duration
+// policy is how many requests a group allows in one window.
+type policy struct {
+	limit  int64
+	window time.Duration
 }
 
 // policies are fixed in the binary. There is deliberately no setting that
 // raises or removes a limit, because a misconfiguration would then be the way
 // past every one of them at once.
-var policies = map[Group]Policy{
-	ProviderCallback:             {Limit: 30, Window: 10 * time.Minute},
-	LoginExchange:                {Limit: 20, Window: time.Minute},
-	DeveloperApplicationLogin:    {Limit: 10, Window: 5 * time.Minute},
-	PasswordSignIn:               {Limit: 5, Window: 10 * time.Minute},
-	DeveloperApplicationMutation: {Limit: 20, Window: time.Hour},
-	BurnToken:                    {Limit: 60, Window: time.Minute},
-}
-
-// PolicyFor returns the budget of a group.
-func PolicyFor(group Group) (Policy, bool) {
-	policy, known := policies[group]
-
-	return policy, known
+var policies = map[Group]policy{
+	ProviderCallback:             {limit: 30, window: 10 * time.Minute},
+	LoginExchange:                {limit: 20, window: time.Minute},
+	DeveloperApplicationLogin:    {limit: 10, window: 5 * time.Minute},
+	PasswordSignIn:               {limit: 5, window: 10 * time.Minute},
+	DeveloperApplicationMutation: {limit: 20, window: time.Hour},
+	BurnToken:                    {limit: 60, window: time.Minute},
 }
 
 // keySeparator ends each part of a bucket's identity so that two different
@@ -85,8 +79,9 @@ const maximumCleanupRows = 500
 type Decision struct {
 	Allowed bool
 
-	// RetryAfter is how long until the window this request fell in ends. It is
-	// only meaningful when the request was refused.
+	// RetryAfter is how long until the window this request fell in ends, in
+	// whole seconds as the database measured it. It is only meaningful when
+	// the request was refused.
 	RetryAfter time.Duration
 }
 
@@ -94,7 +89,6 @@ type Decision struct {
 type Limiter struct {
 	queries *query.Queries
 	key     []byte
-	now     func() time.Time
 }
 
 // Options are what the limiter needs.
@@ -103,10 +97,6 @@ type Options struct {
 	// hold client addresses, which are personal data this service has no reason
 	// to keep.
 	Key []byte
-
-	// Now is the clock windows are derived from. The count itself is atomic in
-	// the database; only the window boundary comes from here.
-	Now func() time.Time
 }
 
 // New builds the limiter over a database handle.
@@ -115,12 +105,13 @@ func New(database query.DBTX, options Options) (*Limiter, error) {
 		return nil, errors.New("the limiter needs a key to pseudonymise callers with")
 	}
 
-	now := options.Now
-	if now == nil {
-		now = time.Now
+	for group, budget := range policies {
+		if budget.limit <= 0 || budget.window < time.Second || budget.window%time.Second != 0 {
+			return nil, fmt.Errorf("the budget for %q is not a positive count in a whole number of seconds", group)
+		}
 	}
 
-	return &Limiter{queries: query.New(database), key: options.Key, now: now}, nil
+	return &Limiter{queries: query.New(database), key: options.Key}, nil
 }
 
 // Count records one request against a group and reports whether it may proceed.
@@ -130,7 +121,7 @@ func New(database query.DBTX, options Options) (*Limiter, error) {
 // but did not have to prove only narrows the bucket, while something proven may
 // stand alone.
 func (l *Limiter) Count(ctx context.Context, group Group, parts ...string) (Decision, error) {
-	policy, known := policies[group]
+	budget, known := policies[group]
 	if !known {
 		return Decision{}, fmt.Errorf("there is no limit for %q", group)
 	}
@@ -139,22 +130,24 @@ func (l *Limiter) Count(ctx context.Context, group Group, parts ...string) (Deci
 		return Decision{}, errors.New("a limit needs something to count against")
 	}
 
-	now := l.now().UTC()
-	windowStart := now.Truncate(policy.Window)
-	expiresAt := windowStart.Add(policy.Window)
-
-	count, err := l.queries.CountRequestInWindow(ctx, query.CountRequestInWindowParams{
+	counted, err := l.queries.CountRequestInWindow(ctx, query.CountRequestInWindowParams{
 		BucketKey:     l.bucketKey(group, parts),
 		EndpointGroup: string(group),
-		WindowStart:   windowStart,
-		ExpiresAt:     expiresAt,
+		WindowSeconds: int64(budget.window / time.Second),
 	})
 	if err != nil {
 		return Decision{}, fmt.Errorf("counting a request: %w", err)
 	}
 
-	if count > policy.Limit {
-		return Decision{Allowed: false, RetryAfter: expiresAt.Sub(now)}, nil
+	if counted.Count > budget.limit {
+		if counted.RetryAfterSeconds < 1 {
+			return Decision{}, errors.New("the database reported no time left in a window it counted against")
+		}
+
+		return Decision{
+			Allowed:    false,
+			RetryAfter: time.Duration(counted.RetryAfterSeconds) * time.Second,
+		}, nil
 	}
 
 	return Decision{Allowed: true}, nil

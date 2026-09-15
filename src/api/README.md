@@ -25,7 +25,10 @@ Neither of these is committed, and neither is edited by hand:
 
 `./scripts/check.sh` regenerates both. Tool versions are the `tool` directives
 in `go.mod`, so `go tool sqlc` and `go tool swag` run the same versions locally,
-in CI and in the container.
+in CI and in the container. The same directives pin revive, Staticcheck
+(`honnef.co/go/tools/cmd/staticcheck`) and the dead-code analysis
+(`golang.org/x/tools/cmd/deadcode`); the check script runs all three, so none
+needs a separate install.
 
 ## Migrations
 

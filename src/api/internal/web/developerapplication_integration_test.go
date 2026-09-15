@@ -3,13 +3,18 @@
 package web_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
+	"github.com/abandontech/abandonauth/src/api/internal/database/testdatabase"
 	"github.com/abandontech/abandonauth/src/api/internal/services/applications"
 	"github.com/abandontech/abandonauth/src/api/internal/services/credentials"
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
@@ -95,6 +100,176 @@ func TestReplacingCallbacksLeavesExactlyWhatWasSubmitted(t *testing.T) {
 
 	if registered := registeredCallbacks(t, service, application); len(registered) != 1 {
 		t.Errorf("registered callbacks = %v, want only the one that was submitted", registered)
+	}
+}
+
+// callbackReplacement builds a request replacing an application's callbacks
+// as the signed-in browser, for the tests that send several at once.
+func callbackReplacement(
+	t *testing.T, service *servertest.Service, application servertest.Application, uris []string,
+) *http.Request {
+	t.Helper()
+
+	body, err := json.Marshal(uris)
+	if err != nil {
+		t.Fatalf("encoding the callbacks: %v", err)
+	}
+
+	request, err := http.NewRequestWithContext(
+		t.Context(), http.MethodPatch,
+		service.EndpointURL("/developer_application/"+application.ID.String()+"/callback_uris"),
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		t.Fatalf("building the request: %v", err)
+	}
+
+	request.Header.Set("Content-Type", "application/json")
+
+	for _, name := range []string{service.SessionCookieName(), service.CSRFCookieName()} {
+		request.AddCookie(&http.Cookie{Name: name, Value: service.CookieValue(name)})
+	}
+
+	service.Protected(request)
+
+	return request
+}
+
+// holdApplicationRow takes the application's row lock in a transaction of the
+// test's own, so a replacement arriving meanwhile has to wait.
+func holdApplicationRow(t *testing.T, service *servertest.Service, application servertest.Application) pgx.Tx {
+	t.Helper()
+
+	holder, err := service.Pool.Begin(t.Context())
+	if err != nil {
+		t.Fatalf("beginning the holding transaction: %v", err)
+	}
+
+	if _, err := holder.Exec(t.Context(),
+		`SELECT "id" FROM "DeveloperApplication" WHERE "id" = $1 FOR UPDATE`, application.ID,
+	); err != nil {
+		t.Fatalf("holding the application's row: %v", err)
+	}
+
+	return holder
+}
+
+// Two replacements of one application's callbacks arriving together leave it
+// with one of the two sets, whole. Never the set it had, never both, never a
+// mixture: the replacements run one after the other.
+func TestReplacementsArrivingTogetherLeaveExactlyOneSubmittedSet(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	service.SignIn(service.Providers.Someone(oauth.Discord, "the owner"))
+
+	application := service.RegisterApplication("an application", externalCallbackURI)
+
+	first := []string{"https://first.example.test/return", "https://first.example.test/other"}
+	second := []string{"https://second.example.test/return"}
+
+	// Both requests are held at the row lock until the test has seen them both
+	// waiting there, so they contend for the application rather than one
+	// finishing before the other arrives.
+	holder := holdApplicationRow(t, service, application)
+
+	released := make(chan struct{})
+
+	go func() {
+		defer close(released)
+
+		if err := testdatabase.AwaitLockWaiters(t.Context(), service.Pool, 2); err != nil {
+			t.Errorf("waiting for both replacements to block: %v", err)
+		}
+
+		if err := holder.Rollback(t.Context()); err != nil {
+			t.Errorf("releasing the application's row: %v", err)
+		}
+	}()
+
+	answers := atTheSameMoment(t,
+		callbackReplacement(t, service, application, first),
+		callbackReplacement(t, service, application, second),
+	)
+
+	<-released
+
+	for _, answer := range answers {
+		if answer.status != http.StatusOK {
+			t.Errorf("a replacement answered %d (body: %s)", answer.status, answer.body)
+		}
+	}
+
+	registered := registeredCallbacks(t, service, application)
+	slices.Sort(registered)
+
+	sortedFirst := slices.Clone(first)
+	slices.Sort(sortedFirst)
+
+	if !slices.Equal(registered, sortedFirst) && !slices.Equal(registered, second) {
+		t.Errorf("registered callbacks = %v, want exactly %v or exactly %v", registered, first, second)
+	}
+}
+
+// An application that is deleted while a replacement of its callbacks waits
+// for its row is answered as an application that does not exist, and nothing
+// is registered for it.
+func TestAReplacementThatOutlivesItsApplicationFindsNothing(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	service.SignIn(service.Providers.Someone(oauth.Discord, "the owner"))
+
+	application := service.RegisterApplication("an application", externalCallbackURI)
+
+	holder := holdApplicationRow(t, service, application)
+
+	deleted := make(chan struct{})
+
+	go func() {
+		defer close(deleted)
+
+		if err := testdatabase.AwaitLockWaiters(t.Context(), service.Pool, 1); err != nil {
+			t.Errorf("waiting for the replacement to block: %v", err)
+		}
+
+		if _, err := holder.Exec(t.Context(),
+			`DELETE FROM "DeveloperApplication" WHERE "id" = $1`, application.ID,
+		); err != nil {
+			t.Errorf("deleting the application while a replacement waits: %v", err)
+		}
+
+		if err := holder.Commit(t.Context()); err != nil {
+			t.Errorf("committing the deletion: %v", err)
+		}
+	}()
+
+	answers := atTheSameMoment(t,
+		callbackReplacement(t, service, application, []string{"https://late.example.test/return"}),
+	)
+
+	<-deleted
+
+	if answers[0].status != http.StatusNotFound {
+		t.Errorf("the replacement answered %d, want %d", answers[0].status, http.StatusNotFound)
+	}
+
+	absent := service.GET("/developer_application/" + uuid.New().String()).
+		ExpectStatus(http.StatusNotFound)
+
+	if string(answers[0].body) != string(absent.Body) {
+		t.Errorf("the replacement answered %s, want the ordinary %s", answers[0].body, absent.Body)
+	}
+
+	var registered int
+	if err := service.Pool.QueryRow(t.Context(),
+		`SELECT count(*) FROM "CallbackUri" WHERE "developer_application_id" = $1`, application.ID,
+	).Scan(&registered); err != nil {
+		t.Fatalf("reading what the replacement left: %v", err)
+	}
+
+	if registered != 0 {
+		t.Errorf("%d callbacks were registered for an application that no longer exists", registered)
 	}
 }
 

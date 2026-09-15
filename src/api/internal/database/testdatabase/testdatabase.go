@@ -190,6 +190,35 @@ func Execute(t *testing.T, pool *pgxpool.Pool, statements string, arguments ...a
 	executeWithArguments(t, pool, statements, arguments...)
 }
 
+// AwaitLockWaiters returns once the given number of connections to the test
+// database are waiting on a lock, which is how a test synchronises with work it
+// has deliberately blocked. It reports a failure rather than waiting for ever,
+// and returns it rather than failing the test because it is usually called
+// from a goroutine of the test's own.
+func AwaitLockWaiters(ctx context.Context, pool *pgxpool.Pool, waiting int) error {
+	deadline := time.Now().Add(statementTimeout)
+
+	for time.Now().Before(deadline) {
+		var found int
+
+		err := pool.QueryRow(ctx,
+			`SELECT count(*) FROM pg_stat_activity
+			 WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+		).Scan(&found)
+		if err != nil {
+			return fmt.Errorf("reading which connections are waiting on a lock: %w", err)
+		}
+
+		if found >= waiting {
+			return nil
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	return fmt.Errorf("%d connections never came to wait on a lock", waiting)
+}
+
 func execute(t *testing.T, pool *pgxpool.Pool, statements string) {
 	t.Helper()
 
@@ -230,14 +259,6 @@ func uniqueName(t *testing.T) string {
 	}
 
 	return "abandonauth_test_" + safe + "_" + newIdentifier(t)[:8]
-}
-
-// Identifier returns a random hexadecimal identifier, for the tests that must
-// supply a primary key of their own.
-func Identifier(t *testing.T) string {
-	t.Helper()
-
-	return newIdentifier(t)
 }
 
 func newIdentifier(t *testing.T) string {

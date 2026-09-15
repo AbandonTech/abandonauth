@@ -13,7 +13,6 @@ import (
 
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
 	"github.com/abandontech/abandonauth/src/api/internal/services/providers/providertest"
-	"github.com/abandontech/abandonauth/src/api/internal/services/ratelimit"
 	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
 )
 
@@ -149,13 +148,8 @@ func TestALoginOnlyNamesARegisteredCallback(t *testing.T) {
 func TestACallbackSpelledAnotherWaySpendsNeitherTheLoginNorItsBudget(t *testing.T) {
 	t.Parallel()
 
-	service := servertest.New(t, servertest.WithSteadyClock())
+	service := servertest.New(t)
 	started := service.StartLogin(oauth.Discord, service.Site.ApplicationID, service.Site.CallbackURI)
-
-	budget, known := ratelimit.PolicyFor(ratelimit.ProviderCallback)
-	if !known {
-		t.Fatal("returning from a provider has no budget")
-	}
 
 	query := "?" + url.Values{
 		"code":  {"a-code-the-provider-never-issued"},
@@ -171,8 +165,8 @@ func TestACallbackSpelledAnotherWaySpendsNeitherTheLoginNorItsBudget(t *testing.
 		"/api/ui/discord-callback/",
 	}
 
-	for attempt := int64(0); attempt <= budget.Limit; attempt++ {
-		target := spellings[attempt%int64(len(spellings))]
+	for attempt := 0; attempt <= providerCallbackLimit; attempt++ {
+		target := spellings[attempt%len(spellings)]
 
 		service.AtExactTarget(http.MethodGet, target+query, asClient("198.51.100.30")).
 			ExpectStatus(http.StatusNotFound)

@@ -12,7 +12,6 @@ import (
 
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
 	"github.com/abandontech/abandonauth/src/api/internal/services/providers/providertest"
-	"github.com/abandontech/abandonauth/src/api/internal/services/ratelimit"
 	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
 )
 
@@ -335,16 +334,11 @@ func TestOneOneTimeCodeIsSpentAtMostOnce(t *testing.T) {
 func TestAnExchangeSpelledAnotherWaySpendsNeitherTheCodeNorItsBudget(t *testing.T) {
 	t.Parallel()
 
-	service := servertest.New(t, servertest.WithSteadyClock())
+	service := servertest.New(t)
 	service.SignIn(service.Providers.Someone(oauth.Discord, "the owner"))
 
 	application := service.RegisterApplication("a relying application", externalCallbackURI)
 	code := signInToApplication(t, service, application, externalCallbackURI)
-
-	budget, known := ratelimit.PolicyFor(ratelimit.LoginExchange)
-	if !known {
-		t.Fatal("spending a one-time code has no budget")
-	}
 
 	spellings := []string{
 		"/login",
@@ -355,8 +349,8 @@ func TestAnExchangeSpelledAnotherWaySpendsNeitherTheCodeNorItsBudget(t *testing.
 		"/api/ui/../login",
 	}
 
-	for attempt := int64(0); attempt <= budget.Limit; attempt++ {
-		target := spellings[attempt%int64(len(spellings))]
+	for attempt := 0; attempt <= loginExchangeLimit; attempt++ {
+		target := spellings[attempt%len(spellings)]
 
 		service.AtExactTarget(http.MethodPost, target,
 			servertest.Header("exchange-token", code),

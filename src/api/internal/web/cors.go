@@ -32,9 +32,10 @@ const preflightMaxAge = 10 * time.Minute
 // nothing at.
 func (s *Server) answerCORS(next http.Handler) http.Handler {
 	site := s.config.Site
+	declared := newDeclaredPaths()
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		served := declaredPath(rawPath(request))
+		served := declared.names(rawPath(request))
 		origin := request.Header.Get("Origin")
 		permitted := served && origin != "" && site.MatchesHeader(origin)
 

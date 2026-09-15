@@ -45,7 +45,8 @@ const (
 	settingBindAddress           = "BIND_ADDRESS"
 )
 
-// Limits the service places on configured lifetimes.
+// Limits the service places on configured lifetimes, and the lifetimes a
+// deployment that sets none gets.
 const (
 	// MaxExchangeCodeLifetime bounds how long a one-time code handed to an
 	// application stays usable. It is short because the code travels through the
@@ -54,6 +55,12 @@ const (
 	// MaxBrowserSessionLifetime bounds how long a browser stays signed in
 	// without proving itself to a provider again.
 	MaxBrowserSessionLifetime = 30 * 24 * time.Hour
+	// DefaultExchangeCodeSeconds is the one-time code lifetime, in seconds, a
+	// deployment gets without setting one.
+	DefaultExchangeCodeSeconds = 120
+	// DefaultBrowserSessionSeconds is the browser session lifetime, in seconds,
+	// a deployment gets without setting one.
+	DefaultBrowserSessionSeconds = 2592000
 	// MinSigningSecretBytes is the shortest root signing secret accepted. The
 	// per-purpose HS512 keys are derived from it, so it must carry at least as
 	// much entropy as the keys it produces.
@@ -354,12 +361,14 @@ func lifetime(setting string, seconds int, maximum time.Duration) (time.Duration
 		return 0, settingError(setting, "must be a positive number of seconds")
 	}
 
-	value := time.Duration(seconds) * time.Second
-	if value > maximum {
-		return 0, settingError(setting, fmt.Sprintf("must not exceed %d seconds", int(maximum.Seconds())))
+	// Compared as whole seconds before the duration exists: a large enough
+	// count multiplied by time.Second wraps into a value the bound would accept.
+	maximumSeconds := int64(maximum / time.Second)
+	if int64(seconds) > maximumSeconds {
+		return 0, settingError(setting, fmt.Sprintf("must not exceed %d seconds", maximumSeconds))
 	}
 
-	return value, nil
+	return time.Duration(seconds) * time.Second, nil
 }
 
 func origin(setting, raw string, transport urlpolicy.TransportPolicy) (urlpolicy.Origin, error) {

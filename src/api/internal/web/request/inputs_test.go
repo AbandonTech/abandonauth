@@ -367,24 +367,6 @@ func TestAnEmptyQueryParameterIsPresent(t *testing.T) {
 	}
 }
 
-func TestOptionalInputsAreNeverRefused(t *testing.T) {
-	t.Parallel()
-
-	inputs := request.New(httptest.NewRequest(http.MethodGet, "/api/ui/", nil))
-
-	if got := inputs.OptionalQuery("code"); got != "" {
-		t.Errorf("code = %q, want empty", got)
-	}
-
-	if got := inputs.OptionalHeader("Authorization"); got != "" {
-		t.Errorf("Authorization = %q, want empty", got)
-	}
-
-	if !inputs.OK() {
-		t.Errorf("absent optional inputs were refused: %v", inputs.Failures())
-	}
-}
-
 // The refusal is written to the client and may be logged, so it must describe
 // the input without repeating it.
 func TestARefusalNeverRepeatsTheValue(t *testing.T) {

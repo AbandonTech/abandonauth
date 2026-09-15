@@ -13,8 +13,10 @@ import (
 // Any application's token is accepted, as long as the application still exists:
 // identifying the person is the whole purpose of the token it was given.
 //
-// @Summary     Current User Information
-// @Description Get information about the user from a jwt token.
+// @Summary     Current user information
+// @Description Identify the person an access token speaks for.
+// @Description
+// @Description Any application's user access token is accepted, as long as the application still exists.
 // @Produce     json
 // @Success     200 {object} models.UserDto
 // @Failure     403 {object} response.Failed "The credential was missing, refused or expired"

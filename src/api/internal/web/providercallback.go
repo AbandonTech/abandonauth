@@ -10,8 +10,10 @@ import (
 
 // discordCallback finishes a login that was started with Discord.
 //
-// @Summary     Discord Callback
-// @Description Discord callback endpoint for authenticating with Discord OAuth with AbandonAuth UI.
+// @Summary     Finish a login with Discord
+// @Description The address Discord returns the browser to after a login started at the authorize endpoint.
+// @Description
+// @Description The state must belong to a login this service started for this browser. A login the site itself started ends in a browser session; any other ends in a one-time code appended to the application's registered callback under the key "code". A browser returned without a code is sent to the callback with nothing appended.
 // @Produce     json
 // @Param       code  query string false "The authorization code Discord issued"
 // @Param       state query string true  "The value this service put in the authorization request"
@@ -39,14 +41,16 @@ func (s *Server) discordCallback() http.Handler {
 			return
 		}
 
-		s.completeLogin(writer, request, login, identity, exchangeCodeQueryKey)
+		s.completeLogin(writer, request, login, identity, urlpolicy.ExchangeCodeQueryKey)
 	})
 }
 
 // githubCallback finishes a login that was started with GitHub.
 //
-// @Summary     Github Callback
-// @Description GitHub callback endpoint for authenticating with GitHub OAuth with AbandonAuth UI.
+// @Summary     Finish a login with GitHub
+// @Description The address GitHub returns the browser to after a login started at the authorize endpoint.
+// @Description
+// @Description The state must belong to a login this service started for this browser. A login the site itself started ends in a browser session; any other ends in a one-time code appended to the application's registered callback under the key "code". A browser returned without a code is sent to the callback with nothing appended.
 // @Produce     json
 // @Param       code  query string false "The authorization code GitHub issued"
 // @Param       state query string true  "The value this service put in the authorization request"
@@ -74,7 +78,7 @@ func (s *Server) githubCallback() http.Handler {
 			return
 		}
 
-		s.completeLogin(writer, request, login, identity, exchangeCodeQueryKey)
+		s.completeLogin(writer, request, login, identity, urlpolicy.ExchangeCodeQueryKey)
 	})
 }
 
@@ -84,11 +88,13 @@ func (s *Server) githubCallback() http.Handler {
 // Google's published keys, this service's own client identifier, and the value
 // that ties it to this login, before the person it names is looked up.
 //
-// @Summary     Login With Google
-// @Description Log a user in using Google's OAuth2 as validation.
+// @Summary     Finish a login with Google
+// @Description The address Google returns the browser to after a login started at the authorize endpoint.
+// @Description
+// @Description The state must belong to a login this service started for this browser, and the identity token Google issues is verified in full before anyone is signed in. A login the site itself started ends in a browser session; any other ends in a one-time code appended to the application's registered callback under the key "authentication". A browser returned without a code is sent to the callback with nothing appended.
 // @Tags        Google
 // @Produce     json
-// @Param       code  query string true "The authorization code Google issued"
+// @Param       code  query string false "The authorization code Google issued"
 // @Param       state query string true "The value this service put in the authorization request"
 // @Success     307 "Redirect to the application's registered callback"
 // @Failure     403 {object} response.Failed "The login could not be matched or completed"
@@ -114,7 +120,7 @@ func (s *Server) googleCallback() http.Handler {
 			return
 		}
 
-		s.completeLogin(writer, request, login, identity, identityQueryKey)
+		s.completeLogin(writer, request, login, identity, urlpolicy.IdentityQueryKey)
 	})
 }
 

@@ -135,14 +135,3 @@ var baseRoutes = []Route{
 func Routes() []Route {
 	return append(slices.Clone(baseRoutes), devtoolsRoutes...)
 }
-
-// Lookup returns the route with the given name.
-func Lookup(name RouteName) (Route, bool) {
-	for _, route := range Routes() {
-		if route.Name == name {
-			return route, true
-		}
-	}
-
-	return Route{}, false
-}

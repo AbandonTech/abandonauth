@@ -13,8 +13,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/abandontech/abandonauth/src/api/internal/config"
+	"github.com/abandontech/abandonauth/src/api/internal/database/testdatabase"
 	"github.com/abandontech/abandonauth/src/api/internal/services/credentials"
-	"github.com/abandontech/abandonauth/src/api/internal/services/ratelimit"
 	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
 )
 
@@ -22,6 +22,10 @@ import (
 // placeholder: these routes exist to seed a machine that no other machine can
 // reach.
 const developerPassword = "placeholder-password"
+
+// passwordSignInLimit is the budget these routes promise: five attempts in ten
+// minutes, stated here rather than read back from the service.
+const passwordSignInLimit = 5
 
 // developmentService runs the service the way a developer runs it: this build,
 // debug mode on, and a listener only the local machine can reach. All three are
@@ -208,6 +212,74 @@ func TestARefusedPasswordSaysNothingAboutTheAccount(t *testing.T) {
 	}
 }
 
+// A password that was accepted is not a session. Everything that can still fail
+// after it, here the authority every credential is issued under, fails the
+// request whole: no cookie, no token, no stored session.
+func TestAnAcceptedPasswordGrantsNothingWhenTheAuthorityCannotBeRead(t *testing.T) {
+	t.Parallel()
+
+	service := developmentService(t)
+	userID := seedAccount(t, service, "a developer")
+
+	signIn := map[string]string{"user_id": userID, "password": developerPassword}
+
+	// The positive control: this password signs the account in.
+	service.POSTJSON("/login_test_user", signIn).ExpectStatus(http.StatusOK)
+
+	service.Forget(service.SessionCookieName())
+	service.Forget(service.CSRFCookieName())
+
+	var sessionsBefore int
+	if err := service.Pool.QueryRow(t.Context(), "SELECT count(*) FROM browser_session").Scan(&sessionsBefore); err != nil {
+		t.Fatalf("counting sessions: %v", err)
+	}
+
+	// The one row every credential is measured against. Without it there is no
+	// authority to issue anything under.
+	testdatabase.Execute(t, service.Pool, "DELETE FROM auth_epoch")
+
+	refused := service.POSTJSON("/login_test_user", signIn).
+		ExpectStatus(http.StatusInternalServerError).
+		ExpectDetail("Internal Server Error")
+
+	if refused.Cookie(service.SessionCookieName()) != nil {
+		t.Error("a sign-in that failed after the password was accepted set a session cookie")
+	}
+
+	if refused.Cookie(service.CSRFCookieName()) != nil {
+		t.Error("a sign-in that failed after the password was accepted set a CSRF cookie")
+	}
+
+	if len(refused.Cookies) != 0 {
+		t.Errorf("a failed sign-in set %d cookies", len(refused.Cookies))
+	}
+
+	var body struct {
+		Token string `json:"token"`
+	}
+
+	refused.DecodeInto(&body)
+
+	if body.Token != "" {
+		t.Error("a failed sign-in answered with a token")
+	}
+
+	var sessionsAfter int
+	if err := service.Pool.QueryRow(t.Context(), "SELECT count(*) FROM browser_session").Scan(&sessionsAfter); err != nil {
+		t.Fatalf("counting sessions: %v", err)
+	}
+
+	if sessionsAfter != sessionsBefore {
+		t.Errorf("a failed sign-in stored a session: %d sessions, was %d", sessionsAfter, sessionsBefore)
+	}
+
+	if service.CookieValue(service.SessionCookieName()) != "" {
+		t.Error("the browser is holding a session after a failed sign-in")
+	}
+
+	service.GET("/me").ExpectStatus(http.StatusForbidden)
+}
+
 // The password is stored as something a reader of the database cannot sign in
 // with, at the work factor every stored secret is made with.
 func TestTheStoredPasswordIsNotThePasswordThatWasSent(t *testing.T) {
@@ -303,17 +375,12 @@ func TestSeedingAnAccountRefusesIncompleteRequests(t *testing.T) {
 func TestGuessingASeededPasswordRunsOut(t *testing.T) {
 	t.Parallel()
 
-	service := developmentService(t, servertest.WithSteadyClock())
+	service := developmentService(t)
 	userID := seedAccount(t, service, "a developer")
-
-	policy, known := ratelimit.PolicyFor(ratelimit.PasswordSignIn)
-	if !known {
-		t.Fatal("password sign-in has no budget")
-	}
 
 	guess := map[string]string{"user_id": userID, "password": "not-the-password"}
 
-	for attempt := int64(0); attempt < policy.Limit; attempt++ {
+	for attempt := 0; attempt < passwordSignInLimit; attempt++ {
 		service.POSTJSON("/login_test_user", guess, fromForwardedClient("198.51.100.20")).
 			ExpectStatus(http.StatusUnauthorized)
 	}

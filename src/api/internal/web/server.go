@@ -116,16 +116,12 @@ func NewServer(configuration config.Config, dependencies Dependencies) (*Server,
 
 	browserSessions, err := sessions.NewStore(dependencies.Pool, sessions.Options{
 		Lifetime: configuration.BrowserSessionLifetime,
-		Now:      now,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	limiter, err := ratelimit.New(dependencies.Pool, ratelimit.Options{
-		Key: keys.RateLimitPseudonym(),
-		Now: now,
-	})
+	limiter, err := ratelimit.New(dependencies.Pool, ratelimit.Options{Key: keys.RateLimitPseudonym()})
 	if err != nil {
 		return nil, err
 	}
@@ -193,20 +189,9 @@ func (s *Server) surround(handler http.Handler) http.Handler {
 // method gets 405. Both use the service's own failure shape, not the router's
 // plain text, so a client can parse every response it can provoke.
 func unmatchedRequests() http.Handler {
-	knownPaths := http.NewServeMux()
-	registered := make(map[string]bool)
-
-	for _, route := range Routes() {
-		if registered[route.Pattern] {
-			continue
-		}
-
-		registered[route.Pattern] = true
-
-		knownPaths.Handle(route.Pattern, http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-			response.MethodNotAllowed(writer)
-		}))
-	}
+	knownPaths := routePaths(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		response.MethodNotAllowed(writer)
+	}))
 
 	knownPaths.Handle("/", http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		response.NotFound(writer)

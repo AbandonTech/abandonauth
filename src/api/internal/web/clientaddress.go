@@ -19,6 +19,12 @@ const (
 // configured proxy. Anyone can send one, so believing it unconditionally would
 // let a single client present a new identity per request and never be limited.
 //
+// The forwarded chain is read from its trusted end. A proxy appends the peer it
+// saw, so the rightmost entries are the ones the configured proxies wrote and
+// anything a client sent itself sits to their left. A chain that is present but
+// cannot be read in full falls back to the peer, and never to X-Real-IP, which
+// the same client could have sent.
+//
 // The address is returned as text and is only ever used as input to a keyed
 // hash; it is not stored or logged.
 func (s *Server) clientAddress(request *http.Request) string {
@@ -28,8 +34,12 @@ func (s *Server) clientAddress(request *http.Request) string {
 		return peer.String()
 	}
 
-	if forwarded, found := firstForwardedAddress(request.Header.Get(forwardedForHeader)); found {
-		return forwarded.String()
+	if fields := request.Header.Values(forwardedForHeader); len(fields) > 0 {
+		if client, readable := s.forwardedClient(fields); readable {
+			return client.String()
+		}
+
+		return peer.String()
 	}
 
 	named := strings.TrimSpace(request.Header.Get(realIPHeader))
@@ -54,18 +64,37 @@ func (s *Server) trustsPeer(peer netip.Addr) bool {
 	return false
 }
 
-// firstForwardedAddress reads the client the proxy named. The list grows by
-// appending, so the client is the first entry, and anything a client sent
-// itself is behind it.
-func firstForwardedAddress(header string) (netip.Addr, bool) {
-	first, _, _ := strings.Cut(header, ",")
+// forwardedClient reads the client out of every X-Forwarded-For field, taken
+// in arrival order as one comma-delimited chain.
+//
+// Every element must be an address. Walking from the right, each trusted hop is
+// skipped and the nearest untrusted address is the client; a chain made only of
+// trusted hops names its leftmost entry, which is what the first proxy saw.
+func (s *Server) forwardedClient(fields []string) (netip.Addr, bool) {
+	var chain []netip.Addr
 
-	address, err := netip.ParseAddr(strings.TrimSpace(first))
-	if err != nil {
+	for _, field := range fields {
+		for _, element := range strings.Split(field, ",") {
+			address, err := netip.ParseAddr(strings.TrimSpace(element))
+			if err != nil {
+				return netip.Addr{}, false
+			}
+
+			chain = append(chain, address.Unmap())
+		}
+	}
+
+	if len(chain) == 0 {
 		return netip.Addr{}, false
 	}
 
-	return address.Unmap(), true
+	for index := len(chain) - 1; index >= 0; index-- {
+		if !s.trustsPeer(chain[index]) {
+			return chain[index], true
+		}
+	}
+
+	return chain[0], true
 }
 
 func peerAddress(remote string) netip.Addr {

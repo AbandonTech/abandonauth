@@ -3,6 +3,7 @@
 package accounts_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -94,5 +95,83 @@ func TestAnIdentityResolvesToOneAccountThatCanBeFoundAgain(t *testing.T) {
 
 	if found.Username != identity.Username {
 		t.Errorf("username = %q, want %q", found.Username, identity.Username)
+	}
+}
+
+// A request cancelled while an account is half created leaves nothing behind:
+// not the account without its provider identity, and not a lock that would
+// stop the same person signing in next time.
+func TestACancelledResolutionLeavesNoHalfCreatedAccount(t *testing.T) {
+	t.Parallel()
+
+	pool := testdatabase.NewMigrated(t)
+	people := accounts.New(pool)
+
+	identity := accounts.Identity{Provider: oauth.Discord, ID: "4815162342", Username: "someone"}
+
+	// A transaction holding an uncommitted claim on the same provider identity,
+	// which is what the resolution below waits on after it has already written
+	// the account row.
+	blocker, err := pool.Begin(t.Context())
+	if err != nil {
+		t.Fatalf("beginning the blocking transaction: %v", err)
+	}
+
+	var blockerUser uuid.UUID
+	if err := blocker.QueryRow(t.Context(),
+		`INSERT INTO "User" ("username") VALUES ('the blocker') RETURNING "id"`,
+	).Scan(&blockerUser); err != nil {
+		t.Fatalf("writing the blocker's account: %v", err)
+	}
+
+	if _, err := blocker.Exec(t.Context(),
+		`INSERT INTO "DiscordAccount" ("id", "user_id") VALUES (4815162342, $1)`, blockerUser,
+	); err != nil {
+		t.Fatalf("claiming the provider identity: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+
+	resolved := make(chan error, 1)
+
+	go func() {
+		_, err := people.Resolve(ctx, identity)
+		resolved <- err
+	}()
+
+	if err := testdatabase.AwaitLockWaiters(t.Context(), pool, 1); err != nil {
+		t.Fatalf("waiting for the resolution to block: %v", err)
+	}
+
+	cancel()
+
+	if err := <-resolved; err == nil {
+		t.Fatal("a cancelled resolution reported an account")
+	}
+
+	if err := blocker.Rollback(t.Context()); err != nil {
+		t.Fatalf("releasing the blocking transaction: %v", err)
+	}
+
+	var halfCreated int
+	if err := pool.QueryRow(t.Context(),
+		`SELECT count(*) FROM "User" WHERE "username" = $1`, identity.Username,
+	).Scan(&halfCreated); err != nil {
+		t.Fatalf("reading what the cancelled resolution left: %v", err)
+	}
+
+	if halfCreated != 0 {
+		t.Error("the cancelled resolution left an account nobody can sign in as")
+	}
+
+	// The same person can now be resolved: nothing the cancelled request held
+	// is still held.
+	created, err := people.Resolve(t.Context(), identity)
+	if err != nil {
+		t.Fatalf("resolving the identity after the cancelled attempt: %v", err)
+	}
+
+	if created.Username != identity.Username {
+		t.Errorf("username = %q, want %q", created.Username, identity.Username)
 	}
 }

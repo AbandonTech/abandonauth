@@ -4,7 +4,9 @@ package main
 
 import (
 	"context"
+	"net"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +16,26 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/database/testdatabase"
 	"github.com/abandontech/abandonauth/src/api/internal/web"
 )
+
+// freeAddress reserves a port and releases it, so the address given to a
+// command is one nothing else on the machine is using. A command binds the
+// address it is configured with, so it cannot be handed an open listener.
+func freeAddress(t *testing.T) string {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserving a port: %v", err)
+	}
+
+	address := listener.Addr().String()
+
+	if err := listener.Close(); err != nil {
+		t.Fatalf("releasing the reserved port: %v", err)
+	}
+
+	return address
+}
 
 // operationalSettings describe a service that can actually start: a database of
 // its own, and placeholders for everything else that must be present and valid.
@@ -27,8 +49,8 @@ func operationalSettings(t *testing.T, databaseURL, address string) config.Confi
 		DatabaseURL:           databaseURL,
 		SigningSecret:         "placeholder-signing-secret-placeholder-signing-secret-placeholder",
 		SigningAlgorithm:      config.SigningAlgorithm,
-		ExchangeCodeSeconds:   120,
-		BrowserSessionSeconds: 2592000,
+		ExchangeCodeSeconds:   config.DefaultExchangeCodeSeconds,
+		BrowserSessionSeconds: config.DefaultBrowserSessionSeconds,
 		InternalApplicationID: uuid.New().String(),
 		SiteURL:               "https://auth.example.test",
 		APIURL:                origin,
@@ -106,6 +128,40 @@ func TestServingMigratesTheDatabaseAndThenAnswers(t *testing.T) {
 		}
 	case <-time.After(settleTimeout):
 		t.Fatal("serving did not stop when its context was cancelled")
+	}
+}
+
+// Serving reports an address it cannot bind at once, naming the address, after
+// the database is ready and before anything else is started for it.
+func TestServingReportsAnAddressItCannotBind(t *testing.T) {
+	t.Parallel()
+
+	_, databaseURL := testdatabase.NewWithURL(t)
+
+	occupied, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("occupying a port: %v", err)
+	}
+
+	defer func() { _ = occupied.Close() }()
+
+	address := occupied.Addr().String()
+
+	ended := make(chan error, 1)
+
+	go func() { ended <- service{}.Serve(t.Context(), operationalSettings(t, databaseURL, address)) }()
+
+	select {
+	case err := <-ended:
+		if err == nil {
+			t.Fatal("serving started on an address already in use")
+		}
+
+		if !strings.Contains(err.Error(), address) {
+			t.Errorf("the failure does not name the address: %v", err)
+		}
+	case <-time.After(settleTimeout):
+		t.Fatal("serving did not report the address it could not bind")
 	}
 }
 

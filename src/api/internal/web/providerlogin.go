@@ -23,13 +23,6 @@ const (
 	detailNoSuchLogin                  = "This login could not be matched to one that was started here"
 )
 
-// Query keys a completed login is returned under. They are what applications
-// already read, and a callback may not already use one.
-const (
-	exchangeCodeQueryKey = "code"
-	identityQueryKey     = "authentication"
-)
-
 // providerAuthorize starts a login with a provider.
 //
 // The application and the exact callback are checked here, before anything is
@@ -164,7 +157,7 @@ func (s *Server) resumeLogin(
 		return oauth.Login{}, "", false
 	}
 
-	return login, request.URL.Query().Get(exchangeCodeQueryKey), true
+	return login, request.URL.Query().Get(urlpolicy.ExchangeCodeQueryKey), true
 }
 
 // completeLogin returns the browser to where the login said it should go.

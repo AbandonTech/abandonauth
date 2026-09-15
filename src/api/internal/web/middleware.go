@@ -1,7 +1,9 @@
 package web
 
 import (
+	"bufio"
 	"context"
+	"net"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -18,12 +20,36 @@ const RequestIDHeader = "X-Request-ID"
 const maxAcceptedRequestID = 64
 
 // recordingWriter remembers what was answered, because the response is written
-// by a handler and the logging happens outside it.
+// by a handler and both the logging and the recovery from a failure happen
+// outside it. It also remembers whether anything has been committed yet, which
+// is what decides whether a failure can still be answered.
 type recordingWriter struct {
 	http.ResponseWriter
 
-	status  int
-	written int64
+	status   int
+	written  int64
+	hijacked bool
+}
+
+// recording returns the recorder a writer already is, or wraps it in one.
+func recording(writer http.ResponseWriter) *recordingWriter {
+	if recorder, already := writer.(*recordingWriter); already {
+		return recorder
+	}
+
+	return &recordingWriter{ResponseWriter: writer}
+}
+
+// Unwrap exposes the underlying writer to http.ResponseController, so the
+// optional operations this recorder does not observe still reach the listener.
+func (w *recordingWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+// committed reports whether anything has reached the client: a status, a body,
+// or the connection itself.
+func (w *recordingWriter) committed() bool {
+	return w.status != 0 || w.hijacked
 }
 
 func (w *recordingWriter) WriteHeader(status int) {
@@ -44,29 +70,62 @@ func (w *recordingWriter) Write(body []byte) (int, error) {
 	return written, err
 }
 
+// Flush sends what has been written so far. Flushing commits an implicit 200
+// if nothing was written, so it is recorded as such before it happens.
+func (w *recordingWriter) Flush() {
+	_ = w.FlushError()
+}
+
+// FlushError is what http.ResponseController prefers over Flush.
+func (w *recordingWriter) FlushError() error {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+
+	return http.NewResponseController(w.ResponseWriter).Flush()
+}
+
+// Hijack hands the connection to the handler. Once that has succeeded nothing
+// more can be written through this writer, so the recorder stops answering.
+func (w *recordingWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	connection, buffered, err := http.NewResponseController(w.ResponseWriter).Hijack()
+	if err == nil {
+		w.hijacked = true
+	}
+
+	return connection, buffered, err
+}
+
 // recoverPanics keeps a defect in one handler from ending the process, and
-// answers the request that provoked it with a failure it can parse.
+// answers the request that provoked it with a failure it can parse, unless an
+// answer has already begun: a second one would only contradict the first.
 //
-// The value recovered is written to the log and never to the response: it can
-// hold anything that was in scope, including a credential.
+// The value recovered is written nowhere. It can hold anything that was in
+// scope, including a credential, so the log records only that a handler failed
+// and which request it was answering.
 func (s *Server) recoverPanics(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		recorder := recording(writer)
+		answering, request := routeRecording(request)
+
 		defer func() {
-			recovered := recover()
-			if recovered == nil {
+			if recover() == nil {
 				return
 			}
 
 			s.logger.Error().
 				Str("request_id", requestIDOf(request)).
-				Str("route", request.Pattern).
-				Interface("panic", recovered).
+				Str("route", answering.name()).
 				Msg("a request handler failed")
 
-			response.Error(writer, http.StatusInternalServerError, "Internal Server Error")
+			if recorder.committed() {
+				return
+			}
+
+			response.Error(recorder, http.StatusInternalServerError, "Internal Server Error")
 		}()
 
-		next.ServeHTTP(writer, request)
+		next.ServeHTTP(recorder, request)
 	})
 }
 
@@ -87,15 +146,37 @@ func (s *Server) identifyRequest(next http.Handler) http.Handler {
 	})
 }
 
-// answeringRoute is where the router leaves the pattern it matched, so the log
-// can name it. The match happens inside the router, on a request derived from
-// this one, so it cannot be read from the request the log middleware holds.
+// answeringRoute is where the router leaves the pattern it matched, so a log
+// line can name it. The match happens inside the router, on a request derived
+// from this one, so it cannot be read from the request the outer layers hold.
 type answeringRoute struct {
 	pattern string
 }
 
+// name is what a log line calls the route: its pattern, or the fact that no
+// route claimed the request.
+func (a *answeringRoute) name() string {
+	if a.pattern == "" {
+		return "unmatched"
+	}
+
+	return a.pattern
+}
+
 // routeKey is the context key the matched route is left under.
 type routeKey struct{}
+
+// routeRecording returns the route holder a request already carries, or gives
+// it one, so every layer that logs names the same route.
+func routeRecording(request *http.Request) (*answeringRoute, *http.Request) {
+	if answering, carried := request.Context().Value(routeKey{}).(*answeringRoute); carried {
+		return answering, request
+	}
+
+	answering := &answeringRoute{}
+
+	return answering, request.WithContext(context.WithValue(request.Context(), routeKey{}, answering))
+}
 
 // recordRoute hands the pattern the router matched back to the request log.
 func recordRoute(next http.Handler) http.Handler {
@@ -116,10 +197,8 @@ func recordRoute(next http.Handler) http.Handler {
 func (s *Server) logRequest(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		started := s.now()
-		recorder := &recordingWriter{ResponseWriter: writer}
-		answering := &answeringRoute{}
-
-		request = request.WithContext(context.WithValue(request.Context(), routeKey{}, answering))
+		recorder := recording(writer)
+		answering, request := routeRecording(request)
 
 		next.ServeHTTP(recorder, request)
 
@@ -133,15 +212,10 @@ func (s *Server) logRequest(next http.Handler) http.Handler {
 			event = s.logger.Error()
 		}
 
-		route := answering.pattern
-		if route == "" {
-			route = "unmatched"
-		}
-
 		event.
 			Str("request_id", requestIDOf(request)).
 			Str("method", request.Method).
-			Str("route", route).
+			Str("route", answering.name()).
 			Int("status", status).
 			Int64("bytes", recorder.written).
 			Dur("duration", s.now().Sub(started)).

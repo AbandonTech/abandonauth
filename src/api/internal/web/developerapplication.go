@@ -67,10 +67,10 @@ func describeApplication(application applications.Application) models.DeveloperA
 // createApplication registers an application owned by the caller and returns
 // its refresh token, which cannot be read again.
 //
-// @Summary     Create a new developer application and retrieve a refresh token. This token will never be visible again.
-// @Description Create a new developer application owned by the currently authenticated User.
+// @Summary     Register a developer application and receive its refresh token
+// @Description Register a developer application owned by the signed-in person.
 // @Description
-// @Description Returns the permanent refresh token for the account. This token can only be manually changed.
+// @Description The answer carries the application's refresh token, which is shown only here: it is stored as a hash and cannot be read back. It stays valid until it is replaced through the reset_token endpoint.
 // @Tags        Developer Applications
 // @Accept      json
 // @Produce     json
@@ -122,10 +122,10 @@ func (s *Server) createApplication() http.Handler {
 // applicationLogin exchanges an application's refresh token for its own access
 // token.
 //
-// @Summary     Exchange a developer application refresh token for a short-lived AbandonAuth JWT
-// @Description Authenticate a developer application given a long-term refresh token or raise a **401** response.
+// @Summary     Exchange a developer application's refresh token for a short-lived access token
+// @Description Authenticate a developer application with its refresh token.
 // @Description
-// @Description Returns a short-lived access token for the developer application.
+// @Description The answer is an access token that speaks for the application itself and expires after fifteen minutes. A refresh token that is not the application's, or an application that does not exist, is refused with the same 401.
 // @Tags        Developer Applications
 // @Accept      json
 // @Produce     json
@@ -193,8 +193,8 @@ func (s *Server) applicationLogin() http.Handler {
 
 // currentApplication tells an application what this service knows about it.
 //
-// @Summary     Verify and retrieve information for a developer application
-// @Description Get information about the developer application from its access token.
+// @Summary     Identify the developer application behind an access token
+// @Description Describe the developer application an access token speaks for.
 // @Tags        Developer Applications
 // @Produce     json
 // @Success     200 {object} models.DeveloperApplicationDto
@@ -215,8 +215,8 @@ func (s *Server) currentApplication() http.Handler {
 // getApplication returns one of the caller's applications and the URIs it may
 // be returned to.
 //
-// @Summary     Retrieve the given application if it belongs to the currently authenticated user
-// @Description Get information about the given developer application if the requesting user owns the developer app.
+// @Summary     Describe one of the signed-in person's developer applications
+// @Description Describe a developer application and the callback URIs it may be returned to, if the signed-in person owns it. An application somebody else owns is answered as one that does not exist.
 // @Tags        Developer Applications
 // @Produce     json
 // @Param       application_id path     string true "The application's identifier" format(uuid)
@@ -252,8 +252,8 @@ func (s *Server) getApplication() http.Handler {
 // deleteApplication removes one of the caller's applications, and with it every
 // callback, login in progress and one-time code that referred to it.
 //
-// @Summary     Delete the developer application with the given id
-// @Description Delete the given developer application if the current user owns the application.
+// @Summary     Delete one of the signed-in person's developer applications
+// @Description Delete a developer application the signed-in person owns, with its callback URIs, its logins in progress and its unspent one-time codes. An application somebody else owns is answered as one that does not exist.
 // @Tags        Developer Applications
 // @Produce     json
 // @Param       application_id path     string true "The application's identifier" format(uuid)
@@ -297,10 +297,10 @@ func (s *Server) deleteApplication() http.Handler {
 // resetApplicationCredential issues a new refresh token and refuses every
 // access token issued against the one it replaces.
 //
-// @Summary     Change the refresh token on a developer application. This is not reversible.
-// @Description Generate and set a new refresh token for the given developer application.
+// @Summary     Replace a developer application's refresh token
+// @Description Issue a new refresh token for a developer application the signed-in person owns.
 // @Description
-// @Description This action is not reversible and destroys the existing refresh token for the application.
+// @Description The replaced refresh token stops authenticating the application at once, and every access token issued against it is refused from then on. The new token is shown only in this answer.
 // @Tags        Developer Applications
 // @Produce     json
 // @Param       application_id path     string true "The application's identifier" format(uuid)
@@ -349,12 +349,10 @@ func (s *Server) resetApplicationCredential() http.Handler {
 // replaceCallbackURIs makes the set of URIs an application may be returned to
 // exactly the one submitted.
 //
-// @Summary     Update the callback URIs for the given developer application
-// @Description Replace the valid callback URIs for the given developer application and return the given developer application.
+// @Summary     Replace a developer application's callback URIs
+// @Description Make the set of callback URIs a developer application may be returned to exactly the set submitted.
 // @Description
-// @Description Create all callback URIs that do not exist yet.
-// @Description Delete all callback URIs that already exist and were not given in this request.
-// @Description Callback URIs that already exist and were given in this request will remain in the database unaltered.
+// @Description URIs not yet registered are added, URIs registered but not submitted are removed, and URIs in both are kept as they are. A URI is matched by its exact spelling. The set is replaced whole or not at all: one URI this service would not return a browser to leaves the application with the set it had. Replacements of one application's set run one after the other.
 // @Tags        Developer Applications
 // @Accept      json
 // @Produce     json
@@ -395,6 +393,14 @@ func (s *Server) replaceCallbackURIs() http.Handler {
 		var unsafe applications.UnsafeCallbackError
 		if errors.As(err, &unsafe) {
 			response.Error(writer, http.StatusBadRequest, detailUnsafeCallback)
+
+			return
+		}
+
+		// Owned a moment ago and gone by the time its row could be locked is
+		// the same answer as never owned.
+		if errors.Is(err, applications.ErrNoSuchApplication) {
+			response.NotFound(writer)
 
 			return
 		}

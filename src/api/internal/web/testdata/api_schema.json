@@ -223,7 +223,7 @@
   "paths": {
     "/api/burn-token": {
       "post": {
-        "description": "Invalidate the given JWT.\n\nAttempts to delete the given token. Returns 200 response regardless of if the token existed.",
+        "description": "Withdraw a one-time code or an access token before it would have expired.\n\nA one-time code is removed and can no longer be spent. An access token is recorded as withdrawn and is refused for the rest of its lifetime. The answer is 200 whether the value was withdrawn, was already gone, or was never issued.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -254,12 +254,12 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Burn Jwt"
+        "summary": "Withdraw a credential"
       }
     },
     "/api/developer_application": {
       "post": {
-        "description": "Create a new developer application owned by the currently authenticated User.\n\nReturns the permanent refresh token for the account. This token can only be manually changed.",
+        "description": "Register a developer application owned by the signed-in person.\n\nThe answer carries the application's refresh token, which is shown only here: it is stored as a hash and cannot be read back. It stays valid until it is replaced through the reset_token endpoint.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -297,7 +297,7 @@
             "JWTBearer": []
           }
         ],
-        "summary": "Create a new developer application and retrieve a refresh token. This token will never be visible again.",
+        "summary": "Register a developer application and receive its refresh token",
         "tags": [
           "Developer Applications"
         ]
@@ -305,7 +305,7 @@
     },
     "/api/developer_application/login": {
       "post": {
-        "description": "Authenticate a developer application given a long-term refresh token or raise a **401** response.\n\nReturns a short-lived exchange token for the developer application.",
+        "description": "Authenticate a developer application with its refresh token.\n\nThe answer is an access token that speaks for the application itself and expires after fifteen minutes. A refresh token that is not the application's, or an application that does not exist, is refused with the same 401.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -338,7 +338,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Exchange a developer application refresh token for a short-lived AbandonAuth JWT",
+        "summary": "Exchange a developer application's refresh token for a short-lived access token",
         "tags": [
           "Developer Applications"
         ]
@@ -346,7 +346,7 @@
     },
     "/api/developer_application/me": {
       "get": {
-        "description": "Get information about the developer application from its access token.",
+        "description": "Describe the developer application an access token speaks for.",
         "responses": {
           "200": {
             "content": {
@@ -364,7 +364,7 @@
             "DeveloperAppJwtBearer": []
           }
         ],
-        "summary": "Verify and retrieve information for a developer application",
+        "summary": "Identify the developer application behind an access token",
         "tags": [
           "Developer Applications"
         ]
@@ -372,7 +372,7 @@
     },
     "/api/developer_application/{application_id}": {
       "delete": {
-        "description": "Delete the given developer application if the current user owns the application.",
+        "description": "Delete a developer application the signed-in person owns, with its callback URIs, its logins in progress and its unspent one-time codes. An application somebody else owns is answered as one that does not exist.",
         "parameters": [
           {
             "in": "path",
@@ -412,13 +412,13 @@
             "JWTBearer": []
           }
         ],
-        "summary": "Delete the developer application with the given id",
+        "summary": "Delete one of the signed-in person's developer applications",
         "tags": [
           "Developer Applications"
         ]
       },
       "get": {
-        "description": "Get information about the given developer application if the requesting user owns the developer app.",
+        "description": "Describe a developer application and the callback URIs it may be returned to, if the signed-in person owns it. An application somebody else owns is answered as one that does not exist.",
         "parameters": [
           {
             "in": "path",
@@ -458,7 +458,7 @@
             "JWTBearer": []
           }
         ],
-        "summary": "Retrieve the given application if it belongs to the currently authenticated user",
+        "summary": "Describe one of the signed-in person's developer applications",
         "tags": [
           "Developer Applications"
         ]
@@ -466,7 +466,7 @@
     },
     "/api/developer_application/{application_id}/callback_uris": {
       "patch": {
-        "description": "Replace the valid callback URIs for the given developer application and return the given developer application.\n\nCreate all callback URIs that do not exist yet.\nDelete all callback URIs that already exist and were not given in this request.\nCallback URIs that already exist and were given in this request will remain in the database unaltered.",
+        "description": "Make the set of callback URIs a developer application may be returned to exactly the set submitted.\n\nURIs not yet registered are added, URIs registered but not submitted are removed, and URIs in both are kept as they are. A URI is matched by its exact spelling. The set is replaced whole or not at all: one URI this service would not return a browser to leaves the application with the set it had. Replacements of one application's set run one after the other.",
         "parameters": [
           {
             "in": "path",
@@ -520,7 +520,7 @@
             "JWTBearer": []
           }
         ],
-        "summary": "Update the callback URIs for the given developer application",
+        "summary": "Replace a developer application's callback URIs",
         "tags": [
           "Developer Applications"
         ]
@@ -528,7 +528,7 @@
     },
     "/api/developer_application/{application_id}/reset_token": {
       "patch": {
-        "description": "Generate and set a new refresh token for the given developer application.\n\nThis action is not reversible and destroys the existing refresh token for the application.",
+        "description": "Issue a new refresh token for a developer application the signed-in person owns.\n\nThe replaced refresh token stops authenticating the application at once, and every access token issued against it is refused from then on. The new token is shown only in this answer.",
         "parameters": [
           {
             "in": "path",
@@ -568,7 +568,7 @@
             "JWTBearer": []
           }
         ],
-        "summary": "Change the refresh token on a developer application. This is not reversible.",
+        "summary": "Replace a developer application's refresh token",
         "tags": [
           "Developer Applications"
         ]
@@ -576,7 +576,7 @@
     },
     "/api/google": {
       "get": {
-        "description": "Log a user in using Google's OAuth2 as validation.",
+        "description": "The address Google returns the browser to after a login started at the authorize endpoint.\n\nThe state must belong to a login this service started for this browser, and the identity token Google issues is verified in full before anyone is signed in. A login the site itself started ends in a browser session; any other ends in a one-time code appended to the application's registered callback under the key \"authentication\". A browser returned without a code is sent to the callback with nothing appended.",
         "parameters": [
           {
             "in": "query",
@@ -619,7 +619,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Login With Google",
+        "summary": "Finish a login with Google",
         "tags": [
           "Google"
         ]
@@ -627,7 +627,7 @@
     },
     "/api/login": {
       "post": {
-        "description": "Log in the user, using a short-term or long-term AbandonAuth JWT.\n\nNew JWT's aud must match the developer application's ID as an additional security check.",
+        "description": "Spend the one-time code a provider callback returned the browser with, for an access token that identifies the person who signed in.\n\nThe application collecting the token must prove who it is, with its own access token in the Authorization header or with its credentials in the body, and the code must be one that was issued to that application. A code is spent at most once. The access token expires after fifteen minutes.",
         "parameters": [
           {
             "in": "header",
@@ -683,12 +683,12 @@
             "OptionalDeveloperAppJwtBearer": []
           }
         ],
-        "summary": "Exchange a temporary AbandonAuth token for a permanent user token."
+        "summary": "Spend a one-time code for a short-lived user access token"
       }
     },
     "/api/me": {
       "get": {
-        "description": "Get information about the user from a jwt token.",
+        "description": "Identify the person an access token speaks for.\n\nAny application's user access token is accepted, as long as the application still exists.",
         "responses": {
           "200": {
             "content": {
@@ -706,12 +706,12 @@
             "JWTBearer": []
           }
         ],
-        "summary": "Current User Information"
+        "summary": "Current user information"
       }
     },
     "/api/ui/discord-callback": {
       "get": {
-        "description": "Discord callback endpoint for authenticating with Discord OAuth with AbandonAuth UI.",
+        "description": "The address Discord returns the browser to after a login started at the authorize endpoint.\n\nThe state must belong to a login this service started for this browser. A login the site itself started ends in a browser session; any other ends in a one-time code appended to the application's registered callback under the key \"code\". A browser returned without a code is sent to the callback with nothing appended.",
         "responses": {
           "200": {
             "content": {
@@ -722,12 +722,12 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Discord Callback"
+        "summary": "Finish a login with Discord"
       }
     },
     "/api/ui/github-callback": {
       "get": {
-        "description": "GitHub callback endpoint for authenticating with GitHub OAuth with AbandonAuth UI.",
+        "description": "The address GitHub returns the browser to after a login started at the authorize endpoint.\n\nThe state must belong to a login this service started for this browser. A login the site itself started ends in a browser session; any other ends in a one-time code appended to the application's registered callback under the key \"code\". A browser returned without a code is sent to the callback with nothing appended.",
         "responses": {
           "200": {
             "content": {
@@ -738,7 +738,7 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Github Callback"
+        "summary": "Finish a login with GitHub"
       }
     },
     "/api/ui/logout": {

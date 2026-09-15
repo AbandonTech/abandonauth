@@ -36,8 +36,6 @@ type Issued struct {
 	// CSRFToken goes in a cookie the site can read, and is sent back in a
 	// header on every request that changes something.
 	CSRFToken string
-
-	ExpiresAt time.Time
 }
 
 // Session is a signed-in browser, as read back from a cookie.
@@ -62,19 +60,14 @@ func (s Session) MatchesCSRFToken(token string) bool {
 type Store struct {
 	queries  *query.Queries
 	lifetime time.Duration
-	now      func() time.Time
 }
 
 // Options are what the store needs.
 type Options struct {
 	// Lifetime is how long a browser stays signed in without proving itself to
-	// a provider again. It does not slide.
+	// a provider again. It does not slide. The database measures the expiry
+	// itself; this is what it is told to measure.
 	Lifetime time.Duration
-
-	// Now is the clock the returned expiry is measured from. The database sets
-	// the stored expiry itself; this only tells the browser how long to keep
-	// the cookie.
-	Now func() time.Time
 }
 
 // NewStore builds the store over a database handle.
@@ -83,12 +76,7 @@ func NewStore(database query.DBTX, options Options) (*Store, error) {
 		return nil, errors.New("a session needs a lifetime")
 	}
 
-	now := options.Now
-	if now == nil {
-		now = time.Now
-	}
-
-	return &Store{queries: query.New(database), lifetime: options.Lifetime, now: now}, nil
+	return &Store{queries: query.New(database), lifetime: options.Lifetime}, nil
 }
 
 // Lifetime is how long a session lasts, which is also how long its cookies are
@@ -123,11 +111,7 @@ func (s *Store) Create(ctx context.Context, userID uuid.UUID) (Issued, error) {
 		return Issued{}, fmt.Errorf("creating a session: %w", err)
 	}
 
-	return Issued{
-		Value:     value,
-		CSRFToken: token,
-		ExpiresAt: s.now().UTC().Add(s.lifetime),
-	}, nil
+	return Issued{Value: value, CSRFToken: token}, nil
 }
 
 // Lookup returns the session a cookie value stands for.

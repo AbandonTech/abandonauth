@@ -109,10 +109,14 @@ func TestATargetThisServiceDoesNotSpellIsRefusedWithoutARedirect(t *testing.T) {
 }
 
 // A browser is told what it may do with an address this service serves and with
-// nothing else, so the match is made against the route table rather than
-// against a prefix.
+// nothing else. The question is put to the same router that serves the
+// addresses, so an anchored pattern names one path, a pattern ending in a slash
+// names its subtree, a wildcard segment names any one segment, and a path the
+// router would only redirect or clean is not one it serves.
 func TestTheRouteTableDecidesWhichPathsAreDeclared(t *testing.T) {
 	t.Parallel()
+
+	paths := newDeclaredPaths()
 
 	declared := []string{
 		"/api",
@@ -135,7 +139,7 @@ func TestTheRouteTableDecidesWhichPathsAreDeclared(t *testing.T) {
 	}
 
 	for _, path := range declared {
-		if !declaredPath(path) {
+		if !paths.names(path) {
 			t.Errorf("%q is served but is not recognised as declared", path)
 		}
 	}
@@ -149,13 +153,22 @@ func TestTheRouteTableDecidesWhichPathsAreDeclared(t *testing.T) {
 		"/api/me/",
 		"/api/nothing-claims-this",
 		"/api/developer_application//reset_token",
+		"/api/developer_application/",
+		"/api/developer_application//",
 		"/api/ui//authorize",
+		"/api/ui/authorize",
+		"/api/ui/discord/authorize/",
 		"/api/user",
+		"/api/user/",
 		"/api/docs2",
+		"/api/../api/me",
+		"/api/./me",
+		"/api//me",
+		"",
 	}
 
 	for _, path := range undeclared {
-		if declaredPath(path) {
+		if paths.names(path) {
 			t.Errorf("%q is not served but is recognised as declared", path)
 		}
 	}

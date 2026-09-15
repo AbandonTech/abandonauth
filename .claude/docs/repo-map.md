@@ -25,34 +25,41 @@ not name, and everything it names is under `/api`, the route root. Paths below
 are relative to `src/api/`.
 
 - `go.mod` — module, pinned dependencies, `tool` directives fixing the sqlc,
-  swag, revive and goose versions
+  swag, revive, goose, staticcheck and deadcode versions
 - `sqlc.yaml` — how `queries/` becomes the generated `query` package
 - `revive.toml` — lint rules
 - `cmd/abandonauth.go` — commands, flags, environment binding, Swagger metadata;
   secrets are environment-only and have no flag
-- `cmd/operations.go` — `serve`, `maintenance`, `database rotate-auth-epoch`
-- `internal/config/` — validated immutable configuration;
-  `PasswordSignInEnabled`
+- `cmd/operations.go` — `serve`, `maintenance`, `database rotate-auth-epoch`;
+  the listener is opened before housekeeping starts, and both stop together
+- `internal/config/` — validated immutable configuration, the default and
+  maximum lifetimes; `PasswordSignInEnabled`
 - `internal/buildmode/` — which variant compiled, by the `devtools` tag
 - `internal/logging/` — the logger; never a query string, header or cookie
 - `internal/urlpolicy/` — callback URI policy and origin parsing; `Callback`
-  keeps the registered spelling beside the parsed form
+  keeps the registered spelling beside the parsed form; the response query keys
+  a callback is returned under, and refused at registration
 
 ### Database
 
 - `internal/database/migrations/` — embedded goose migrations: baseline schema
   and its `schema_identity` marker, then auth state, sessions, revocation, rate
   limits
-- `internal/database/queries/` — the SQL source; edit this, never generated code
+- `internal/database/queries/` — the SQL source; edit this, never generated
+  code; `rate_limits.sql` derives the budget window and the wait from the
+  database clock, `developer_applications.sql` carries the application row lock
 - `internal/database/query/` — sqlc output: gitignored, regenerated every run
 - `internal/database/pool.go` — connection pool lifecycle
+- `internal/database/rollback.go` — the detached, bounded rollback every
+  transaction is abandoned with
 - `internal/database/migrate.go` — the embedded runner; inspects and migrates
   under one advisory lock
 - `internal/database/schemastate.go` — what a database looks like untouched, and
   which states may be migrated
 - `internal/database/authorityrotation.go` — `rotate-auth-epoch`: every token,
   state, code and session invalidated in one transaction
-- `internal/database/testdatabase/` — a migrated database per test
+- `internal/database/testdatabase/` — a migrated database per test, and
+  `AwaitLockWaiters` for a test that blocks a connection on purpose
 
 `RotateAuthority` is proved twice: against the database in
 `internal/database/authorityrotation_integration_test.go`, and through the
@@ -62,22 +69,25 @@ endpoints that stop accepting credentials in
 ### Services
 
 - `internal/services/keyring/` — per-purpose keys derived from the signing root
-- `internal/services/tokens/` — issues and validates the two access token
-  classes
+- `internal/services/tokens/` — the two access token classes: `tokens.go`
+  holds the types, the constructor and each class's one shape, `issue.go`
+  signs, `verify.go` accepts only that exact shape, `claims.go` is the wire
+  body
 - `internal/services/credentials/` — bcrypt hashing and random credentials;
   `Hash` always creates at `HashCost`, and there is no other work factor
 - `internal/services/accounts/` — resolves a provider identity to a user,
   creating one atomically
 - `internal/services/applications/` — developer applications, credentials,
-  callback URIs; an unknown application is checked against a fixed comparison
-  hash so the attempt costs what a wrong credential costs
+  callback URIs replaced under the application's row lock; an unknown
+  application is checked against a fixed comparison hash so the attempt costs
+  what a wrong credential costs
 - `internal/services/oauth/` — authorization state with PKCE, one-time exchange
   codes
 - `internal/services/sessions/` — browser sessions and their CSRF tokens
 - `internal/services/authority/` — the auth epoch every check is measured
   against
-- `internal/services/ratelimit/` — fixed-window budgets, keyed so a public
-  identifier cannot lock anyone out
+- `internal/services/ratelimit/` — fixed-window budgets in windows the database
+  clock decides, keyed so a public identifier cannot lock anyone out
 - `internal/services/housekeeping/` — expiry sweeps on a ticker `serve` owns:
   logins, codes, sessions, withdrawals, budget windows
 - `internal/services/providers/` — Discord, GitHub and Google clients against
@@ -90,7 +100,11 @@ endpoints that stop accepting credentials in
 - `internal/web/routes.go` — the route table: `APIRoot` and every URL, once
 - `internal/web/handlers.go` — binds each route name to its handler
 - `internal/web/server.go` — composition, middleware order, deadlines
-- `internal/web/requesttarget.go` — the one spelling of a target that is served
+- `internal/web/requesttarget.go` — the one spelling of a target that is
+  served, and the route-derived `net/http` router that says which paths the
+  table declares
+- `internal/web/clientaddress.go` — the address a request is counted against:
+  the forwarded chain read from its trusted end, or the peer
 - `internal/web/index.go` — `GET /api`, `GET /api/`
 - `internal/web/currentuser.go` — `GET /api/me`
 - `internal/web/userapplications.go` — `GET /api/user/applications`
@@ -104,7 +118,8 @@ endpoints that stop accepting credentials in
   and CSRF checks
 - `internal/web/authentication.go` — bearer and session authorization per route
 - `internal/web/cors.go` — exactly one permitted origin, declared addresses only
-- `internal/web/middleware.go` — panic recovery, request identifiers, request log
+- `internal/web/middleware.go` — panic recovery that never logs the value and
+  never answers a committed response, request identifiers, request log
 - `internal/web/requestlimit.go` — applies the budgets
 - `internal/web/maintenance.go` — the static 503 a failed deployment serves
 - `internal/web/apidocumentation.go` — `/api/docs`, `/api/docs/`,
@@ -181,7 +196,8 @@ rewrite live data for no functional gain and is deliberately out of scope.
 ## Validation
 
 - `./scripts/check.sh` — codegen, formatting, tidiness, both builds, revive, vet
-  on every tag set, then `go test ./...` and `go test -tags=devtools ./...`
+  and staticcheck on every tag set, dead-code analysis of the deployment
+  integration graph, then `go test ./...` and `go test -tags=devtools ./...`
 - `./scripts/check.sh --integration` — the same up to vet, then the container:
   `-tags='integration devtools' ./...` and `-tags=integration ./...` with race
   detection, a database and coverage

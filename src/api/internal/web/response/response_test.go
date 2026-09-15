@@ -1,6 +1,7 @@
 package response_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -27,6 +28,41 @@ func TestJSONWritesTheStatusContentTypeAndBody(t *testing.T) {
 
 	if got := recorder.Body.String(); got != "{\"username\":\"ada\"}\n" {
 		t.Errorf("body = %q", got)
+	}
+}
+
+// A payload the encoder refuses is a defect, and the client is told so in the
+// service's own failure shape with none of the payload, rather than being sent
+// the status the handler chose followed by nothing.
+func TestJSONAnswersAnUnencodablePayloadWithTheFixedFailure(t *testing.T) {
+	t.Parallel()
+
+	recorder := httptest.NewRecorder()
+
+	response.JSON(recorder, http.StatusOK, map[string]any{"channel": make(chan int)})
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", recorder.Code, http.StatusInternalServerError)
+	}
+
+	if got := recorder.Header().Get("Content-Type"); got != response.ContentTypeJSON {
+		t.Errorf("content type = %q, want %q", got, response.ContentTypeJSON)
+	}
+
+	var body struct {
+		Detail string `json:"detail"`
+	}
+
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body is not the expected shape: %v (%q)", err, recorder.Body.String())
+	}
+
+	if body.Detail != "Internal Server Error" {
+		t.Errorf("detail = %q", body.Detail)
+	}
+
+	if bytes.Contains(recorder.Body.Bytes(), []byte("channel")) {
+		t.Error("the failure reflected the payload that could not be encoded")
 	}
 }
 

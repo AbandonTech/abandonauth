@@ -30,6 +30,16 @@ SET "refresh_token" = $2,
 WHERE "id" = $1
 RETURNING "id", "owner_id", "name", "refresh_token", "credential_version";
 
+-- Taken before an application's callbacks are read and rewritten, so two
+-- replacements of the same set run one after the other and neither is left
+-- holding a mixture of both. A row that is gone by the time the lock is granted
+-- is reported as no row.
+-- name: LockDeveloperApplication :one
+SELECT "id"
+FROM "DeveloperApplication"
+WHERE "id" = $1
+FOR UPDATE;
+
 -- name: ListCallbackUris :many
 SELECT "id", "developer_application_id", "uri"
 FROM "CallbackUri"

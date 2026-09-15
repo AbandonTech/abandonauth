@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/abandontech/abandonauth/src/api/internal/web/response"
@@ -63,51 +64,51 @@ func onlyCanonicalTargets(next http.Handler) http.Handler {
 	})
 }
 
-// declaredPath reports whether the route table names a path, whatever method it
-// is asked for with. A preflight asks what a browser may do with a URL, so the
-// answer cannot depend on the method being asked about.
-func declaredPath(path string) bool {
+// routePaths builds a router over every pattern the route table names, with
+// the method left off, so a question about a path is answered by the same
+// matcher that serves it and the two cannot drift apart. Every pattern answers
+// with the given handler.
+func routePaths(answer http.Handler) *http.ServeMux {
+	paths := http.NewServeMux()
+	registered := make(map[string]bool)
+
 	for _, route := range Routes() {
-		if patternNames(route.Pattern, path) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// patternNames reports whether a route pattern covers a path. A pattern
-// anchored with {$} names that path alone, a pattern ending in a slash names
-// its whole subtree, and a {wildcard} segment names any one non-empty segment.
-func patternNames(pattern, path string) bool {
-	if anchored, found := strings.CutSuffix(pattern, "{$}"); found {
-		return path == anchored
-	}
-
-	if strings.HasSuffix(pattern, "/") {
-		return strings.HasPrefix(path, pattern)
-	}
-
-	declared := strings.Split(pattern, "/")
-	asked := strings.Split(path, "/")
-
-	if len(declared) != len(asked) {
-		return false
-	}
-
-	for index, segment := range declared {
-		if strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}") {
-			if asked[index] == "" {
-				return false
-			}
-
+		if registered[route.Pattern] {
 			continue
 		}
 
-		if segment != asked[index] {
-			return false
-		}
+		registered[route.Pattern] = true
+
+		paths.Handle(route.Pattern, answer)
 	}
 
-	return true
+	return paths
+}
+
+// declaredPaths answers whether the route table names a path, whatever method
+// it is asked for with. A preflight asks what a browser may do with a URL, so
+// the answer cannot depend on the method being asked about.
+type declaredPaths struct {
+	paths  *http.ServeMux
+	marker *declaredMarker
+}
+
+// declaredMarker is the handler every declared pattern answers with. It is
+// compared by identity: the router answers a path it would redirect, clean or
+// refuse with a handler of its own, and none of those is a declared path.
+type declaredMarker struct{}
+
+func (*declaredMarker) ServeHTTP(http.ResponseWriter, *http.Request) {}
+
+func newDeclaredPaths() declaredPaths {
+	marker := &declaredMarker{}
+
+	return declaredPaths{paths: routePaths(marker), marker: marker}
+}
+
+// names reports whether a canonical path is one the route table declares.
+func (d declaredPaths) names(path string) bool {
+	handler, _ := d.paths.Handler(&http.Request{Method: http.MethodGet, URL: &url.URL{Path: path}})
+
+	return handler == http.Handler(d.marker)
 }

@@ -6,6 +6,18 @@ import (
 	"testing"
 )
 
+// secretEnvironment lists the variables the secrets are read from, for the
+// checks that must cover every one of them.
+func secretEnvironment() []string {
+	return []string{
+		environmentDatabaseURL,
+		environmentSigningSecret,
+		environmentDiscordClientSecret,
+		environmentGitHubClientSecret,
+		environmentGoogleClientSecret,
+	}
+}
+
 // removedSecretFlags are the command-line names a deployment might still try to
 // pass a secret with. Each carries a value distinctive enough that finding it in
 // any output proves it was echoed.

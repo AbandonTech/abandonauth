@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/abandontech/abandonauth/src/api/internal/database"
 	"github.com/abandontech/abandonauth/src/api/internal/database/query"
 	"github.com/abandontech/abandonauth/src/api/internal/services/credentials"
 	"github.com/abandontech/abandonauth/src/api/internal/urlpolicy"
@@ -289,7 +290,10 @@ func (a *Applications) CallbackIsRegistered(ctx context.Context, id uuid.UUID, u
 //
 // Every URI is checked against the policy first, so one the service would
 // refuse to return a browser to cannot be stored. The additions and removals
-// are one transaction: a failure leaves the application with the set it had.
+// are one transaction under the application's row lock: a failure leaves the
+// application with the set it had, and two replacements arriving together
+// leave it with one of the two sets rather than a mixture. An application that
+// is gone by the time the lock is granted is ErrNoSuchApplication.
 func (a *Applications) ReplaceCallbackURIs(ctx context.Context, id uuid.UUID, uris []string) error {
 	wanted, err := acceptableURIs(uris)
 	if err != nil {
@@ -301,9 +305,15 @@ func (a *Applications) ReplaceCallbackURIs(ctx context.Context, id uuid.UUID, ur
 		return fmt.Errorf("replacing callback URIs: %w", err)
 	}
 
-	defer func() { _ = transaction.Rollback(ctx) }()
+	defer func() { _ = database.Rollback(ctx, transaction) }()
 
 	queries := a.queries.WithTx(transaction)
+
+	if _, err := queries.LockDeveloperApplication(ctx, id); errors.Is(err, pgx.ErrNoRows) {
+		return ErrNoSuchApplication
+	} else if err != nil {
+		return fmt.Errorf("replacing callback URIs: %w", err)
+	}
 
 	existing, err := queries.ListCallbackUris(ctx, id)
 	if err != nil {

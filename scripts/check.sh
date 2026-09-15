@@ -110,9 +110,34 @@ if [ "$gen_only" -eq 1 ]; then
     exit 0
 fi
 
+# deadcode exits 0 whether or not it found anything, so the stage fails on any
+# output instead. The deployment integration graph is the one whole program
+# every non-devtools file is reachable from; the devtools files are mutually
+# exclusive with it and are covered by the build, vet, staticcheck and test
+# stages instead.
+deadcode_stage() {
+    name="deadcode (-test -tags=integration)"
+    if [ "${VERBOSE:-0}" = "1" ]; then
+        info "$name"
+    fi
+    if ! findings=$(go tool deadcode -test -tags=integration ./... 2>&1); then
+        printf '==> %s ... FAILED\n' "$name" >&2
+        printf '%s\n' "$findings" >&2
+        exit 1
+    fi
+    if [ -n "$findings" ]; then
+        printf '==> %s ... FAILED\n' "$name" >&2
+        printf 'Unreachable code:\n%s\n' "$findings" >&2
+        exit 1
+    fi
+    ok "$name"
+}
+
 fmt_stage
 run_stage "go build" go build ./...
 run_stage "go build (-tags=$DEVTOOLS_TAG)" go build -tags="$DEVTOOLS_TAG" ./...
+# revive resolves packages through go/build's default context, which has no
+# build tags, so no devtools or integration file is ever linted by revive.
 run_stage "revive" go tool revive -config revive.toml -set_exit_status ./...
 run_stage "go vet" go vet ./...
 run_stage "go vet (-tags=$DEVTOOLS_TAG)" go vet -tags="$DEVTOOLS_TAG" ./...
@@ -121,6 +146,12 @@ run_stage "go vet (-tags=$DEVTOOLS_TAG)" go vet -tags="$DEVTOOLS_TAG" ./...
 run_stage "go vet (-tags=integration)" go vet -tags=integration ./...
 run_stage "go vet (-tags='integration $DEVTOOLS_TAG')" \
     go vet -tags="integration $DEVTOOLS_TAG" ./...
+run_stage "staticcheck" go tool staticcheck ./...
+run_stage "staticcheck (-tags=$DEVTOOLS_TAG)" go tool staticcheck -tags="$DEVTOOLS_TAG" ./...
+run_stage "staticcheck (-tags=integration)" go tool staticcheck -tags=integration ./...
+run_stage "staticcheck (-tags='integration $DEVTOOLS_TAG')" \
+    go tool staticcheck -tags="integration $DEVTOOLS_TAG" ./...
+deadcode_stage
 
 if [ "$integration" -eq 1 ]; then
     require_command docker 'Install Docker from https://docs.docker.com/get-docker/.'

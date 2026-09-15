@@ -37,11 +37,7 @@ func RotateAuthority(ctx context.Context, pool *pgxpool.Pool) (AuthorityRotation
 		return AuthorityRotation{}, fmt.Errorf("starting the rotation: %w", err)
 	}
 
-	defer func() {
-		// Rolling back after a commit is a no-op, so this only takes effect on
-		// the paths that return early.
-		_ = transaction.Rollback(context.WithoutCancel(ctx))
-	}()
+	defer func() { _ = Rollback(ctx, transaction) }()
 
 	if err := takeRotationLock(ctx, transaction); err != nil {
 		return AuthorityRotation{}, err

@@ -82,7 +82,7 @@ the work was about.
 | Control | Where |
 | --- | --- |
 | Exactly `HS512`, checked rather than obeyed; per-purpose keys derived from the signing root under fixed key identifiers | `internal/config`, `internal/services/keyring`, `internal/services/tokens` |
-| Two access token classes, never interchangeable, each validated against its own issuer, audience, subject, scope, type and lifetime | `internal/services/tokens`, `internal/web/authentication.go` |
+| Two access token classes, never interchangeable, each accepted only as the exact shape this service issues: its own key and key identifier, issuer, type, canonical non-nil identifiers, the one scope string for its class and audience, an application token's audience being the site and carrying a positive credential version, and a validity interval of exactly the access lifetime from the moment of issue | `internal/services/tokens`, `internal/web/authentication.go` |
 | A developer application's credential version, refusing every token issued before its credential was reset | `internal/services/applications`, `internal/web/authentication.go` |
 | The auth epoch every check is measured against, replaced transactionally to withdraw everything at once | `internal/services/authority`, `internal/database/authorityrotation.go` |
 | Login state that is opaque, single-use, browser-bound, application-bound, callback-exact and expiring, consumed by one `DELETE ... RETURNING` | `internal/services/oauth` |
@@ -92,9 +92,13 @@ the work was about.
 | A browser returned to the exact registered spelling, one encoded response parameter appended and no existing byte rewritten | `internal/urlpolicy`, `internal/web/providerlogin.go`, `providercallback.go` |
 | A database migrated only when empty, or carrying both this service's migration history and the marker its baseline writes; every other state refused without being changed | `internal/database/schemastate.go`, `migrate.go` |
 | Server-side sessions stored only as digests, absolute expiry, logout as a delete, double-submit CSRF with an exact `Origin` | `internal/services/sessions`, `internal/web/browsersession.go`, `cookies.go` |
-| Budgets keyed so a public identifier cannot lock anyone out, counted in the database, with no setting that raises or removes one | `internal/services/ratelimit`, `internal/web/requestlimit.go` |
-| One spelling of every address: a raw path carrying an escape, a repeated slash, a backslash or a dot segment is refused before CORS and before the router can decode or clean it into one that is served, and without a redirect to it | `internal/web/requesttarget.go`, `server.go` |
-| Forwarding headers believed only from a configured proxy, which is who a request came from and not what it asked for | `internal/web/clientaddress.go` |
+| Budgets keyed so a public identifier cannot lock anyone out, counted in the database in windows the database clock decides, so every instance counts one client in one window, with no setting that raises or removes one | `internal/services/ratelimit`, `internal/database/queries/rate_limits.sql`, `internal/web/requestlimit.go` |
+| One spelling of every address: a raw path carrying an escape, a repeated slash, a backslash or a dot segment is refused before CORS and before the router can decode or clean it into one that is served, and without a redirect to it; whether an address is declared is answered by the router that serves it | `internal/web/requesttarget.go`, `server.go` |
+| Forwarding headers believed only from a configured proxy, which is who a request came from and not what it asked for; the forwarded chain is read from its trusted end across every header line, so a value the client prepended is never the address it is counted as, and a chain that cannot be read in full falls back to the peer rather than to `X-Real-IP` | `internal/web/clientaddress.go` |
+| An application's callback set replaced under its row lock, so two replacements arriving together leave one submitted set and never a mixture, and one arriving after the application is gone finds nothing | `internal/services/applications`, `internal/web/developerapplication.go` |
+| A password sign-in that writes no cookie until the authority, the token and the session have all succeeded | `internal/web/passwordaccounts_devtools.go` |
+| A recovered panic logged as the fact of a failure and the request it belonged to, never the recovered value, and never answered once a response has been committed or the connection taken | `internal/web/middleware.go` |
+| Every transaction abandoned through one detached, bounded rollback, so a cancelled request cannot hold a connection or a lock | `internal/database/rollback.go` |
 | Exactly one permitted origin, never a credentialed wildcard, with permission headers and preflight answers only for an address the route table names | `internal/web/cors.go` |
 | Password sign-in compiled only into the development build and served only in debug mode on a loopback-only bind; a deployment refuses `DEBUG` outright | `internal/buildmode`, `internal/config`, the `_devtools.go` files |
 | A published schema narrowed to the addresses the running build serves, because the annotations it is generated from carry no build constraints | `internal/web/apidocumentation.go` |
@@ -121,11 +125,36 @@ A change to a control above extends these rather than replacing them:
 - `internal/web/unavailable_integration_test.go` — every endpoint refusing when
   the database cannot be reached, and a genuine token refused rather than
   accepted on its signature alone.
-- `internal/web/requestlimit_integration_test.go` — budgets, and proof that
-  spending one against a public application identifier does not lock it out.
+- `internal/web/requestlimit_integration_test.go` — budgets stated as the
+  numbers the service promises, proof that spending one against a public
+  application identifier does not lock it out, that a forwarding header is
+  believed only from the proxy, and that a client prepending to the forwarded
+  chain, on the same line or its own, still has the one budget the proxy's
+  appended address gives it.
+- `internal/web/clientaddress_test.go` — the forwarded chain read from its
+  trusted end: untrusted peers, one and several trusted hops, all-trusted
+  chains, IPv4-mapped addresses, and every unreadable chain falling back to the
+  peer and never to `X-Real-IP`.
+- `internal/services/ratelimit/ratelimit_integration_test.go` — two limiters
+  sharing one database window, a refusal's wait as whole positive seconds
+  within the window, identities kept apart, unknown groups refused, and the
+  sweep removing only ended windows.
+- `internal/services/tokens/tokens_test.go` — the token abuse matrix for both
+  classes: altered scopes, identifiers, audiences, credential versions and
+  validity intervals, with the shapes this service issues as positive controls.
+- `internal/web/developerapplication_integration_test.go` — two callback
+  replacements forced to overlap at the row lock leaving exactly one submitted
+  set, and one that outlives its application finding nothing.
+- `internal/web/passwordsignintest/` — a password accepted and then the
+  authority unreadable granting no cookie, token or stored session.
+- `internal/web/servercomposition_test.go` — a panic's value in neither the
+  response nor the log, and nothing appended after a write, a flush or a
+  hijack.
+- `internal/database/rollback_integration_test.go`,
+  `internal/services/accounts/accounts_integration_test.go` — a cancelled
+  transaction rolled back within the bound, leaving no row and no lock.
 - `internal/web/browsersession_integration_test.go` — cookie attributes, CSRF,
   logout, a copied cookie after logout.
-- `internal/services/tokens/tokens_test.go` — the token abuse matrix.
 - `internal/web/passwordaccounts_default_integration_test.go` — a deployment
   serving neither account-seeding address.
 - `internal/web/passwordsignintest/` — the development build's counterpart:

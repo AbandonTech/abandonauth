@@ -353,10 +353,10 @@ func (g *Google) keySet(ctx context.Context) (*oidc.RemoteKeySet, error) {
 	}
 
 	var document struct {
-		Issuer               string `json:"issuer"`
-		AuthorizationEndoint string `json:"authorization_endpoint"`
-		TokenEndpoint        string `json:"token_endpoint"`
-		JWKSURI              string `json:"jwks_uri"`
+		Issuer                string `json:"issuer"`
+		AuthorizationEndpoint string `json:"authorization_endpoint"`
+		TokenEndpoint         string `json:"token_endpoint"`
+		JWKSURI               string `json:"jwks_uri"`
 	}
 
 	if err := get(ctx, g.client, g.expected.Discovery, "", &document); err != nil {
@@ -365,7 +365,7 @@ func (g *Google) keySet(ctx context.Context) (*oidc.RemoteKeySet, error) {
 
 	found := GoogleEndpoints{
 		Issuer:    document.Issuer,
-		Authorize: document.AuthorizationEndoint,
+		Authorize: document.AuthorizationEndpoint,
 		Token:     document.TokenEndpoint,
 		JWKS:      document.JWKSURI,
 	}

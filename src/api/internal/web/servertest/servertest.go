@@ -23,7 +23,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
@@ -176,24 +175,6 @@ func WithSetting(apply func(*config.Settings)) Option {
 // in for the providers, and a clock the test controls.
 func WithDependencies(apply func(*web.Dependencies)) Option {
 	return func(chosen *options) { apply(&chosen.dependencies) }
-}
-
-// WithSteadyClock holds the service's clock still for the whole test.
-//
-// A request budget is counted in a window fixed to the clock, so a test that
-// spends one takes as long as the work it drives: on a slow machine it can
-// straddle a window boundary, and the count it was building is then measured
-// against a fresh window. Holding the clock makes such a test describe the
-// budget rather than how long the machine took.
-//
-// Only the service's own clock stops. Expiry recorded by the database is
-// measured by the database and continues.
-func WithSteadyClock() Option {
-	held := time.Now().UTC()
-
-	return WithDependencies(func(dependencies *web.Dependencies) {
-		dependencies.Now = func() time.Time { return held }
-	})
 }
 
 // URL is the address of the running service.
