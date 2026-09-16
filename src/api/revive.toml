@@ -1,0 +1,4 @@
+enableDefaultRules = true
+severity = "error"
+# Set explicitly so that CI fails on a finding.
+errorCode = 2

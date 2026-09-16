@@ -1,16 +1,15 @@
 # https://hub.docker.com/_/node/tags
-ARG NODE_VERSION=22.3.0
+ARG NODE_VERSION=24.15.0
 
 
-FROM node:${NODE_VERSION} as build
+FROM node:${NODE_VERSION} AS build
 ARG ABANDON_AUTH_URL
+ARG ABANDON_AUTH_SITE_URL
 ARG ABANDON_AUTH_DEVELOPER_APP_ID
-ARG GITHUB_REDIRECT
-ARG DISCORD_REDIRECT
 
 WORKDIR /src
 COPY . .
-RUN yarn install && yarn build
+RUN npm ci && npm run build
 
 
 FROM node:${NODE_VERSION}-alpine

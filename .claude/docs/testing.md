@@ -2,53 +2,156 @@
 
 ## Current state
 
-There is no tracked automated test suite, pytest dependency, frontend test
-runner, frontend lint command, or frontend typecheck command. CI lints the API
-and builds containers but does not run behavior tests. Never report tests as
-passing when none exist.
+The API has unit and integration tests, and CI runs the same
+`./scripts/check.sh` a developer runs. Every package containing statements is
+held to 80% statement coverage, measured from a real profile; the gate fails the
+run, and it currently passes. Integration tests are build-constrained, and a
+selected one fails without PostgreSQL rather than skipping.
 
-New behavior must add real automated tests. If the necessary test framework is
-missing, the plan must establish it as part of the change or explicitly stop
-for user approval rather than substituting manual API requests.
+The site has Vitest tests and a production build. There is still **no frontend
+lint or typecheck command**. Do not claim one passed.
 
-## Security test requirements
+New behaviour must add real automated tests; a manual request is not a
+substitute. If the necessary test framework is missing, the plan establishes it
+as part of the change or stops for user approval.
 
-Auth, OAuth, token, session, redirect, credential, and authorization changes
-require positive, negative, abuse-case, and regression coverage. As relevant,
-cover:
+## Security coverage
 
-- malformed, expired, future, wrong-algorithm, wrong-issuer, wrong-audience,
-  wrong-token-type, and missing-claim tokens;
-- exact scope and ownership checks, cross-user and cross-application access;
-- state, nonce, and PKCE mismatch, expiry, replay, and concurrent consumption;
-- exact callback matching and rejection of open redirects or unsafe schemes;
-- one-time exchange behavior across concurrent requests and worker-safe storage;
-- user, developer application, exchange, access, refresh, and session token
-  separation;
-- cookie attributes, CSRF rejection, logout, revocation, and rotation;
-- debug-route and permissive-CORS exclusion from production configuration;
-- rate limits and non-enumerating errors.
+Auth, OAuth, token, session, redirect, credential and authorization changes need
+positive, negative, abuse-case and regression tests for the requirements in
+`.claude/docs/security.md` → "OAuth and OIDC", "Tokens and sessions" and
+"Authorization and abuse controls", and extend the files that document lists
+under "Where the negative tests are".
 
-Mock HTTPX provider calls and database access or use isolated test databases.
-Never use live OAuth clients or real credentials. Test output, fixtures, and
-snapshots must contain placeholders only.
+Mock provider HTTP calls and database access, or use isolated test databases.
+Never use a live OAuth client or a real credential. Test output, fixtures and
+snapshots contain placeholders only.
+
+Build test state from what the application itself produces: a test that needs
+the schema runs the migrations rather than carrying a copy of them. A checked-in
+fixture duplicating application output is a second source of truth, drifts from
+the first, and outlives whatever it was copied from. Test helpers follow
+`CLAUDE.md` → "Naming and documentation" in full, and describe database state by
+the operation this service performs on it, never as a "prior" or "legacy"
+anything.
+
+## What a test is allowed to assert
+
+A test states the exact behaviour this service is required to have. It never
+states that the service matches something else, and never describes a scenario
+that exists only because of a change in progress.
+
+Integration tests go through the front door. `internal/web/servertest` starts
+the real service against a database of its own; a test sends requests in the
+order a client sends them and asserts the responses, how the request data was
+handled, and the state left in the database. Its client keeps a cookie jar and
+returns redirects rather than following them, because both are part of what the
+endpoints promise. Providers are answered by local servers injected at
+construction.
+
+Do not assert a schema shape, a query shape or a generated struct: those are how
+today's behaviour is achieved, not what is promised. Prove a cascade, a
+uniqueness rule or an ordering through the endpoint whose contract depends on
+it, and do not call `query.Queries` from a test.
+
+A few things no client can reach are tested against their service directly: a
+constructor that must refuse an unusable setting, a guard that exists so a
+future caller cannot get past it, and the expiry sweeps, which no endpoint
+drives. Reach for this only when there is no front door, and still state the
+requirement rather than the mechanism.
+
+## Endpoint inputs and endpoint journeys
+
+An endpoint that reads a body, a path value or a required query value keeps that
+reading in an unexported reader beside its handler, driven directly by a small
+test: one valid request, and the invalid ones that define that endpoint's
+required members, accepted types and failure locations. The handler calls the
+same reader, so the test drives what a request goes through rather than a second
+description of it.
+
+Those tests stop at the shape of a request. Whether a credential is checked
+before an input is read, ownership settled before a body is parsed, or a request
+budget spent before either, are promises about a whole request, proved through
+`servertest` against the running service.
+
+Coverage output is for reading which of those promises nothing exercises. It is
+never itself the reason for a test: nothing here tests the standard library, the
+JWT or database libraries, generated code, a failure no input or dependency can
+cause, or the test support.
 
 ## Available checks
 
-Run relevant checks from the repository root:
+Run what a change could have broken, from the repository root, and report
+exactly what was run:
 
 ```text
-poetry -C src/api run ruff check .
-poetry -C src/api run pyright
+./scripts/check.sh                 codegen, formatting, lint, static analysis, dead code, both builds, unit tests
+./scripts/check.sh --integration   the tests in a container instead: integration, race, database, coverage
+./scripts/db.sh down               remove the test database afterwards
+
+npm --prefix src/website test
 npm --prefix src/website run build
-docker compose config
 ```
 
-Run API checks for Python or Prisma changes, the website build for frontend
-changes, and Compose validation for deployment changes. Documentation-only
-agent setup does not require application builds.
+On Windows, invoke them with
+`& "C:\Program Files\Git\bin\bash.exe" scripts/check.sh ...`; never execute a
+`.sh` file directly through PowerShell, which opens the OS application chooser.
 
-`.pre-commit-config.yaml` contains mutating hooks: Ruff runs with fixes, Prisma
-formats and generates, and whitespace hooks rewrite files. Inspect `git status`
-and the diff before and after invoking pre-commit. Do not treat generated Prisma
-client output as source or edit it manually.
+`--integration` is authoritative for coverage, and is required after a change to
+an integration test, to `internal/database/testdatabase`, to
+`internal/web/servertest`, or to the container check scripts. Both images are
+built on every pull request by `.github/workflows/`, which is what covers a
+Dockerfile change.
+
+Besides revive and vet, `scripts/check.sh` runs Staticcheck on all four tag
+sets (none, `devtools`, `integration`, `integration devtools`) and a dead-code
+analysis, `deadcode -test -tags=integration ./...`, that fails on any
+unreachable function. The dead-code analysis covers the deployment integration
+graph only: the `integration && !devtools` and `integration && devtools` files
+exclude each other, so no single whole-program graph holds both, and the
+`devtools` files are covered by the build, vet, Staticcheck and test stages
+instead. revive lints only the untagged graph, because it resolves packages
+without build tags: a `devtools` or `integration` file gets build, vet,
+Staticcheck and tests, and nothing enforces revive's rules on it, so review
+them there by hand. An exported function nobody reaches is reported by the
+dead-code stage; an unexported one by Staticcheck first.
+
+Suites are selected by package pattern and build constraint, never by test
+name or by a maintained package list. `scripts/check.sh` runs
+`go test ./...` and `go test -tags=devtools ./...` on the host. `--integration`
+runs `-tags='integration devtools' ./...` and then `-tags=integration ./...` in
+the container under the race detector with a database. Every deployment
+integration file carries `integration && !devtools`, so the development run
+carries the development unit and integration packages without repeating the
+deployment journeys; the password sign-in journeys live in
+`internal/web/passwordsignintest` under `integration && devtools`. An assertion
+that holds only for a deployment goes in a `!devtools` file; one that holds for
+either build runs under both.
+
+Selecting an integration-tagged test is an explicit request for PostgreSQL:
+`internal/database/testdatabase` fails the test through `testing.T` when
+`TEST_DATABASE_URL` is absent or unusable. A plain `go test ./...` needs no
+database because the integration files are build-constrained.
+
+The coverage profile is built with `-tags=integration` and **not** `devtools`,
+so a test written under `integration && devtools` earns no coverage against the
+gate; deliberately, since those files are not in the published binary.
+
+The harness stores credentials at `bcrypt.MinCost` through
+`web.Dependencies.CredentialHasher`, which only `servertest.testHasher` sets:
+every service under test registers an application before it starts, and at
+`HashCost` under the race detector that alone spends the suite's budget.
+Comparison is still `credentials.Matches`, so refusals are the deployed ones.
+The factor is not a knob anywhere else; a nil hasher is `credentials.HashCost`,
+and `credentials.Hash` takes no factor at all.
+
+`./scripts/check.sh` reports formatting rather than correcting it, so a check
+never rewrites the worktree unannounced; `--fix-fmt` corrects it. Generated sqlc
+and Swagger output is regenerated every run and is never edited.
+
+A test that spends a request budget states the budget's number itself, as the
+contract the service promises, rather than reading it back from the service.
+Budget windows are decided by the database clock and are at least a minute
+long, so a test spends a budget with requests rather than by moving a clock.
+For a test that has to wait on another connection, `testdatabase.AwaitLockWaiters`
+is the bounded way to know the other side has blocked; a fixed sleep is not.
