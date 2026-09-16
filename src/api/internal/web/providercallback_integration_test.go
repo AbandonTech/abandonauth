@@ -21,7 +21,7 @@ const externalCallbackURI = "https://relying.example.test/return"
 
 // A person is recognised by the identifier their provider issued, and their
 // account is created the first time they arrive with it.
-func TestSigningInWithAProviderCreatesAnAccount(t *testing.T) {
+func TestSigningInWithProviderCreatesAccount(t *testing.T) {
 	t.Parallel()
 
 	for _, provider := range oauth.Providers {
@@ -52,7 +52,7 @@ func TestSigningInWithAProviderCreatesAnAccount(t *testing.T) {
 
 // The provider's identifier is what an account belongs to. Signing in again
 // with it is the same person, and a display name says nothing.
-func TestAProviderAccountBelongsToOnePerson(t *testing.T) {
+func TestProviderAccountBelongsToOnePerson(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -91,7 +91,7 @@ func TestTwoProviderAccountsAreTwoPeople(t *testing.T) {
 
 // A person who signs in to the site is signed in here, and nothing that could
 // sign anyone in travels in the URL.
-func TestTheSitesOwnLoginPutsNothingInTheURL(t *testing.T) {
+func TestSitesOwnLoginPutsNothingInURL(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -123,7 +123,7 @@ func TestTheSitesOwnLoginPutsNothingInTheURL(t *testing.T) {
 
 // An application that is not the site collects a one-time code, which means
 // nothing until the application spends it from its own server.
-func TestAnApplicationsLoginEndsInAOneTimeCode(t *testing.T) {
+func TestApplicationsLoginEndsInOneTimeCode(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -171,7 +171,7 @@ func TestAnApplicationsLoginEndsInAOneTimeCode(t *testing.T) {
 
 // Google returns its result under the key applications already read, and it is
 // the same opaque one-time code every other provider produces.
-func TestSigningInWithGoogleReturnsUnderTheIdentityKey(t *testing.T) {
+func TestSigningInWithGoogleReturnsUnderIdentityKey(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -199,7 +199,7 @@ func TestSigningInWithGoogleReturnsUnderTheIdentityKey(t *testing.T) {
 
 // The query an application registered its callback with is its own. The result
 // is added to it and nothing else about it changes.
-func TestTheRegisteredCallbacksOwnQueryIsKept(t *testing.T) {
+func TestRegisteredCallbacksOwnQueryIsKept(t *testing.T) {
 	t.Parallel()
 
 	const callback = "https://relying.example.test/return?theme=dark&next=%2Fwelcome"
@@ -229,7 +229,7 @@ func TestTheRegisteredCallbacksOwnQueryIsKept(t *testing.T) {
 
 // A code is spent once. The second attempt is refused in the same words as one
 // that never existed.
-func TestAOneTimeCodeIsSpentOnce(t *testing.T) {
+func TestOneTimeCodeIsSpentOnce(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -292,7 +292,7 @@ func TestOneOneTimeCodeIsSpentAtMostOnce(t *testing.T) {
 
 	var granted, refused int
 
-	for _, answer := range atTheSameMoment(t, requests...) {
+	for _, answer := range concurrently(t, requests...) {
 		switch answer.status {
 		case http.StatusOK:
 			granted++
@@ -331,7 +331,7 @@ func TestOneOneTimeCodeIsSpentAtMostOnce(t *testing.T) {
 // neither the one-time code it carries nor the budget that protects spending
 // one, so the address it is refused at cannot be used to wear either of them
 // down before the application that owns the code arrives.
-func TestAnExchangeSpelledAnotherWaySpendsNeitherTheCodeNorItsBudget(t *testing.T) {
+func TestExchangeSpelledAnotherWaySpendsNeitherCodeNorItsBudget(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -367,7 +367,7 @@ func TestAnExchangeSpelledAnotherWaySpendsNeitherTheCodeNorItsBudget(t *testing.
 
 // A code belongs to the application the person was signing in to. Another
 // application holding it cannot learn who they are.
-func TestAOneTimeCodeIsSpentByTheApplicationItWasIssuedTo(t *testing.T) {
+func TestOneTimeCodeIsSpentByApplicationItWasIssuedTo(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -391,7 +391,7 @@ func TestAOneTimeCodeIsSpentByTheApplicationItWasIssuedTo(t *testing.T) {
 
 // A provider that answers without a name for the person describes somebody this
 // service cannot record, and nobody is signed in.
-func TestAPersonAProviderCannotNameIsNotSignedIn(t *testing.T) {
+func TestPersonUnnamedByProviderIsNotSignedIn(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -407,7 +407,7 @@ func TestAPersonAProviderCannotNameIsNotSignedIn(t *testing.T) {
 
 // Nothing a provider sign-in handles reaches the log: not the authorization
 // code, not the state, and not the session the browser was given.
-func TestSigningInWritesNoCredentialToTheLog(t *testing.T) {
+func TestSigningInWritesNoCredentialToLog(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)

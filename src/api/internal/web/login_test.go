@@ -26,7 +26,7 @@ func spendRequest(code, body string) *http.Request {
 
 // An application relying on its own access token sends the code and nothing
 // else, so the body remains optional.
-func TestSpendingACodeReadsTheCodeWithoutABody(t *testing.T) {
+func TestSpendingCodeReadsCodeWithoutBody(t *testing.T) {
 	t.Parallel()
 
 	given := inputs.New(spendRequest("an-opaque-code", ""))
@@ -47,7 +47,7 @@ func TestSpendingACodeReadsTheCodeWithoutABody(t *testing.T) {
 
 // A client that sends null is saying it has nothing to send, which is the same
 // as sending nothing at all.
-func TestSpendingACodeTreatsANullBodyAsAbsent(t *testing.T) {
+func TestSpendingCodeTreatsNullBodyAsAbsent(t *testing.T) {
 	t.Parallel()
 
 	given := inputs.New(spendRequest("an-opaque-code", "null"))
@@ -64,7 +64,7 @@ func TestSpendingACodeTreatsANullBodyAsAbsent(t *testing.T) {
 
 // A body is a claim about which application is collecting the token, so both
 // members of it are required once one arrives.
-func TestSpendingACodeWithCredentialsReadsBothOfThem(t *testing.T) {
+func TestSpendingCodeWithCredentialsReadsBothOfThem(t *testing.T) {
 	t.Parallel()
 
 	given := inputs.New(spendRequest("an-opaque-code",
@@ -90,7 +90,7 @@ func TestSpendingACodeWithCredentialsReadsBothOfThem(t *testing.T) {
 
 // An application that sends members this service does not know keeps working,
 // which is what lets a client be upgraded before the service is.
-func TestSpendingACodeIgnoresMembersItDoesNotKnow(t *testing.T) {
+func TestSpendingCodeIgnoresMembersItDoesNotKnow(t *testing.T) {
 	t.Parallel()
 
 	given := inputs.New(spendRequest("an-opaque-code",
@@ -101,7 +101,7 @@ func TestSpendingACodeIgnoresMembersItDoesNotKnow(t *testing.T) {
 	}
 }
 
-func TestSpendingACodeRefusesWhatItCannotRead(t *testing.T) {
+func TestSpendingCodeRefusesWhatItCannotRead(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

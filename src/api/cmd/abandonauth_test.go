@@ -160,7 +160,7 @@ func TestServeBindsToPortEightThousandByDefault(t *testing.T) {
 	}
 }
 
-func TestSettingsAreAlsoAcceptedOnTheCommandLine(t *testing.T) {
+func TestSettingsAreAlsoAcceptedOnCommandLine(t *testing.T) {
 	applyEnvironment(t, placeholderEnvironment())
 
 	perform, err := runCommand(t, "--bind-address", "127.0.0.1:9000", "serve")
@@ -173,7 +173,7 @@ func TestSettingsAreAlsoAcceptedOnTheCommandLine(t *testing.T) {
 	}
 }
 
-func TestAMissingRequiredSettingStopsTheCommandWithoutRevealingIt(t *testing.T) {
+func TestMissingRequiredSettingStopsCommandWithoutRevealingIt(t *testing.T) {
 	environment := placeholderEnvironment()
 	delete(environment, "JWT_SECRET")
 
@@ -194,7 +194,7 @@ func TestAMissingRequiredSettingStopsTheCommandWithoutRevealingIt(t *testing.T) 
 	}
 }
 
-func TestAnInvalidSettingValueIsNotRepeatedInTheError(t *testing.T) {
+func TestInvalidSettingValueIsNotRepeatedInError(t *testing.T) {
 	environment := placeholderEnvironment()
 	environment["JWT_SECRET"] = "too-short"
 
@@ -210,7 +210,7 @@ func TestAnInvalidSettingValueIsNotRepeatedInTheError(t *testing.T) {
 	}
 }
 
-func TestMaintenanceNeedsOnlyAnAddress(t *testing.T) {
+func TestMaintenanceNeedsOnlyAddress(t *testing.T) {
 	perform, err := runCommand(t, "maintenance")
 	if err != nil {
 		t.Fatalf("maintenance failed with no settings configured: %v", err)
@@ -238,7 +238,7 @@ func TestDatabaseCommands(t *testing.T) {
 	}
 }
 
-func TestAnUnknownCommandIsRefused(t *testing.T) {
+func TestUnknownCommandIsRefused(t *testing.T) {
 	applyEnvironment(t, placeholderEnvironment())
 
 	perform, err := runCommand(t, "migrate-everything")
@@ -262,7 +262,7 @@ func TestCommandFailuresAreReported(t *testing.T) {
 	}
 }
 
-func TestDebugModeIsRefusedByABuildThatCannotServeIt(t *testing.T) {
+func TestDebugModeIsRefusedByBuildThatCannotServeIt(t *testing.T) {
 	if buildServesDevelopmentRoutes {
 		t.Skip("this build compiles the development routes in")
 	}

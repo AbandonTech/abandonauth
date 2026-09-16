@@ -137,10 +137,13 @@ The coverage profile is built with `-tags=integration` and **not** `devtools`,
 so a test written under `integration && devtools` earns no coverage against the
 gate; deliberately, since those files are not in the published binary.
 
-Every credential a test creates or compares goes through `credentials.Hash` and
-`credentials.Matches` at `credentials.HashCost`. There is no alternate work
-factor, injected hasher or stub; runtime is controlled by test scheduling and
-per-test isolation, not by cheaper hashing.
+The harness stores credentials at `bcrypt.MinCost` through
+`web.Dependencies.CredentialHasher`, which only `servertest.testHasher` sets:
+every service under test registers an application before it starts, and at
+`HashCost` under the race detector that alone spends the suite's budget.
+Comparison is still `credentials.Matches`, so refusals are the deployed ones.
+The factor is not a knob anywhere else; a nil hasher is `credentials.HashCost`,
+and `credentials.Hash` takes no factor at all.
 
 `./scripts/check.sh` reports formatting rather than correcting it, so a check
 never rewrites the worktree unannounced; `--fix-fmt` corrects it. Generated sqlc

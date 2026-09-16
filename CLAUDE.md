@@ -101,6 +101,10 @@ docstrings, tests, fixtures, commit messages, plans, and repository docs.
   it was copied from.
 - Name a file after the concept it defines. Vague names such as `contract.go`,
   `helpers.go`, `utils.go`, `common.go`, or `misc.go` are not acceptable.
+- A test function name states the behaviour and nothing else: no articles
+  (`A`, `An`, `The`) and no filler. `TestNilHasherStoresAtHashCost`, not
+  `TestANilHasherStoresAtHashCost`. Subtest strings and doc comments are prose
+  and keep their articles.
 - Reference an outside system only where it is an operational fact the code or
   an operator must act on: a provider's published endpoint, a database object
   that physically exists in production, or a wire format third-party callers

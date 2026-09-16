@@ -141,7 +141,7 @@ func userKey(t *testing.T) []byte {
 	return keys.UserAccessSigning()
 }
 
-func TestAnIssuedUserTokenCarriesEveryClaimTheServiceCommitsTo(t *testing.T) {
+func TestIssuedUserTokenCarriesEveryClaimServiceCommitsTo(t *testing.T) {
 	t.Parallel()
 
 	at := newClock()
@@ -189,7 +189,7 @@ func TestAnIssuedUserTokenCarriesEveryClaimTheServiceCommitsTo(t *testing.T) {
 
 // The site itself needs to manage applications; an application acting for a
 // person only needs to identify them.
-func TestScopeDependsOnWhoTheTokenWasIssuedFor(t *testing.T) {
+func TestScopeDependsOnWhoTokenWasIssuedFor(t *testing.T) {
 	t.Parallel()
 
 	signer := newSigner(t, newClock())
@@ -205,7 +205,7 @@ func TestScopeDependsOnWhoTheTokenWasIssuedFor(t *testing.T) {
 	}
 }
 
-func TestAnIssuedApplicationTokenNamesTheApplicationAndItsCredentialVersion(t *testing.T) {
+func TestIssuedApplicationTokenNamesApplicationAndItsCredentialVersion(t *testing.T) {
 	t.Parallel()
 
 	at := newClock()
@@ -234,7 +234,7 @@ func TestAnIssuedApplicationTokenNamesTheApplicationAndItsCredentialVersion(t *t
 	}
 }
 
-func TestVerifyingReturnsWhatTheTokenSays(t *testing.T) {
+func TestVerifyingReturnsWhatTokenSays(t *testing.T) {
 	t.Parallel()
 
 	at := newClock()
@@ -295,7 +295,7 @@ func TestScopeMembershipIsExact(t *testing.T) {
 	}
 }
 
-func TestTokensExpireAfterTheFixedAccessLifetime(t *testing.T) {
+func TestTokensExpireAfterFixedAccessLifetime(t *testing.T) {
 	t.Parallel()
 
 	at := newClock()
@@ -313,7 +313,7 @@ func TestTokensExpireAfterTheFixedAccessLifetime(t *testing.T) {
 
 // Hosts do not agree on the time to the second. A small tolerance keeps a token
 // usable across them without letting an expired one live materially longer.
-func TestVerificationToleratesOnlyASmallClockDifference(t *testing.T) {
+func TestVerificationToleratesOnlySmallClockDifference(t *testing.T) {
 	t.Parallel()
 
 	at := newClock()
@@ -411,7 +411,7 @@ func TestEveryShapeThisServiceIssuesVerifies(t *testing.T) {
 	}
 }
 
-func TestATokenIsRefusedWhenAnythingAboutItIsWrong(t *testing.T) {
+func TestTokenIsRefusedWhenAnythingAboutItIsWrong(t *testing.T) {
 	t.Parallel()
 
 	at := newClock()
@@ -595,7 +595,7 @@ func TestATokenIsRefusedWhenAnythingAboutItIsWrong(t *testing.T) {
 
 // An application token has one shape too: signed with the application key, to
 // the site, with both scopes and a positive credential version.
-func TestAnApplicationTokenIsRefusedWhenAnythingAboutItIsWrong(t *testing.T) {
+func TestApplicationTokenIsRefusedWhenAnythingAboutItIsWrong(t *testing.T) {
 	t.Parallel()
 
 	at := newClock()
@@ -667,7 +667,7 @@ func TestAnApplicationTokenIsRefusedWhenAnythingAboutItIsWrong(t *testing.T) {
 
 // An application token names an application, so it must not be usable where a
 // person is expected, and the reverse.
-func TestTheTwoTokenClassesCannotStandInForEachOther(t *testing.T) {
+func TestTwoTokenClassesCannotStandInForEachOther(t *testing.T) {
 	t.Parallel()
 
 	signer := newSigner(t, newClock())
@@ -697,7 +697,7 @@ func TestTheTwoTokenClassesCannotStandInForEachOther(t *testing.T) {
 
 // A token may not choose how it is verified. An unsigned or differently signed
 // token must be refused before any claim is read.
-func TestOnlyTheOneSigningAlgorithmIsAccepted(t *testing.T) {
+func TestOnlyOneSigningAlgorithmIsAccepted(t *testing.T) {
 	t.Parallel()
 
 	at := newClock()
@@ -730,7 +730,7 @@ func TestOnlyTheOneSigningAlgorithmIsAccepted(t *testing.T) {
 }
 
 // Rotating the root secret is how a deployment withdraws every token at once.
-func TestTokensDoNotSurviveARootSecretChange(t *testing.T) {
+func TestTokensDoNotSurviveRootSecretChange(t *testing.T) {
 	t.Parallel()
 
 	at := newClock()
@@ -756,7 +756,7 @@ func TestTokensDoNotSurviveARootSecretChange(t *testing.T) {
 	}
 }
 
-func TestASignerNeedsEverythingItSignsWith(t *testing.T) {
+func TestSignerNeedsEverythingItSignsWith(t *testing.T) {
 	t.Parallel()
 
 	keys, err := keyring.New(rootSecret)
@@ -790,7 +790,7 @@ func TestASignerNeedsEverythingItSignsWith(t *testing.T) {
 	}
 }
 
-func TestASignerRefusesToIssueATokenForNobody(t *testing.T) {
+func TestSignerRefusesToIssueTokenForNobody(t *testing.T) {
 	t.Parallel()
 
 	signer := newSigner(t, newClock())

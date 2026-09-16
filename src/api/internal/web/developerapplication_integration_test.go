@@ -51,7 +51,7 @@ func TestApplicationsAreListedForTheirOwnerOnly(t *testing.T) {
 
 // Reading an application somebody else owns is refused in the same words as
 // reading one that does not exist.
-func TestAnApplicationNobodyOwnsAndOneSomebodyElseOwnsAreTheSameAnswer(t *testing.T) {
+func TestApplicationNobodyOwnsAndOneSomebodyElseOwnsAreSameAnswer(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -187,7 +187,7 @@ func TestReplacementsArrivingTogetherLeaveExactlyOneSubmittedSet(t *testing.T) {
 		}
 	}()
 
-	answers := atTheSameMoment(t,
+	answers := concurrently(t,
 		callbackReplacement(t, service, application, first),
 		callbackReplacement(t, service, application, second),
 	)
@@ -214,7 +214,7 @@ func TestReplacementsArrivingTogetherLeaveExactlyOneSubmittedSet(t *testing.T) {
 // An application that is deleted while a replacement of its callbacks waits
 // for its row is answered as an application that does not exist, and nothing
 // is registered for it.
-func TestAReplacementThatOutlivesItsApplicationFindsNothing(t *testing.T) {
+func TestReplacementThatOutlivesItsApplicationFindsNothing(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -244,7 +244,7 @@ func TestAReplacementThatOutlivesItsApplicationFindsNothing(t *testing.T) {
 		}
 	}()
 
-	answers := atTheSameMoment(t,
+	answers := concurrently(t,
 		callbackReplacement(t, service, application, []string{"https://late.example.test/return"}),
 	)
 
@@ -275,7 +275,7 @@ func TestAReplacementThatOutlivesItsApplicationFindsNothing(t *testing.T) {
 
 // An application may have no callbacks at all. Submitting an empty set is how
 // it says so, and no login can be started for it afterwards.
-func TestAnApplicationCanClearItsCallbacks(t *testing.T) {
+func TestApplicationCanClearItsCallbacks(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -304,7 +304,7 @@ func TestAnApplicationCanClearItsCallbacks(t *testing.T) {
 // Changing an application is the owner's to do. Somebody else is told exactly
 // what they would be told about an application nobody registered, and the
 // owner's application is left as it was.
-func TestChangingAnApplicationNeedsToOwnIt(t *testing.T) {
+func TestChangingApplicationNeedsToOwnIt(t *testing.T) {
 	t.Parallel()
 
 	attempts := map[string]func(*servertest.Service, string) *servertest.Response{
@@ -361,7 +361,7 @@ func TestChangingAnApplicationNeedsToOwnIt(t *testing.T) {
 
 // Ownership is settled before a submitted body is read, so a stranger sending
 // something this service would refuse still only learns that it found nothing.
-func TestAStrangersUnusableCallbacksAreStillNothingFound(t *testing.T) {
+func TestStrangersUnusableCallbacksAreStillNothingFound(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -393,7 +393,7 @@ func TestAStrangersUnusableCallbacksAreStillNothingFound(t *testing.T) {
 // A credential is required before anything a request carries is read, so a
 // request without one is refused for the credential rather than told which of
 // its inputs this service could not read.
-func TestManagingApplicationsChecksTheCredentialBeforeTheInput(t *testing.T) {
+func TestManagingApplicationsChecksCredentialBeforeInput(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -418,7 +418,7 @@ func TestManagingApplicationsChecksTheCredentialBeforeTheInput(t *testing.T) {
 
 // A submitted list is taken whole or not at all: one URI this service would not
 // return a browser to leaves the application with what it had.
-func TestOneUnusableCallbackLeavesTheRegisteredSetAlone(t *testing.T) {
+func TestOneUnusableCallbackLeavesRegisteredSetAlone(t *testing.T) {
 	t.Parallel()
 
 	unusable := map[string]string{
@@ -456,7 +456,7 @@ func TestOneUnusableCallbackLeavesTheRegisteredSetAlone(t *testing.T) {
 
 // A callback matches by equality. Something that only looks like a registered
 // URI is not one.
-func TestACallbackIsMatchedExactly(t *testing.T) {
+func TestCallbackIsMatchedExactly(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -480,7 +480,7 @@ func TestACallbackIsMatchedExactly(t *testing.T) {
 
 // The credential an application is given is the one it can authenticate with,
 // exactly as it was handed over.
-func TestAnApplicationAuthenticatesWithTheCredentialItWasGiven(t *testing.T) {
+func TestApplicationAuthenticatesWithCredentialItWasGiven(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -515,7 +515,7 @@ func TestAnApplicationAuthenticatesWithTheCredentialItWasGiven(t *testing.T) {
 // application exists or not, and in the same words. That holds for the one
 // value that does match the comparison an unknown application is checked
 // against: it is published, and it grants nothing.
-func TestAnApplicationsCredentialIsNotGuessable(t *testing.T) {
+func TestApplicationsCredentialIsNotGuessable(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -574,7 +574,7 @@ func TestAnApplicationsCredentialIsNotGuessable(t *testing.T) {
 
 // A credential bcrypt could not have made a hash from is refused in the same
 // words for an application that exists as for one that does not.
-func TestAnUnusableCredentialIsRefusedTheSameForEveryApplication(t *testing.T) {
+func TestUnusableCredentialIsRefusedSameForEveryApplication(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -612,7 +612,7 @@ func TestAnUnusableCredentialIsRefusedTheSameForEveryApplication(t *testing.T) {
 // Replacing the credential takes effect at once: every token issued against the
 // one it replaces stops working, and the replaced credential no longer signs
 // the application in.
-func TestReplacingTheCredentialRefusesWhatWentBefore(t *testing.T) {
+func TestReplacingCredentialRefusesWhatWentBefore(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -649,7 +649,7 @@ func TestReplacingTheCredentialRefusesWhatWentBefore(t *testing.T) {
 
 // Deleting an application takes everything that referred to it: nobody can read
 // it, and no login can be started for it.
-func TestDeletingAnApplicationTakesWhatReferredToIt(t *testing.T) {
+func TestDeletingApplicationTakesWhatReferredToIt(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -678,7 +678,7 @@ func TestDeletingAnApplicationTakesWhatReferredToIt(t *testing.T) {
 
 // Managing applications is something only the site's own sign-in can do. A
 // token an application was given to identify its user is not it.
-func TestAnApplicationsTokenCannotManageItsUsersApplications(t *testing.T) {
+func TestApplicationsTokenCannotManageItsUsersApplications(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -708,7 +708,7 @@ func TestAnApplicationsTokenCannotManageItsUsersApplications(t *testing.T) {
 
 // Without a credential nothing about applications is readable, and the refusal
 // does not say what exists.
-func TestManagingApplicationsNeedsACredential(t *testing.T) {
+func TestManagingApplicationsNeedsCredential(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -726,7 +726,7 @@ func TestManagingApplicationsNeedsACredential(t *testing.T) {
 		ExpectDetail("Not authenticated")
 }
 
-func TestAnApplicationIsRegisteredWithAName(t *testing.T) {
+func TestApplicationIsRegisteredWithName(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)

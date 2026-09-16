@@ -34,7 +34,7 @@ func TestEachTestGetsItsOwnEmptyDatabase(t *testing.T) {
 	}
 }
 
-func TestAMigratedDatabaseIsReadyToUse(t *testing.T) {
+func TestMigratedDatabaseIsReadyToUse(t *testing.T) {
 	t.Parallel()
 
 	pool := testdatabase.NewMigrated(t)
@@ -50,7 +50,7 @@ func TestAMigratedDatabaseIsReadyToUse(t *testing.T) {
 	}
 }
 
-func TestAnUnrecognisedDatabaseCanBeBuilt(t *testing.T) {
+func TestUnrecognisedDatabaseCanBeBuilt(t *testing.T) {
 	t.Parallel()
 
 	pool := testdatabase.NewUnrecognised(t)
@@ -70,7 +70,7 @@ func TestAnUnrecognisedDatabaseCanBeBuilt(t *testing.T) {
 	}
 }
 
-func TestServerURLNamesTheConfiguredServer(t *testing.T) {
+func TestServerURLNamesConfiguredServer(t *testing.T) {
 	t.Parallel()
 
 	if testdatabase.ServerURL(t) == "" {

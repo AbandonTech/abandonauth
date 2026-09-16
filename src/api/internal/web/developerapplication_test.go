@@ -35,7 +35,7 @@ func callbackRequest(body string) *http.Request {
 
 // An application is registered with a name, which is the only thing whoever
 // registers it chooses.
-func TestRegisteringAnApplicationReadsItsName(t *testing.T) {
+func TestRegisteringApplicationReadsItsName(t *testing.T) {
 	t.Parallel()
 
 	given := inputs.New(applicationBodyRequest(APIRoot+"/developer_application", `{"name":"an application"}`))
@@ -49,7 +49,7 @@ func TestRegisteringAnApplicationReadsItsName(t *testing.T) {
 	}
 }
 
-func TestRegisteringAnApplicationRefusesWhatItCannotRead(t *testing.T) {
+func TestRegisteringApplicationRefusesWhatItCannotRead(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -79,7 +79,7 @@ func TestRegisteringAnApplicationRefusesWhatItCannotRead(t *testing.T) {
 
 // An application says which application it is and proves it in the same
 // request, so neither member is optional.
-func TestAnApplicationsCredentialsAreReadTogether(t *testing.T) {
+func TestApplicationsCredentialsAreReadTogether(t *testing.T) {
 	t.Parallel()
 
 	given := inputs.New(applicationBodyRequest(APIRoot+"/developer_application/login",
@@ -99,7 +99,7 @@ func TestAnApplicationsCredentialsAreReadTogether(t *testing.T) {
 	}
 }
 
-func TestAnApplicationsCredentialsRefuseWhatTheyCannotRead(t *testing.T) {
+func TestApplicationsCredentialsRefuseWhatTheyCannotRead(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -137,7 +137,7 @@ func TestAnApplicationsCredentialsRefuseWhatTheyCannotRead(t *testing.T) {
 
 // The application a path names is read the same way for every route that names
 // one, so reading it and refusing it are one rule rather than four.
-func TestAnApplicationInThePathIsAnIdentifier(t *testing.T) {
+func TestApplicationInPathIsIdentifier(t *testing.T) {
 	t.Parallel()
 
 	given := inputs.New(applicationPathRequest(managedApplicationID))
@@ -162,7 +162,7 @@ func TestAnApplicationInThePathIsAnIdentifier(t *testing.T) {
 
 // The submitted body is the complete set of callbacks, and an empty list is how
 // an application says it has none.
-func TestTheSubmittedCallbacksAreTheWholeBody(t *testing.T) {
+func TestSubmittedCallbacksAreWholeBody(t *testing.T) {
 	t.Parallel()
 
 	given := inputs.New(callbackRequest(
@@ -189,7 +189,7 @@ func TestTheSubmittedCallbacksAreTheWholeBody(t *testing.T) {
 	}
 }
 
-func TestTheSubmittedCallbacksRefuseWhatIsNotAList(t *testing.T) {
+func TestSubmittedCallbacksRefuseWhatIsNotList(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

@@ -16,7 +16,7 @@ import (
 
 // A credential this service did not issue identifies nobody, and being refused
 // says only that.
-func TestIdentifyingSomebodyNeedsACredentialThisServiceIssued(t *testing.T) {
+func TestIdentifyingSomebodyNeedsCredentialThisServiceIssued(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -62,7 +62,7 @@ func TestIdentifyingSomebodyNeedsACredentialThisServiceIssued(t *testing.T) {
 
 // The credential an application holds is the application's, not its user's.
 // Presenting it where a person is expected identifies nobody.
-func TestAnApplicationsOwnCredentialIdentifiesNoPerson(t *testing.T) {
+func TestApplicationsOwnCredentialIdentifiesNoPerson(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -81,7 +81,7 @@ func TestAnApplicationsOwnCredentialIdentifiesNoPerson(t *testing.T) {
 
 // A token identifies a person to one application. When that application is
 // gone there is nobody for it to identify them to.
-func TestATokenForAnApplicationThatIsGoneIdentifiesNobody(t *testing.T) {
+func TestTokenForApplicationThatIsGoneIdentifiesNobody(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -111,7 +111,7 @@ func TestATokenForAnApplicationThatIsGoneIdentifiesNobody(t *testing.T) {
 
 // An application collecting a token has to say who it is, and a code cannot be
 // spent by saying nothing.
-func TestSpendingACodeRequiresTheApplicationToIdentifyItself(t *testing.T) {
+func TestSpendingCodeRequiresApplicationToIdentifyItself(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -140,7 +140,7 @@ func TestSpendingACodeRequiresTheApplicationToIdentifyItself(t *testing.T) {
 
 // An application may present its own access token instead of its credentials,
 // and a token in the header is the claim being made: it is not fallen back on.
-func TestAnApplicationMaySpendACodeWithItsOwnToken(t *testing.T) {
+func TestApplicationMaySpendCodeWithItsOwnToken(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -156,7 +156,7 @@ func TestAnApplicationMaySpendACodeWithItsOwnToken(t *testing.T) {
 	).ExpectStatus(http.StatusOK)
 }
 
-func TestSpendingACodeNeedsTheCode(t *testing.T) {
+func TestSpendingRequiresCode(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -167,7 +167,7 @@ func TestSpendingACodeNeedsTheCode(t *testing.T) {
 // The request is read before the credential it carries is looked at, so an
 // application holding a token this service issued still has to send something
 // this service can read. Nothing is spent by a request that was never read.
-func TestSpendingACodeReadsTheRequestBeforeTheCredential(t *testing.T) {
+func TestSpendingCodeReadsRequestBeforeCredential(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -192,7 +192,7 @@ func TestSpendingACodeReadsTheRequestBeforeTheCredential(t *testing.T) {
 // A person's token speaks for a person. Presenting it where an application is
 // expected identifies nobody, which is the mirror of an application's own
 // credential identifying no person.
-func TestAPersonsCredentialIsNotAnApplicationsCredential(t *testing.T) {
+func TestPersonsCredentialIsNotApplicationsCredential(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -210,7 +210,7 @@ func TestAPersonsCredentialIsNotAnApplicationsCredential(t *testing.T) {
 
 // A token is good for a quarter of an hour. Once it has aged out the person
 // holding it is told that, rather than that it was never this service's.
-func TestAnAgedOutTokenIsRefusedAsExpired(t *testing.T) {
+func TestAgedOutTokenIsRefusedAsExpired(t *testing.T) {
 	t.Parallel()
 
 	clock := &heldClock{at: time.Now().UTC()}

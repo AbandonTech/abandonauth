@@ -26,7 +26,7 @@ var providerAuthorizationEndpoints = map[oauth.Provider]string{
 
 // A login sends the browser to the provider's own published address, carrying
 // an opaque state and a challenge the provider cannot reverse.
-func TestALoginIsStartedAtTheProvidersOwnAddress(t *testing.T) {
+func TestLoginIsStartedAtProvidersOwnAddress(t *testing.T) {
 	t.Parallel()
 
 	for provider, endpoint := range providerAuthorizationEndpoints {
@@ -72,7 +72,7 @@ func TestALoginIsStartedAtTheProvidersOwnAddress(t *testing.T) {
 
 // The state alone is not authority to finish a login: the browser that started
 // it is given a cookie that no other site can read or send.
-func TestStartingALoginBindsItToTheBrowser(t *testing.T) {
+func TestStartingLoginBindsItToBrowser(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -106,7 +106,7 @@ func TestStartingALoginBindsItToTheBrowser(t *testing.T) {
 
 // A login may only name a callback the application registered, and being told
 // no says nothing about which of the two was wrong.
-func TestALoginOnlyNamesARegisteredCallback(t *testing.T) {
+func TestLoginOnlyNamesRegisteredCallback(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -145,7 +145,7 @@ func TestALoginOnlyNamesARegisteredCallback(t *testing.T) {
 // It spends neither the login it names nor the budget that protects the
 // exchange with the provider, so the address it is refused at cannot be used to
 // wear either of them down.
-func TestACallbackSpelledAnotherWaySpendsNeitherTheLoginNorItsBudget(t *testing.T) {
+func TestCallbackSpelledAnotherWaySpendsNeitherLoginNorItsBudget(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -184,7 +184,7 @@ func TestACallbackSpelledAnotherWaySpendsNeitherTheLoginNorItsBudget(t *testing.
 // An application nobody registered is refused in the same words as a callback
 // that was not registered, so the endpoint does not say which applications
 // exist.
-func TestALoginForAnUnknownApplicationIsRefusedTheSameWay(t *testing.T) {
+func TestLoginForUnknownApplicationIsRefusedSameWay(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -199,7 +199,7 @@ func TestALoginForAnUnknownApplicationIsRefusedTheSameWay(t *testing.T) {
 
 // The providers a person may sign in with are fixed. Anything else is refused
 // as an input, before an application or a callback is read.
-func TestALoginNamesAProviderThisServiceOffers(t *testing.T) {
+func TestLoginNamesProviderThisServiceOffers(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -211,7 +211,7 @@ func TestALoginNamesAProviderThisServiceOffers(t *testing.T) {
 		ExpectRejectedInput("path", "provider")
 }
 
-func TestALoginNeedsAnApplicationAndACallback(t *testing.T) {
+func TestLoginNeedsApplicationAndCallback(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -248,7 +248,7 @@ func TestTwoLoginsFromOneBrowserAreIndependent(t *testing.T) {
 
 // Every way of arriving at a callback without the login this service started
 // gets the same answer, so a caller cannot tell which of them it was.
-func TestALoginThisServiceDidNotStartCannotBeFinished(t *testing.T) {
+func TestLoginThisServiceDidNotStartCannotBeFinished(t *testing.T) {
 	t.Parallel()
 
 	refusals := map[string]func(service *servertest.Service) *servertest.Response{
@@ -300,7 +300,7 @@ func TestALoginThisServiceDidNotStartCannotBeFinished(t *testing.T) {
 // The login is spent all the same. Coming back a second time with a code the
 // provider really would honour finds no login at all, so a declined attempt
 // cannot be picked up later by whoever saw the state travel past.
-func TestALoginTheProviderDidNotCompleteIsOverForGood(t *testing.T) {
+func TestLoginNotCompletedByProviderIsOverForGood(t *testing.T) {
 	t.Parallel()
 
 	for _, provider := range oauth.Providers {
@@ -387,7 +387,7 @@ func TestOneLoginStateCompletesAtMostOnce(t *testing.T) {
 
 	var completed, refused, signedIn int
 
-	for _, answer := range atTheSameMoment(t, requests...) {
+	for _, answer := range concurrently(t, requests...) {
 		switch answer.status {
 		case http.StatusTemporaryRedirect:
 			completed++
@@ -428,7 +428,7 @@ func TestOneLoginStateCompletesAtMostOnce(t *testing.T) {
 
 // The authorization code has to be one the provider issued for this login, and
 // the exchange has to prove possession of the verifier behind the challenge.
-func TestALoginTheProviderRefusesDoesNotSignAnybodyIn(t *testing.T) {
+func TestLoginRefusedByProviderSignsNobodyIn(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)

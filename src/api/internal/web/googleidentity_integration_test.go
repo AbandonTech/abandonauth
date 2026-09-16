@@ -35,7 +35,7 @@ func signInWithGoogleAnswering(t *testing.T, answering func(*providertest.Option
 // An identity token is what Google says about a person, and every one of these
 // is a way of saying it about somebody else, or of saying it without being
 // Google. None of them signs anybody in.
-func TestAnIdentityTokenIsRefusedUnlessGoogleIssuedItForThisLogin(t *testing.T) {
+func TestIdentityTokenIsRefusedUnlessGoogleIssuedItForThisLogin(t *testing.T) {
 	t.Parallel()
 
 	refusals := map[string]func(*providertest.Options){

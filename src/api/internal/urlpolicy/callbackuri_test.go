@@ -96,7 +96,7 @@ func TestParseCallbackURIRejects(t *testing.T) {
 
 // The keys a browser is returned under are the lowercase spellings applications
 // already read.
-func TestTheResponseQueryKeysAreWhatApplicationsRead(t *testing.T) {
+func TestResponseQueryKeysAreWhatApplicationsRead(t *testing.T) {
 	t.Parallel()
 
 	if urlpolicy.ExchangeCodeQueryKey != "code" {
@@ -224,7 +224,7 @@ func TestWithResponseParameter(t *testing.T) {
 
 // A rejected URI must not be echoed back, because callback URIs and their query
 // values can carry information about the application that registered them.
-func TestCallbackErrorsDoNotEchoTheURI(t *testing.T) {
+func TestCallbackErrorsDoNotEchoURI(t *testing.T) {
 	t.Parallel()
 
 	uri := "https://user:hunter2@example.test/callback?tenant=secretcustomer#frag"
@@ -245,7 +245,7 @@ func TestCallbackErrorsDoNotEchoTheURI(t *testing.T) {
 // browser is sent to the spelling that was registered: an application compares
 // the redirect it receives against the string it gave, and a provider compares
 // it against the string registered with it.
-func TestACallbackKeepsTheSpellingItWasGiven(t *testing.T) {
+func TestCallbackKeepsSpellingItWasGiven(t *testing.T) {
 	t.Parallel()
 
 	const registered = "HTTPS://Example.TEST/Callback"
@@ -284,7 +284,7 @@ func TestACallbackKeepsTheSpellingItWasGiven(t *testing.T) {
 
 // The parsed form is handed out as a copy, so a caller that rewrites it cannot
 // change where a later redirect sends a browser.
-func TestTheComparedURLCannotBeRewritten(t *testing.T) {
+func TestComparedURLCannotBeRewritten(t *testing.T) {
 	t.Parallel()
 
 	callback, err := urlpolicy.ParseCallbackURI("https://example.test/callback")

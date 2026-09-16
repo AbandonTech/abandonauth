@@ -14,7 +14,7 @@ import (
 // secret and protects nothing here.
 var verifierKey = make([]byte, 32)
 
-func TestOnlyTheProvidersThisServiceOffersAreNamed(t *testing.T) {
+func TestOnlyProvidersThisServiceOffersAreNamed(t *testing.T) {
 	t.Parallel()
 
 	for _, provider := range oauth.Providers {
@@ -33,7 +33,7 @@ func TestOnlyTheProvidersThisServiceOffersAreNamed(t *testing.T) {
 
 // The verifier is held encrypted, so a key the cipher cannot use must stop the
 // store being built rather than surface later as a login that cannot complete.
-func TestAStoreNeedsAUsableVerifierKey(t *testing.T) {
+func TestStoreNeedsUsableVerifierKey(t *testing.T) {
 	t.Parallel()
 
 	for name, key := range map[string][]byte{
@@ -53,7 +53,7 @@ func TestAStoreNeedsAUsableVerifierKey(t *testing.T) {
 
 // A login is always for some application, returning to some address. Without
 // both there is nothing for the callback to check the provider's answer against.
-func TestALoginNeedsAnApplicationAndACallbackToBegin(t *testing.T) {
+func TestLoginNeedsApplicationAndCallbackToBegin(t *testing.T) {
 	t.Parallel()
 
 	store, err := oauth.NewStore(nil, verifierKey)
@@ -84,7 +84,7 @@ func TestALoginNeedsAnApplicationAndACallbackToBegin(t *testing.T) {
 
 // Presenting nothing is refused the same way as presenting a state value that
 // was never issued, so a caller learns nothing from being refused.
-func TestALoginCannotBeConsumedWithoutBothHalves(t *testing.T) {
+func TestLoginCannotBeConsumedWithoutBothHalves(t *testing.T) {
 	t.Parallel()
 
 	store, err := oauth.NewStore(nil, verifierKey)
@@ -112,7 +112,7 @@ func TestALoginCannotBeConsumedWithoutBothHalves(t *testing.T) {
 
 // A one-time code that never expired would be a permanent credential in a query
 // string.
-func TestOneTimeCodesNeedALifetime(t *testing.T) {
+func TestOneTimeCodesNeedLifetime(t *testing.T) {
 	t.Parallel()
 
 	for name, lifetime := range map[string]time.Duration{
@@ -131,7 +131,7 @@ func TestOneTimeCodesNeedALifetime(t *testing.T) {
 
 // A code identifies a person to an application. Issued for neither, it would
 // be a credential for nobody that some application could still spend.
-func TestAOneTimeCodeNeedsAPersonAndAnApplication(t *testing.T) {
+func TestOneTimeCodeNeedsPersonAndApplication(t *testing.T) {
 	t.Parallel()
 
 	codes, err := oauth.NewExchangeCodes(nil, time.Minute)
@@ -158,7 +158,7 @@ func TestAOneTimeCodeNeedsAPersonAndAnApplication(t *testing.T) {
 
 // Redeeming nothing is refused the same way as redeeming a code that was never
 // issued.
-func TestRedeemingNothingIsRefusedLikeAnUnknownCode(t *testing.T) {
+func TestRedeemingNothingIsRefusedLikeUnknownCode(t *testing.T) {
 	t.Parallel()
 
 	codes, err := oauth.NewExchangeCodes(nil, time.Minute)
@@ -173,7 +173,7 @@ func TestRedeemingNothingIsRefusedLikeAnUnknownCode(t *testing.T) {
 
 // Withdrawing nothing is not a failure, so the endpoint that withdraws a
 // credential answers the same way whether or not there was one.
-func TestDiscardingNothingIsNotAFailure(t *testing.T) {
+func TestDiscardingNothingDoesNotFail(t *testing.T) {
 	t.Parallel()
 
 	codes, err := oauth.NewExchangeCodes(nil, time.Minute)

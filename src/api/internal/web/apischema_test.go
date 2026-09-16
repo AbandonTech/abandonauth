@@ -258,7 +258,7 @@ func TestRoutesAreUniqueAndAnchored(t *testing.T) {
 // The route root belongs to this API. A route written without it would be an
 // address no caller could reach through a deployment, and one written with a
 // second root would be a second contract.
-func TestEveryRouteIsUnderTheAPIsRouteRoot(t *testing.T) {
+func TestEveryRouteIsUnderAPIsRouteRoot(t *testing.T) {
 	t.Parallel()
 
 	for _, route := range Routes() {

@@ -32,13 +32,13 @@ func (a answered) cookie(name string) *http.Cookie {
 	return nil
 }
 
-// atTheSameMoment sends requests the test has already built, together, and
+// concurrently sends requests the test has already built, together, and
 // returns what each one received.
 //
 // Building them first keeps the race to the endpoint's own work. Nothing inside
 // a goroutine ends the test: a result is carried back and asserted here, where
 // stopping is allowed.
-func atTheSameMoment(t *testing.T, requests ...*http.Request) []answered {
+func concurrently(t *testing.T, requests ...*http.Request) []answered {
 	t.Helper()
 
 	client := &http.Client{

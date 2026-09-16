@@ -12,7 +12,7 @@ import (
 
 // The entry point reads nothing from the URL. A person arrives at it with a
 // session or without one, and either way ends up at the site.
-func TestTheEntryPointRedeemsNothingFromTheURL(t *testing.T) {
+func TestEntryPointRedeemsNothingFromURL(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -28,7 +28,7 @@ func TestTheEntryPointRedeemsNothingFromTheURL(t *testing.T) {
 	}
 }
 
-func TestASignedInBrowserIsSentOnToTheSite(t *testing.T) {
+func TestSignedInBrowserIsSentOnToSite(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -45,7 +45,7 @@ func TestASignedInBrowserIsSentOnToTheSite(t *testing.T) {
 
 // A session value that means nothing here is cleared, so the browser stops
 // sending it.
-func TestASessionThisServiceDoesNotKnowIsCleared(t *testing.T) {
+func TestSessionThisServiceDoesNotKnowIsCleared(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -62,7 +62,7 @@ func TestASessionThisServiceDoesNotKnowIsCleared(t *testing.T) {
 // A request that changes something has to come from the site and carry the
 // token only the site can read. The cookie arriving on its own is not enough:
 // another site can cause that.
-func TestChangingSomethingNeedsTheSitesOwnConfirmation(t *testing.T) {
+func TestChangingSomethingNeedsSitesOwnConfirmation(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -98,7 +98,7 @@ func TestChangingSomethingNeedsTheSitesOwnConfirmation(t *testing.T) {
 
 // Reading something does not need the token: a request that changes nothing is
 // not what the check exists for.
-func TestReadingDoesNotNeedTheToken(t *testing.T) {
+func TestReadingDoesNotNeedToken(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -110,7 +110,7 @@ func TestReadingDoesNotNeedTheToken(t *testing.T) {
 
 // Logging out ends the session here before the cookies are cleared, so a copy
 // of the cookie taken beforehand is worth nothing afterwards.
-func TestLoggingOutEndsTheSessionForACopiedCookieToo(t *testing.T) {
+func TestLoggingOutEndsSessionForCopiedCookieToo(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -139,7 +139,7 @@ func TestLoggingOutEndsTheSessionForACopiedCookieToo(t *testing.T) {
 
 // Logging out changes something, so it is subject to the same confirmation as
 // everything else that does.
-func TestLoggingOutNeedsTheSitesOwnConfirmation(t *testing.T) {
+func TestLoggingOutNeedsSitesOwnConfirmation(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -154,7 +154,7 @@ func TestLoggingOutNeedsTheSitesOwnConfirmation(t *testing.T) {
 
 // The token has to be sent even when there is no session, so that a request
 // without one is refused for the same reason whether or not it was signed in.
-func TestLoggingOutWithoutASessionIsRefused(t *testing.T) {
+func TestLoggingOutWithoutSessionIsRefused(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)

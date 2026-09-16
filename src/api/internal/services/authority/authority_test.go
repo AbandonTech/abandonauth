@@ -12,7 +12,7 @@ import (
 // A withdrawal names the token it refuses. One that named nothing would record
 // an entry that no token could ever be matched against, and would report
 // success for having done nothing.
-func TestATokenCannotBeWithdrawnWithoutBeingIdentified(t *testing.T) {
+func TestTokenCannotBeWithdrawnWithoutBeingIdentified(t *testing.T) {
 	t.Parallel()
 
 	if err := authority.New(nil).Withdraw(t.Context(), uuid.Nil, time.Now().Add(time.Hour)); err == nil {

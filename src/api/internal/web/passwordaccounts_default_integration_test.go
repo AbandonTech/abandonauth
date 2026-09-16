@@ -11,7 +11,7 @@ import (
 
 // Seeding an account without a provider is development tooling. A deployment
 // does not carry it, so the addresses are simply not served.
-func TestADeploymentSeedsNoAccounts(t *testing.T) {
+func TestDeploymentSeedsNoAccounts(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)

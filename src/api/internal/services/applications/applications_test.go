@@ -14,7 +14,7 @@ import (
 // The refusal travels back to whoever submitted the list, so it says which
 // entry was refused and which rule it broke, and never repeats the URI: that is
 // another deployment's address.
-func TestARefusedCallbackIsNamedByItsPositionAndReason(t *testing.T) {
+func TestRefusedCallbackIsNamedByItsPositionAndReason(t *testing.T) {
 	t.Parallel()
 
 	const submitted = "http://relying.example.test/return"
@@ -37,7 +37,7 @@ func TestARefusedCallbackIsNamedByItsPositionAndReason(t *testing.T) {
 
 // A caller decides what to answer from the rule that was broken, so the policy
 // error survives being named as one entry of a submitted list.
-func TestARefusedCallbackKeepsTheRuleItBroke(t *testing.T) {
+func TestRefusedCallbackKeepsRuleItBroke(t *testing.T) {
 	t.Parallel()
 
 	refused := error(applications.UnsafeCallbackError{Index: 0, Reason: urlpolicy.ErrReservedQueryKey})
@@ -54,10 +54,10 @@ func TestARefusedCallbackKeepsTheRuleItBroke(t *testing.T) {
 // Nothing is registered under nothing. Deciding that takes no lookup, which is
 // why the service here is built over no database at all: reaching one would
 // fail rather than answer.
-func TestAnEmptyCallbackIsNotRegistered(t *testing.T) {
+func TestEmptyCallbackIsNotRegistered(t *testing.T) {
 	t.Parallel()
 
-	service := applications.New(nil)
+	service := applications.New(nil, nil)
 
 	registered, err := service.CallbackIsRegistered(t.Context(), uuid.New(), "")
 	if err != nil {

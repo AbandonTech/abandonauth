@@ -36,7 +36,7 @@ func failureSummaries(failures []response.Failure) []string {
 	return summaries
 }
 
-func TestAnObjectBodyIsReadMemberByMember(t *testing.T) {
+func TestObjectBodyIsReadMemberByMember(t *testing.T) {
 	t.Parallel()
 
 	inputs := request.New(post(`{"id":"` + applicationID + `","refresh_token":"placeholder-refresh-token"}`))
@@ -124,7 +124,7 @@ func TestBodyFailures(t *testing.T) {
 
 // A member sent as null is the same as a member that was not sent: the service
 // has no field it accepts an explicit null for.
-func TestANullMemberIsTreatedAsAbsent(t *testing.T) {
+func TestNullMemberIsTreatedAsAbsent(t *testing.T) {
 	t.Parallel()
 
 	inputs := request.New(post(`{"name":null}`))
@@ -138,7 +138,7 @@ func TestANullMemberIsTreatedAsAbsent(t *testing.T) {
 
 // Reading a member of a body that never arrived must not add a refusal for the
 // member as well: the body itself is the thing that was wrong.
-func TestAMissingBodyIsRefusedOnlyOnce(t *testing.T) {
+func TestMissingBodyIsRefusedOnlyOnce(t *testing.T) {
 	t.Parallel()
 
 	inputs := request.New(post(""))
@@ -151,7 +151,7 @@ func TestAMissingBodyIsRefusedOnlyOnce(t *testing.T) {
 	}
 }
 
-func TestAnOptionalBodyMayBeAbsent(t *testing.T) {
+func TestOptionalBodyMayBeAbsent(t *testing.T) {
 	t.Parallel()
 
 	inputs := request.New(post(""))
@@ -167,7 +167,7 @@ func TestAnOptionalBodyMayBeAbsent(t *testing.T) {
 
 // A client that sends null is saying it has nothing to send, which is the same
 // as sending nothing.
-func TestAnOptionalBodyThatIsNullIsAbsent(t *testing.T) {
+func TestOptionalBodyThatIsNullIsAbsent(t *testing.T) {
 	t.Parallel()
 
 	inputs := request.New(post("null"))
@@ -184,7 +184,7 @@ func TestAnOptionalBodyThatIsNullIsAbsent(t *testing.T) {
 // Optional does not mean unchecked. A body that is present and malformed is
 // refused rather than silently treated as absent, which would let a caller skip
 // credential checks by sending broken JSON.
-func TestAnOptionalBodyThatIsPresentIsStillChecked(t *testing.T) {
+func TestOptionalBodyThatIsPresentIsStillChecked(t *testing.T) {
 	t.Parallel()
 
 	inputs := request.New(post("{"))
@@ -198,7 +198,7 @@ func TestAnOptionalBodyThatIsPresentIsStillChecked(t *testing.T) {
 	}
 }
 
-func TestAStringArrayBody(t *testing.T) {
+func TestStringArrayBody(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -244,7 +244,7 @@ func TestAStringArrayBody(t *testing.T) {
 	}
 }
 
-func TestABodyLargerThanTheLimitIsRefusedWithoutBeingBuffered(t *testing.T) {
+func TestBodyLargerThanLimitIsRefusedWithoutBeingBuffered(t *testing.T) {
 	t.Parallel()
 
 	oversized := `{"name":"` + strings.Repeat("a", int(request.MaxBodyBytes)+1) + `"}`
@@ -305,7 +305,7 @@ func TestPathUUID(t *testing.T) {
 	}
 }
 
-func TestARequiredHeader(t *testing.T) {
+func TestRequiredHeader(t *testing.T) {
 	t.Parallel()
 
 	httpRequest := post("")
@@ -329,7 +329,7 @@ func TestARequiredHeader(t *testing.T) {
 	}
 }
 
-func TestARequiredQueryParameter(t *testing.T) {
+func TestRequiredQueryParameter(t *testing.T) {
 	t.Parallel()
 
 	present := request.New(httptest.NewRequest(http.MethodGet, "/api/google?code=opaque-placeholder", nil))
@@ -353,7 +353,7 @@ func TestARequiredQueryParameter(t *testing.T) {
 // A parameter that is present but empty is still present. An empty state value
 // must reach the handler, which refuses it for its own reasons, rather than
 // being reported as absent here.
-func TestAnEmptyQueryParameterIsPresent(t *testing.T) {
+func TestEmptyQueryParameterIsPresent(t *testing.T) {
 	t.Parallel()
 
 	inputs := request.New(httptest.NewRequest(http.MethodGet, "/api/google?code=", nil))
@@ -369,7 +369,7 @@ func TestAnEmptyQueryParameterIsPresent(t *testing.T) {
 
 // The refusal is written to the client and may be logged, so it must describe
 // the input without repeating it.
-func TestARefusalNeverRepeatsTheValue(t *testing.T) {
+func TestRefusalNeverRepeatsValue(t *testing.T) {
 	t.Parallel()
 
 	const secretish = "bearer-looking-value-that-must-not-be-echoed"

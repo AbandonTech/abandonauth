@@ -13,7 +13,7 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/database/testdatabase"
 )
 
-func TestMigratingAFreshDatabaseReachesTheNewestVersion(t *testing.T) {
+func TestMigratingFreshDatabaseReachesNewestVersion(t *testing.T) {
 	t.Parallel()
 
 	pool := testdatabase.New(t)
@@ -104,7 +104,7 @@ func TestConcurrentMigrationsAreSerialised(t *testing.T) {
 	}
 }
 
-func TestOpenProvesTheConnectionWorks(t *testing.T) {
+func TestOpenProvesConnectionWorks(t *testing.T) {
 	t.Parallel()
 
 	_, databaseURL := testdatabase.NewWithURL(t)
@@ -123,7 +123,7 @@ func TestOpenProvesTheConnectionWorks(t *testing.T) {
 	pool.Close()
 }
 
-func TestOpenRefusesAConnectionStringItCannotUse(t *testing.T) {
+func TestOpenRefusesConnectionStringItCannotUse(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -153,7 +153,7 @@ func TestOpenRefusesAConnectionStringItCannotUse(t *testing.T) {
 	}
 }
 
-func TestOpenFailsWhenTheServerDoesNotAnswer(t *testing.T) {
+func TestOpenFailsWhenServerDoesNotAnswer(t *testing.T) {
 	t.Parallel()
 
 	// Port 1 on the loopback interface has nothing listening on it.

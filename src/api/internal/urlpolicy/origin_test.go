@@ -169,7 +169,7 @@ func TestOriginReportsLoopback(t *testing.T) {
 	}
 }
 
-func TestOriginErrorsDoNotEchoTheValue(t *testing.T) {
+func TestOriginErrorsDoNotEchoValue(t *testing.T) {
 	t.Parallel()
 
 	_, err := urlpolicy.ParseOrigin("https://user:hunter2@internal.example.test/secretpath", urlpolicy.RequireSecureTransport)

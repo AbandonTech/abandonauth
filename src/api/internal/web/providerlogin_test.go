@@ -32,7 +32,7 @@ func authorizeQuery(applicationID, callback string) url.Values {
 
 // Every provider this service offers can be named, and the application and the
 // exact callback are read alongside it.
-func TestStartingALoginReadsTheProviderApplicationAndCallback(t *testing.T) {
+func TestStartingLoginReadsProviderApplicationAndCallback(t *testing.T) {
 	t.Parallel()
 
 	for _, provider := range oauth.Providers {
@@ -66,7 +66,7 @@ func TestStartingALoginReadsTheProviderApplicationAndCallback(t *testing.T) {
 // A callback that is present but empty is still present. It reaches the handler,
 // which refuses it because no application registered it, rather than being
 // reported as an input that was never sent.
-func TestStartingALoginReadsAnEmptyCallbackAsGiven(t *testing.T) {
+func TestStartingLoginReadsEmptyCallbackAsGiven(t *testing.T) {
 	t.Parallel()
 
 	given := inputs.New(authorizeRequest("discord", authorizeQuery(signingInToApplicationID, "")))
@@ -81,7 +81,7 @@ func TestStartingALoginReadsAnEmptyCallbackAsGiven(t *testing.T) {
 	}
 }
 
-func TestStartingALoginRefusesWhatItCannotRead(t *testing.T) {
+func TestStartingLoginRefusesWhatItCannotRead(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

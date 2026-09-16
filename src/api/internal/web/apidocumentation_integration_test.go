@@ -15,7 +15,7 @@ import (
 // This is a public API. Its documentation describes nothing a caller could not
 // learn by trying an endpoint, so it is served whatever the build and whatever
 // the configuration.
-func TestEveryBuildPublishesTheDocumentation(t *testing.T) {
+func TestEveryBuildPublishesDocumentation(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -32,7 +32,7 @@ func TestEveryBuildPublishesTheDocumentation(t *testing.T) {
 
 // A developer opening the API's address gets the documentation page, which is
 // served under its own subtree so its files resolve.
-func TestTheDocumentationEntryPointLeadsToThePage(t *testing.T) {
+func TestDocumentationEntryPointLeadsToPage(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -72,7 +72,7 @@ func TestTheDocumentationEntryPointLeadsToThePage(t *testing.T) {
 
 // The address a provider returns to when the documentation is used to try a
 // sign-in is the one registered with the providers, so it keeps working.
-func TestTheDocumentationHasSomewhereForAProviderToReturnTo(t *testing.T) {
+func TestDocumentationHasSomewhereForProviderToReturnTo(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -82,7 +82,7 @@ func TestTheDocumentationHasSomewhereForAProviderToReturnTo(t *testing.T) {
 
 // The schema the page reads describes this build. An address in it that this
 // build does not serve would send a reader to an endpoint answering 404.
-func TestTheServedSchemaDescribesOnlyWhatThisBuildServes(t *testing.T) {
+func TestServedSchemaDescribesOnlyWhatThisBuildServes(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)

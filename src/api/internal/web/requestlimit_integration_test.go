@@ -37,7 +37,7 @@ func appendingHeader(name, value string) func(*http.Request) {
 
 // Guessing an application's credential is budgeted. When the budget is spent
 // the caller is told to come back later and how long to wait.
-func TestGuessingAnApplicationsCredentialRunsOut(t *testing.T) {
+func TestGuessingApplicationsCredentialRunsOut(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -74,7 +74,7 @@ func TestGuessingAnApplicationsCredentialRunsOut(t *testing.T) {
 
 // An application identifier is public. Somebody spending its budget must not be
 // able to lock the application out of its own sign-in.
-func TestSpendingABudgetAgainstAnApplicationDoesNotLockItOut(t *testing.T) {
+func TestSpendingBudgetAgainstApplicationDoesNotLockItOut(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -98,7 +98,7 @@ func TestSpendingABudgetAgainstAnApplicationDoesNotLockItOut(t *testing.T) {
 // The forwarded address is only believed from the proxy. A client that sends
 // one itself is still counted as itself, or it would have a new identity per
 // request.
-func TestAForwardedAddressIsOnlyBelievedFromTheProxy(t *testing.T) {
+func TestForwardedAddressIsOnlyBelievedFromProxy(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t,
@@ -128,7 +128,7 @@ func TestAForwardedAddressIsOnlyBelievedFromTheProxy(t *testing.T) {
 // client's own value first, in the same field or on a line of its own. The
 // address the request is counted against is the one the proxy appended, so a
 // client varying what it sends still has one budget.
-func TestAClientCannotChooseItsIdentityByPrependingToTheForwardedChain(t *testing.T) {
+func TestClientCannotChooseItsIdentityByPrependingToForwardedChain(t *testing.T) {
 	t.Parallel()
 
 	shapes := map[string]func(attempt int) []func(*http.Request){
@@ -208,7 +208,7 @@ func TestGuessingOneTimeCodesRunsOut(t *testing.T) {
 
 // A public budget is spent before the request is read, so sending something
 // this service cannot read is not a way to make attempts free.
-func TestARequestThatCannotBeReadStillSpendsItsBudget(t *testing.T) {
+func TestRequestThatCannotBeReadStillSpendsItsBudget(t *testing.T) {
 	t.Parallel()
 
 	endpoints := map[string]struct {
@@ -244,7 +244,7 @@ func TestARequestThatCannotBeReadStillSpendsItsBudget(t *testing.T) {
 
 // Nothing a limit is keyed on is stored as it arrived: the client address is
 // kept only as a keyed hash.
-func TestNoClientAddressIsKeptInTheClear(t *testing.T) {
+func TestNoClientAddressIsKeptInClear(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)

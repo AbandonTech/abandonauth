@@ -88,7 +88,7 @@ func awaitStop(t *testing.T, stopped <-chan error) error {
 	}
 }
 
-func TestStoppingClosesTheListener(t *testing.T) {
+func TestStoppingClosesListener(t *testing.T) {
 	listener := openListener(t)
 	address := listener.Addr().String()
 
@@ -115,7 +115,7 @@ func TestStoppingClosesTheListener(t *testing.T) {
 	}
 }
 
-func TestARequestInFlightIsAllowedToFinish(t *testing.T) {
+func TestRequestInFlightIsAllowedToFinish(t *testing.T) {
 	listener := openListener(t)
 	address := listener.Addr().String()
 
@@ -201,7 +201,7 @@ func TestARequestInFlightIsAllowedToFinish(t *testing.T) {
 
 // A stop that arrives before anything has been served still closes the
 // listener and returns, rather than serving on or hanging.
-func TestAStopBeforeServingBeginsStillCloses(t *testing.T) {
+func TestStopBeforeServingBeginsStillCloses(t *testing.T) {
 	listener := openListener(t)
 	address := listener.Addr().String()
 
@@ -227,7 +227,7 @@ func TestAStopBeforeServingBeginsStillCloses(t *testing.T) {
 
 // An address that cannot be bound is reported before anything is served, and
 // the report names the address.
-func TestAnAddressThatCannotBeListenedOnIsReported(t *testing.T) {
+func TestAddressThatCannotBeListenedOnIsReported(t *testing.T) {
 	occupied := openListener(t)
 	defer func() { _ = occupied.Close() }()
 
@@ -247,7 +247,7 @@ func TestAnAddressThatCannotBeListenedOnIsReported(t *testing.T) {
 
 // A listener that fails while it is being served on ends serving with the
 // failure, rather than leaving the caller waiting for a stop.
-func TestAListenerThatFailsEndsServing(t *testing.T) {
+func TestListenerThatFailsEndsServing(t *testing.T) {
 	listener := openListener(t)
 
 	if err := listener.Close(); err != nil {

@@ -74,13 +74,14 @@ endpoints that stop accepting credentials in
   signs, `verify.go` accepts only that exact shape, `claims.go` is the wire
   body
 - `internal/services/credentials/` — bcrypt hashing and random credentials;
-  `Hash` always creates at `HashCost`, and there is no other work factor
+  `Hash` always creates at `HashCost` and takes no factor
 - `internal/services/accounts/` — resolves a provider identity to a user,
   creating one atomically
 - `internal/services/applications/` — developer applications, credentials,
   callback URIs replaced under the application's row lock; an unknown
   application is checked against a fixed comparison hash so the attempt costs
-  what a wrong credential costs
+  what a wrong credential costs; `New` takes a `CredentialHasher`, nil being
+  `credentials.HashCost`
 - `internal/services/oauth/` — authorization state with PKCE, one-time exchange
   codes
 - `internal/services/sessions/` — browser sessions and their CSRF tokens
@@ -130,7 +131,7 @@ endpoints that stop accepting credentials in
   shapes
 - `internal/web/servertest/` — the real service against its own database; tests
   give the path below the route root, and `AtExactTarget` writes a target in
-  full
+  full; `credentialhasher.go` is the `testHasher` the harness injects
 - `internal/web/passwordsignintest/` — the password sign-in journeys, under
   `integration && devtools`
 - `internal/web/testdata/` — the API schema the service must publish

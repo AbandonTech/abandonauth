@@ -30,7 +30,7 @@ func recorded(t *testing.T, write func(database.MigrationLog)) map[string]any {
 
 // The runner formats its own messages and ends them with a newline. A log that
 // kept it would write a blank line into the middle of the service's output.
-func TestTheMigrationLogWritesOneLineWithoutTheRunnersNewline(t *testing.T) {
+func TestMigrationLogWritesOneLineWithoutRunnersNewline(t *testing.T) {
 	t.Parallel()
 
 	event := recorded(t, func(log database.MigrationLog) {
@@ -53,7 +53,7 @@ func TestTheMigrationLogWritesOneLineWithoutTheRunnersNewline(t *testing.T) {
 }
 
 // The log is attributed, so migration output can be told apart from a request.
-func TestTheMigrationLogSaysWhatWroteIt(t *testing.T) {
+func TestMigrationLogSaysWhatWroteIt(t *testing.T) {
 	t.Parallel()
 
 	event := recorded(t, func(log database.MigrationLog) { log.Printf("anything") })
@@ -66,7 +66,7 @@ func TestTheMigrationLogSaysWhatWroteIt(t *testing.T) {
 // The runner calls this for a condition it considers fatal. It must record the
 // condition and return: exiting here would skip the release of the migration
 // lock, leaving the next start-up waiting on a lock nothing holds.
-func TestAFatalMigrationConditionIsRecordedAndDoesNotExit(t *testing.T) {
+func TestFatalMigrationConditionIsRecordedAndDoesNotExit(t *testing.T) {
 	t.Parallel()
 
 	event := recorded(t, func(log database.MigrationLog) {

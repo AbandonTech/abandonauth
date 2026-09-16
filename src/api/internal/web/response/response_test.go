@@ -11,7 +11,7 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/web/response"
 )
 
-func TestJSONWritesTheStatusContentTypeAndBody(t *testing.T) {
+func TestJSONWritesStatusContentTypeAndBody(t *testing.T) {
 	t.Parallel()
 
 	recorder := httptest.NewRecorder()
@@ -34,7 +34,7 @@ func TestJSONWritesTheStatusContentTypeAndBody(t *testing.T) {
 // A payload the encoder refuses is a defect, and the client is told so in the
 // service's own failure shape with none of the payload, rather than being sent
 // the status the handler chose followed by nothing.
-func TestJSONAnswersAnUnencodablePayloadWithTheFixedFailure(t *testing.T) {
+func TestJSONAnswersUnencodablePayloadWithFixedFailure(t *testing.T) {
 	t.Parallel()
 
 	recorder := httptest.NewRecorder()
@@ -82,7 +82,7 @@ func TestEmptyWritesNoBody(t *testing.T) {
 	}
 }
 
-func TestErrorWritesADetailMember(t *testing.T) {
+func TestErrorWritesDetailMember(t *testing.T) {
 	t.Parallel()
 
 	recorder := httptest.NewRecorder()
@@ -195,7 +195,7 @@ func TestInvalidListsEveryRejectedInput(t *testing.T) {
 	}
 }
 
-func TestInvalidWithNoFailuresStillWritesAnArray(t *testing.T) {
+func TestInvalidWithNoFailuresStillWritesArray(t *testing.T) {
 	t.Parallel()
 
 	recorder := httptest.NewRecorder()
@@ -207,7 +207,7 @@ func TestInvalidWithNoFailuresStillWritesAnArray(t *testing.T) {
 	}
 }
 
-func TestTooManyRequestsRoundsTheWaitUpAndSaysNothingAboutTheCaller(t *testing.T) {
+func TestTooManyRequestsRoundsWaitUpAndSaysNothingAboutCaller(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -253,7 +253,7 @@ func TestTooManyRequestsRoundsTheWaitUpAndSaysNothingAboutTheCaller(t *testing.T
 	}
 }
 
-func TestRedirectWritesTheLocationExactlyAsGiven(t *testing.T) {
+func TestRedirectWritesLocationExactlyAsGiven(t *testing.T) {
 	t.Parallel()
 
 	recorder := httptest.NewRecorder()

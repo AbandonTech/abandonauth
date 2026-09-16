@@ -56,7 +56,7 @@ func referenceSchemaFile() string {
 // The annotations, the route table and the committed reference are written
 // separately, so nothing but a comparison keeps the published document
 // describing what this build serves.
-func TestThePublishedSchemaDocumentsExactlyWhatIsServed(t *testing.T) {
+func TestPublishedSchemaDocumentsExactlyWhatIsServed(t *testing.T) {
 	t.Parallel()
 
 	published := documentedOperations(publishedSchema(t))
@@ -75,7 +75,7 @@ func TestThePublishedSchemaDocumentsExactlyWhatIsServed(t *testing.T) {
 // Every annotated endpoint is one this repository promises somewhere, so an
 // operation that reached the annotations without reaching the reference is a
 // change nobody agreed to publish.
-func TestTheGeneratedSchemaDescribesEveryEndpointTheReferencePromises(t *testing.T) {
+func TestGeneratedSchemaDescribesEveryEndpointPromisedByReference(t *testing.T) {
 	t.Parallel()
 
 	generated := documentedOperations(generatedSchema(t))
@@ -89,7 +89,7 @@ func TestTheGeneratedSchemaDescribesEveryEndpointTheReferencePromises(t *testing
 // A reader combines a published address with the origin the document came from,
 // so every address has to be the whole one this service answers at, and nothing
 // in the document may claim that something else adds or removes part of it.
-func TestThePublishedSchemaNamesWholeAddressesAndNoServerOfItsOwn(t *testing.T) {
+func TestPublishedSchemaNamesWholeAddressesAndNoServerOfItsOwn(t *testing.T) {
 	t.Parallel()
 
 	for name, schema := range map[string]apiSchema{
@@ -138,7 +138,7 @@ func TestEveryGeneratedOperationSaysWhatItDoesAndWhatItAnswers(t *testing.T) {
 
 // The documentation is served to a browser, so an example that carried a real
 // credential would hand it to everyone who opened the page.
-func TestTheGeneratedSchemaHoldsNoCredentials(t *testing.T) {
+func TestGeneratedSchemaHoldsNoCredentials(t *testing.T) {
 	t.Parallel()
 
 	forbidden := []*regexp.Regexp{
@@ -160,7 +160,7 @@ func TestTheGeneratedSchemaHoldsNoCredentials(t *testing.T) {
 
 // A document this service cannot narrow is one it cannot prove describes only
 // what it serves, so it is refused rather than published as it stands.
-func TestASchemaThatCannotBeReadIsNotPublished(t *testing.T) {
+func TestSchemaThatCannotBeReadIsNotPublished(t *testing.T) {
 	t.Parallel()
 
 	for _, document := range []string{"", "{}", `{"paths": []}`, "not a document"} {

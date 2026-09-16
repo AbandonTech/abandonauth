@@ -47,7 +47,7 @@ func TestEverySweepRunsOnEveryPass(t *testing.T) {
 }
 
 // One kind of record being unremovable must not leave the others to accumulate.
-func TestASweepThatFailsDoesNotStopTheRest(t *testing.T) {
+func TestSweepThatFailsDoesNotStopRest(t *testing.T) {
 	t.Parallel()
 
 	var ran atomic.Int64
@@ -74,7 +74,7 @@ func TestASweepThatFailsDoesNotStopTheRest(t *testing.T) {
 	}
 }
 
-func TestSweepingStopsWhenTheServiceDoes(t *testing.T) {
+func TestSweepingStopsWhenServiceDoes(t *testing.T) {
 	t.Parallel()
 
 	var ran atomic.Int64
@@ -119,7 +119,7 @@ func TestSweepingStopsWhenTheServiceDoes(t *testing.T) {
 	}
 }
 
-func TestAKeeperNeedsUsableSweeps(t *testing.T) {
+func TestKeeperNeedsUsableSweeps(t *testing.T) {
 	t.Parallel()
 
 	var counter atomic.Int64

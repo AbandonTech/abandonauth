@@ -49,6 +49,10 @@ type Dependencies struct {
 	// Now is the clock. Only tests set it.
 	Now func() time.Time
 
+	// CredentialHasher stores and checks application credentials. Only tests
+	// set it; nil is bcrypt at credentials.HashCost.
+	CredentialHasher applications.CredentialHasher
+
 	DiscordEndpoints providers.Endpoints
 	GitHubEndpoints  providers.Endpoints
 	GoogleEndpoints  providers.GoogleEndpoints
@@ -132,7 +136,7 @@ func NewServer(configuration config.Config, dependencies Dependencies) (*Server,
 		pool:         dependencies.Pool,
 		now:          now,
 		accounts:     accounts.New(dependencies.Pool),
-		applications: applications.New(dependencies.Pool),
+		applications: applications.New(dependencies.Pool, dependencies.CredentialHasher),
 		authority:    authority.New(dependencies.Pool),
 		sessions:     browserSessions,
 		logins:       logins,

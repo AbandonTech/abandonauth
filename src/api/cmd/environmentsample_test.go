@@ -44,7 +44,7 @@ func sampleEnvironment(t *testing.T) map[string]string {
 	return entries
 }
 
-func TestTheSampleEnvironmentNamesEverySetting(t *testing.T) {
+func TestSampleEnvironmentNamesEverySetting(t *testing.T) {
 	declared := sampleEnvironment(t)
 
 	for _, flag := range settingFlags() {
@@ -73,7 +73,7 @@ func TestTheSampleEnvironmentNamesEverySetting(t *testing.T) {
 
 // An operator copies the sample and fills in the credentials, so a callback in
 // it that the service would refuse costs them a failed start-up to discover.
-func TestTheSampleEnvironmentsCallbacksAreOnesTheServiceAccepts(t *testing.T) {
+func TestSampleEnvironmentCallbacksAreAcceptedByService(t *testing.T) {
 	declared := sampleEnvironment(t)
 
 	found := 0
@@ -95,7 +95,7 @@ func TestTheSampleEnvironmentsCallbacksAreOnesTheServiceAccepts(t *testing.T) {
 	}
 }
 
-func TestTheSampleEnvironmentSuppliesNoProviderCredential(t *testing.T) {
+func TestSampleEnvironmentSuppliesNoProviderCredential(t *testing.T) {
 	for name, value := range sampleEnvironment(t) {
 		if !strings.HasSuffix(name, "_CLIENT_SECRET") {
 			continue

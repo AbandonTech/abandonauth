@@ -77,7 +77,7 @@ func TestMaintenanceHandlerRefusesEveryRequest(t *testing.T) {
 	}
 }
 
-func TestMaintenanceHandlerDisclosesNothingAboutTheDeployment(t *testing.T) {
+func TestMaintenanceHandlerDisclosesNothingAboutDeployment(t *testing.T) {
 	t.Parallel()
 
 	request := httptest.NewRequest(http.MethodGet, "/api/me", nil)

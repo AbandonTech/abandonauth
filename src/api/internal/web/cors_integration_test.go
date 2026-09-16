@@ -15,7 +15,7 @@ import (
 // Exactly one origin may use this API from a browser, and it is named rather
 // than reflected: a session is sent with these requests, so an origin that
 // asked nicely would be given one.
-func TestOnlyTheSiteMayUseTheAPIFromABrowser(t *testing.T) {
+func TestOnlySiteMayUseAPIFromBrowser(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -55,7 +55,7 @@ func TestOnlyTheSiteMayUseTheAPIFromABrowser(t *testing.T) {
 
 // A preflight is answered without reaching a handler, and it names the methods
 // this service serves rather than the one that was asked about.
-func TestAPreflightNamesWhatTheServiceServes(t *testing.T) {
+func TestPreflightNamesWhatServiceServes(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -87,7 +87,7 @@ func TestAPreflightNamesWhatTheServiceServes(t *testing.T) {
 
 // A preflight from an origin that may not use the API is answered, but with no
 // permission in it, which is what stops the browser.
-func TestAPreflightFromAnotherSiteIsGivenNoPermission(t *testing.T) {
+func TestPreflightFromAnotherSiteIsGivenNoPermission(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -112,7 +112,7 @@ func TestAPreflightFromAnotherSiteIsGivenNoPermission(t *testing.T) {
 // service does not serve is reported as not served, whoever asked: answering it
 // would describe permissions for something there is nothing at, and would do so
 // for spellings the route table deliberately refuses.
-func TestAPreflightToAnAddressThisServiceDoesNotServeIsRefused(t *testing.T) {
+func TestPreflightToAddressThisServiceDoesNotServeIsRefused(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -159,7 +159,7 @@ func TestAPreflightToAnAddressThisServiceDoesNotServeIsRefused(t *testing.T) {
 
 // The permission headers a plain request carries are decided the same way, so
 // an address that is not served describes nothing to a browser either.
-func TestAnAddressThisServiceDoesNotServeGrantsNoOriginPermission(t *testing.T) {
+func TestAddressThisServiceDoesNotServeGrantsNoOriginPermission(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -177,7 +177,7 @@ func TestAnAddressThisServiceDoesNotServeGrantsNoOriginPermission(t *testing.T) 
 
 // Every answer carries an identifier a person can quote, and one they supplied
 // is used so a request can be followed through a proxy.
-func TestEveryAnswerCarriesAnIdentifier(t *testing.T) {
+func TestEveryAnswerCarriesIdentifier(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -209,7 +209,7 @@ func TestEveryAnswerCarriesAnIdentifier(t *testing.T) {
 }
 
 // The log says what happened without repeating anything the request carried.
-func TestTheLogHoldsNoRequestValues(t *testing.T) {
+func TestLogHoldsNoRequestValues(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)

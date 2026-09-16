@@ -16,7 +16,7 @@ import (
 // so it protects nothing and reveals nothing.
 const storedHashOfPlaceholder = "$2b$12$y1VEjPD3pK94NqbpzDZi9eKLEPpj6XMO5sykgHNASQbuVQsrPuxSC"
 
-func TestAStoredHashStillAcceptsItsSecret(t *testing.T) {
+func TestStoredHashStillAcceptsItsSecret(t *testing.T) {
 	t.Parallel()
 
 	if !credentials.Matches("placeholder", storedHashOfPlaceholder) {
@@ -28,7 +28,7 @@ func TestAStoredHashStillAcceptsItsSecret(t *testing.T) {
 	}
 }
 
-func TestHashingProducesAValueThatOnlyItsSecretMatches(t *testing.T) {
+func TestHashingProducesValueThatOnlyItsSecretMatches(t *testing.T) {
 	t.Parallel()
 
 	hashed, err := credentials.Hash("placeholder-secret")
@@ -52,7 +52,7 @@ func TestHashingProducesAValueThatOnlyItsSecretMatches(t *testing.T) {
 // Cost is what a hash costs an attacker who has the table. It is recorded in
 // the hash itself, so it can be read back and must not silently fall to
 // bcrypt's own default, a factor nobody chose.
-func TestHashingRecordsTheConfiguredCost(t *testing.T) {
+func TestHashingRecordsConfiguredCost(t *testing.T) {
 	t.Parallel()
 
 	hashed, err := credentials.Hash("placeholder-secret")
@@ -70,7 +70,7 @@ func TestHashingRecordsTheConfiguredCost(t *testing.T) {
 	}
 }
 
-func TestTheSameSecretHashesDifferentlyEachTime(t *testing.T) {
+func TestSameSecretHashesDifferentlyEachTime(t *testing.T) {
 	t.Parallel()
 
 	first, err := credentials.Hash("placeholder-secret")
@@ -112,7 +112,7 @@ func TestUnusableInputsAreRefusedWithoutRepeatingThem(t *testing.T) {
 	}
 }
 
-func TestMatchingRefusesAnythingThatIsNotAHashAndItsSecret(t *testing.T) {
+func TestMatchingRefusesAnythingThatIsNotHashAndItsSecret(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]struct {
@@ -224,7 +224,7 @@ func TestDigestingIsDeterministicAndValueDependent(t *testing.T) {
 
 // The separator stops a domain and a value from running together, which would
 // let one pair be spelled as another.
-func TestADomainCannotBeSpelledAsPartOfTheValue(t *testing.T) {
+func TestDomainCannotBeSpelledAsPartOfValue(t *testing.T) {
 	t.Parallel()
 
 	first := credentials.Digest(credentials.Domain("a"), "bc")

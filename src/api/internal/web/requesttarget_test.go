@@ -10,7 +10,7 @@ import (
 // turn into an address this service serves has to be refused first. A percent
 // marker is refused without being decoded: no segment of any address here needs
 // escaping, so an escaped one is somebody spelling an address a second way.
-func TestOnlyOneSpellingOfAPathIsCanonical(t *testing.T) {
+func TestOnlyOneSpellingOfPathIsCanonical(t *testing.T) {
 	t.Parallel()
 
 	canonical := []string{
@@ -62,7 +62,7 @@ func TestOnlyOneSpellingOfAPathIsCanonical(t *testing.T) {
 // The query is the caller's, and a value in it is escaped as a matter of
 // course. Reading only the path is what lets an escaped value through to the
 // handler that has to see it exactly as it was sent.
-func TestOnlyThePathOfATargetDecidesWhetherItIsCanonical(t *testing.T) {
+func TestOnlyPathOfTargetDecidesWhetherItIsCanonical(t *testing.T) {
 	t.Parallel()
 
 	targets := []string{
@@ -82,7 +82,7 @@ func TestOnlyThePathOfATargetDecidesWhetherItIsCanonical(t *testing.T) {
 
 // A refused target is answered here, before the router, and is never sent on to
 // the spelling it would have been cleaned into.
-func TestATargetThisServiceDoesNotSpellIsRefusedWithoutARedirect(t *testing.T) {
+func TestTargetThisServiceDoesNotSpellIsRefusedWithoutRedirect(t *testing.T) {
 	t.Parallel()
 
 	served := false
@@ -113,7 +113,7 @@ func TestATargetThisServiceDoesNotSpellIsRefusedWithoutARedirect(t *testing.T) {
 // addresses, so an anchored pattern names one path, a pattern ending in a slash
 // names its subtree, a wildcard segment names any one segment, and a path the
 // router would only redirect or clean is not one it serves.
-func TestTheRouteTableDecidesWhichPathsAreDeclared(t *testing.T) {
+func TestRouteTableDecidesWhichPathsAreDeclared(t *testing.T) {
 	t.Parallel()
 
 	paths := newDeclaredPaths()

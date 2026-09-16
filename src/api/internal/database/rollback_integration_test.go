@@ -20,7 +20,7 @@ const rollbackBound = 5*time.Second + 2*time.Second
 // back: the transaction it began is rolled back with the row it wrote and the
 // lock it held, within a bound, and nothing about the cancelled request stops
 // the next one acquiring either.
-func TestACancelledTransactionIsStillRolledBackInFull(t *testing.T) {
+func TestCancelledTransactionIsStillRolledBackInFull(t *testing.T) {
 	t.Parallel()
 
 	pool := testdatabase.NewMigrated(t)
@@ -89,7 +89,7 @@ func TestACancelledTransactionIsStillRolledBackInFull(t *testing.T) {
 
 // Rolling back a transaction that has already committed is not a failure: the
 // deferred cleanup on a successful path has nothing to undo.
-func TestRollingBackACommittedTransactionIsNotAnError(t *testing.T) {
+func TestRollingBackCommittedTransactionDoesNotFail(t *testing.T) {
 	t.Parallel()
 
 	pool := testdatabase.NewMigrated(t)

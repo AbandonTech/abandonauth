@@ -13,7 +13,7 @@ import (
 
 // A token that has been withdrawn stops identifying anybody, straight away and
 // for the rest of the life it would have had.
-func TestAWithdrawnTokenIdentifiesNobody(t *testing.T) {
+func TestWithdrawnTokenIdentifiesNobody(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -47,7 +47,7 @@ func TestAWithdrawnTokenIdentifiesNobody(t *testing.T) {
 
 // A one-time code can be withdrawn before it is spent, and then it cannot be
 // spent at all.
-func TestAWithdrawnCodeCannotBeSpent(t *testing.T) {
+func TestWithdrawnCodeCannotBeSpent(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -104,7 +104,7 @@ func TestWithdrawingNeedsSomethingToWithdraw(t *testing.T) {
 
 // The site's own session is ended by logging out, not by withdrawing a token,
 // and one does not do the other's work.
-func TestWithdrawingATokenDoesNotEndABrowserSession(t *testing.T) {
+func TestWithdrawingTokenDoesNotEndBrowserSession(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -119,7 +119,7 @@ func TestWithdrawingATokenDoesNotEndABrowserSession(t *testing.T) {
 
 // A code is spent at the endpoint that collects it, so a code seen in a
 // redirect cannot be turned into a token by anybody who saw it.
-func TestACodeInARedirectIsNotACredentialOnItsOwn(t *testing.T) {
+func TestCodeInRedirectIsNotCredentialOnItsOwn(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)

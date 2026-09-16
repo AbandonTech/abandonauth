@@ -78,16 +78,41 @@ const UnknownApplicationComparisonInput = "unknown-application-placeholder"
 // it is valid from process start, so the first unknown request creates nothing.
 const unknownApplicationComparisonHash = "$2a$12$YHRnbj5/MjY3jGMLwtZ5S.m44ZzB7aLchXMwhFCIQh/4CxCs6HAwe"
 
+// CredentialHasher makes and checks the stored form of a refresh token.
+type CredentialHasher interface {
+	Hash(secret string) (string, error)
+	Matches(secret, hashed string) bool
+}
+
+// credentialHasher is bcrypt at credentials.HashCost.
+type credentialHasher struct{}
+
+func (credentialHasher) Hash(secret string) (string, error) {
+	return credentials.Hash(secret)
+}
+
+func (credentialHasher) Matches(secret, hashed string) bool {
+	return credentials.Matches(secret, hashed)
+}
+
 // Applications reads and changes developer applications.
 type Applications struct {
 	pool    *pgxpool.Pool
 	queries *query.Queries
+	hasher  CredentialHasher
 }
 
 // New builds the service over the connection pool, which replacing a set of
 // callbacks needs so that it happens all at once or not at all.
-func New(pool *pgxpool.Pool) *Applications {
-	return &Applications{pool: pool, queries: query.New(pool)}
+//
+// A nil hasher is bcrypt at credentials.HashCost, so a composition that leaves
+// it out cannot lower the work factor a stored credential is made with.
+func New(pool *pgxpool.Pool, hasher CredentialHasher) *Applications {
+	if hasher == nil {
+		hasher = credentialHasher{}
+	}
+
+	return &Applications{pool: pool, queries: query.New(pool), hasher: hasher}
 }
 
 // Create registers an application and returns its refresh token, which is not
@@ -243,7 +268,7 @@ func (a *Applications) Authenticate(ctx context.Context, id uuid.UUID, refreshTo
 
 	// The comparison runs before the existence result is consulted, so neither
 	// branch can skip it.
-	matched := credentials.Matches(refreshToken, comparedTo)
+	matched := a.hasher.Matches(refreshToken, comparedTo)
 
 	if !exists || !matched {
 		return Application{}, ErrInvalidCredential
@@ -378,7 +403,7 @@ func (a *Applications) newCredential() (string, string, error) {
 		return "", "", err
 	}
 
-	hashed, err := credentials.Hash(token)
+	hashed, err := a.hasher.Hash(token)
 	if err != nil {
 		return "", "", err
 	}

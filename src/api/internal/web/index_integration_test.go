@@ -14,7 +14,7 @@ import (
 // The root of the API is not an API endpoint. Somebody who types the address
 // into a browser is sent to the site, which is named by configuration rather
 // than by anything in the request.
-func TestTheRootSendsABrowserToTheSite(t *testing.T) {
+func TestRootSendsBrowserToSite(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -31,7 +31,7 @@ func TestTheRootSendsABrowserToTheSite(t *testing.T) {
 // Every address this service serves is under its own route root. Nothing
 // answers above it, so a caller that reaches this service directly uses the
 // same addresses a browser does.
-func TestNothingIsServedAboveTheAPIsRouteRoot(t *testing.T) {
+func TestNothingIsServedAboveAPIsRouteRoot(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -71,7 +71,7 @@ func TestNothingIsServedAboveTheAPIsRouteRoot(t *testing.T) {
 
 // A path below the route root that no route claims is not served either, and
 // the failure is one a client can parse rather than the router's plain text.
-func TestAPathThatNoRouteClaimsIsNotFound(t *testing.T) {
+func TestPathThatNoRouteClaimsIsNotFound(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -83,7 +83,7 @@ func TestAPathThatNoRouteClaimsIsNotFound(t *testing.T) {
 
 // A URL this service serves under another method is not the same as a URL it
 // does not serve. A client can act on the difference, so the answers differ.
-func TestAKnownPathUnderTheWrongMethodIsRefusedAsSuch(t *testing.T) {
+func TestKnownPathUnderWrongMethodIsRefusedAsSuch(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -100,7 +100,7 @@ func TestAKnownPathUnderTheWrongMethodIsRefusedAsSuch(t *testing.T) {
 // One spelling of an address is served. A target the router would clean, decode
 // or redirect into one of them is refused where it arrives, so it never reaches
 // the handler that would spend a login, a code or a session.
-func TestATargetSpelledAnotherWayReachesNothing(t *testing.T) {
+func TestTargetSpelledAnotherWayReachesNothing(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -142,7 +142,7 @@ func TestATargetSpelledAnotherWayReachesNothing(t *testing.T) {
 // Only the path decides. A query value is escaped as a matter of course, and it
 // reaches the handler exactly as it was sent, which is what an exact callback
 // comparison depends on.
-func TestAnEscapedQueryOnAnExactPathReachesTheHandler(t *testing.T) {
+func TestEscapedQueryOnExactPathReachesHandler(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)

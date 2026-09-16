@@ -74,7 +74,7 @@ func operationalSettings(t *testing.T, databaseURL, address string) config.Confi
 
 // Serving brings the schema up to date before it accepts anything, so a
 // deployment needs no separate migration step.
-func TestServingMigratesTheDatabaseAndThenAnswers(t *testing.T) {
+func TestServingMigratesDatabaseAndThenAnswers(t *testing.T) {
 	t.Parallel()
 
 	pool, databaseURL := testdatabase.NewWithURL(t)
@@ -133,7 +133,7 @@ func TestServingMigratesTheDatabaseAndThenAnswers(t *testing.T) {
 
 // Serving reports an address it cannot bind at once, naming the address, after
 // the database is ready and before anything else is started for it.
-func TestServingReportsAnAddressItCannotBind(t *testing.T) {
+func TestServingReportsAddressItCannotBind(t *testing.T) {
 	t.Parallel()
 
 	_, databaseURL := testdatabase.NewWithURL(t)
@@ -167,7 +167,7 @@ func TestServingReportsAnAddressItCannotBind(t *testing.T) {
 
 // Serving refuses to start against a database it cannot open, rather than
 // listening and failing every request.
-func TestServingRefusesADatabaseItCannotOpen(t *testing.T) {
+func TestServingRefusesDatabaseItCannotOpen(t *testing.T) {
 	t.Parallel()
 
 	unreachable := "postgres://placeholder:placeholder@127.0.0.1:1/placeholder?sslmode=disable&connect_timeout=1"
@@ -181,7 +181,7 @@ func TestServingRefusesADatabaseItCannotOpen(t *testing.T) {
 // Maintenance is what a failed deployment is switched to. It opens no database
 // connection, so it answers even when the reason for the failure is the
 // database itself.
-func TestMaintenanceAnswersEveryRequestWithoutADatabase(t *testing.T) {
+func TestMaintenanceAnswersEveryRequestWithoutDatabase(t *testing.T) {
 	t.Parallel()
 
 	address := freeAddress(t)
@@ -223,7 +223,7 @@ func TestMaintenanceAnswersEveryRequestWithoutADatabase(t *testing.T) {
 
 // Rotating the authority is how every credential this service has issued is
 // withdrawn at once.
-func TestRotatingTheAuthoritySucceedsOnAMigratedDatabase(t *testing.T) {
+func TestRotatingAuthoritySucceedsOnMigratedDatabase(t *testing.T) {
 	t.Parallel()
 
 	pool, databaseURL := testdatabase.NewWithURL(t)
@@ -252,7 +252,7 @@ func TestRotatingTheAuthoritySucceedsOnAMigratedDatabase(t *testing.T) {
 
 // Rotating against a database it cannot reach reports the failure rather than
 // leaving the caller believing every credential was withdrawn.
-func TestRotatingTheAuthorityReportsADatabaseItCannotOpen(t *testing.T) {
+func TestRotatingAuthorityReportsDatabaseItCannotOpen(t *testing.T) {
 	t.Parallel()
 
 	unreachable := "postgres://placeholder:placeholder@127.0.0.1:1/placeholder?sslmode=disable&connect_timeout=1"

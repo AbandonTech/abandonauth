@@ -18,7 +18,7 @@ import (
 // A database the baseline built, and nothing more, is the state a start-up that
 // was interrupted between the two migrations leaves behind. It is migrated the
 // rest of the way rather than refused.
-func TestStartUpFinishesADatabaseTheBaselineBuilt(t *testing.T) {
+func TestStartUpFinishesDatabaseBuiltByBaseline(t *testing.T) {
 	t.Parallel()
 
 	pool := testdatabase.New(t)
@@ -197,7 +197,7 @@ func TestStartUpRefusesStatesItDidNotBuildWithoutChangingThem(t *testing.T) {
 // The marker is what tells a start-up that these migrations built the schema in
 // front of it, so a second row claiming a different baseline must be impossible
 // to write rather than merely unexpected.
-func TestTheSchemaMarkerAcceptsOnlyItsOwnSingleRow(t *testing.T) {
+func TestSchemaMarkerAcceptsOnlyItsOwnSingleRow(t *testing.T) {
 	t.Parallel()
 
 	pool := testdatabase.NewMigrated(t)

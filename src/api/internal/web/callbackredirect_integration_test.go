@@ -20,7 +20,7 @@ const registeredCallback = "https://App.Example.TEST/Return/Callback?tenant=Acme
 // An application matches the redirect it receives against the string it
 // registered, so the browser is returned to that string and not to a rewrite of
 // it that happens to address the same resource.
-func TestACompletedLoginReturnsTheBrowserToTheRegisteredSpelling(t *testing.T) {
+func TestCompletedLoginReturnsBrowserToRegisteredSpelling(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -64,7 +64,7 @@ func TestACompletedLoginReturnsTheBrowserToTheRegisteredSpelling(t *testing.T) {
 
 // Declining at the provider ends the login with nothing to exchange, and the
 // browser goes back to the same exact address a completed login would use.
-func TestADeclinedLoginReturnsTheBrowserToTheRegisteredSpelling(t *testing.T) {
+func TestDeclinedLoginReturnsBrowserToRegisteredSpelling(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -83,7 +83,7 @@ func TestADeclinedLoginReturnsTheBrowserToTheRegisteredSpelling(t *testing.T) {
 // to it. The registration that stored it passed, but the policy is what decides
 // where a browser goes, and it is applied at the moment of the redirect rather
 // than trusted from when the row was written.
-func TestALoginWhoseStoredCallbackNoLongerPassesEndsWithoutARedirect(t *testing.T) {
+func TestLoginWhoseStoredCallbackNoLongerPassesEndsWithoutRedirect(t *testing.T) {
 	t.Parallel()
 
 	endings := map[string]func(*servertest.Service, servertest.Authorization) *servertest.Response{
@@ -134,7 +134,7 @@ func TestALoginWhoseStoredCallbackNoLongerPassesEndsWithoutARedirect(t *testing.
 
 // A callback is registered as one exact string. Another spelling of the same
 // address is not that string, and starting a login with it is refused.
-func TestALoginCannotBeStartedWithAnotherSpellingOfTheCallback(t *testing.T) {
+func TestLoginCannotBeStartedWithAnotherSpellingOfCallback(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)

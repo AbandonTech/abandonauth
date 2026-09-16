@@ -67,7 +67,7 @@ func TestSeparateLimitersShareOneBudget(t *testing.T) {
 
 // A refusal says how long to wait in whole seconds, measured by the database:
 // never nothing, and never longer than the window itself.
-func TestARefusalWaitsAWholePositiveNumberOfSecondsWithinTheWindow(t *testing.T) {
+func TestRefusalWaitsWholePositiveNumberOfSecondsWithinWindow(t *testing.T) {
 	t.Parallel()
 
 	limiter := newLimiter(t, testdatabase.NewMigrated(t))
@@ -102,7 +102,7 @@ func TestARefusalWaitsAWholePositiveNumberOfSecondsWithinTheWindow(t *testing.T)
 
 // Two identities are two budgets, and one identity spelled as two parts is not
 // the same identity spelled as one.
-func TestBudgetsAreKeyedByTheWholeIdentity(t *testing.T) {
+func TestBudgetsAreKeyedByWholeIdentity(t *testing.T) {
 	t.Parallel()
 
 	limiter := newLimiter(t, testdatabase.NewMigrated(t))
@@ -135,7 +135,7 @@ func TestBudgetsAreKeyedByTheWholeIdentity(t *testing.T) {
 // A group the binary carries no budget for cannot be counted, and nothing is
 // counted against nobody. Both are refused rather than allowed, so a caller
 // that has to count and cannot does not let the request through.
-func TestCountingNeedsAKnownGroupAndAnIdentity(t *testing.T) {
+func TestCountingNeedsKnownGroupAndIdentity(t *testing.T) {
 	t.Parallel()
 
 	limiter := newLimiter(t, testdatabase.NewMigrated(t))
@@ -151,7 +151,7 @@ func TestCountingNeedsAKnownGroupAndAnIdentity(t *testing.T) {
 
 // The limiter cannot be built without a key: the table would otherwise hold
 // client addresses in clear.
-func TestALimiterNeedsAKey(t *testing.T) {
+func TestLimiterNeedsKey(t *testing.T) {
 	t.Parallel()
 
 	if _, err := ratelimit.New(nil, ratelimit.Options{}); err == nil {

@@ -29,7 +29,7 @@ func allKeys(keys keyring.Keyring) map[string][]byte {
 	}
 }
 
-func TestKeysHaveTheLengthTheirAlgorithmNeeds(t *testing.T) {
+func TestKeysHaveLengthTheirAlgorithmNeeds(t *testing.T) {
 	t.Parallel()
 
 	keys := newKeyring(t, root)
@@ -50,7 +50,7 @@ func TestKeysHaveTheLengthTheirAlgorithmNeeds(t *testing.T) {
 
 // A key that could be used for two purposes would let a value produced for one
 // be accepted by the other.
-func TestEachPurposeGetsADistinctKey(t *testing.T) {
+func TestEachPurposeGetsDistinctKey(t *testing.T) {
 	t.Parallel()
 
 	seen := make(map[string]string)
@@ -80,7 +80,7 @@ func TestDerivationIsDeterministic(t *testing.T) {
 
 // Rotating the root secret is how a deployment withdraws every signed value it
 // has issued, so every derived key has to change with it.
-func TestChangingTheRootChangesEveryKey(t *testing.T) {
+func TestChangingRootChangesEveryKey(t *testing.T) {
 	t.Parallel()
 
 	original := allKeys(newKeyring(t, root))
@@ -93,7 +93,7 @@ func TestChangingTheRootChangesEveryKey(t *testing.T) {
 	}
 }
 
-func TestAnEmptyRootIsRefused(t *testing.T) {
+func TestEmptyRootIsRefused(t *testing.T) {
 	t.Parallel()
 
 	if _, err := keyring.New(""); err == nil {
@@ -103,7 +103,7 @@ func TestAnEmptyRootIsRefused(t *testing.T) {
 
 // The keyring hands out copies, so a caller that writes into the slice it was
 // given cannot change what the next caller signs with.
-func TestCallersCannotOverwriteAStoredKey(t *testing.T) {
+func TestCallersCannotOverwriteStoredKey(t *testing.T) {
 	t.Parallel()
 
 	keys := newKeyring(t, root)

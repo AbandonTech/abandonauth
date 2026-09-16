@@ -33,7 +33,7 @@ var removedSecretFlags = map[string]string{
 // the flags that once accepted one are refused. The refusal must not repeat the
 // value, which would write the secret to the log of whatever started the
 // service.
-func TestSecretsSuppliedOnTheCommandLineAreRefusedWithoutBeingEchoed(t *testing.T) {
+func TestSecretsSuppliedOnCommandLineAreRefusedWithoutBeingEchoed(t *testing.T) {
 	for flag, value := range removedSecretFlags {
 		t.Run(flag, func(t *testing.T) {
 			applyEnvironment(t, placeholderEnvironment())
@@ -61,7 +61,7 @@ func TestSecretsSuppliedOnTheCommandLineAreRefusedWithoutBeingEchoed(t *testing.
 // The command-line surface is what `--help` prints and what a deployment can be
 // configured with, so a secret must be absent from it rather than merely
 // undocumented.
-func TestTheCommandLineOffersNoSecret(t *testing.T) {
+func TestCommandLineOffersNoSecret(t *testing.T) {
 	secrets := secretEnvironment()
 
 	for _, flag := range settingFlags() {
@@ -86,7 +86,7 @@ func TestTheCommandLineOffersNoSecret(t *testing.T) {
 
 // Every secret must still reach the configuration from its environment variable,
 // and an absent one must fail start-up naming only the variable.
-func TestAnAbsentSecretFailsStartUpNamingOnlyItsVariable(t *testing.T) {
+func TestAbsentSecretFailsStartUpNamingOnlyItsVariable(t *testing.T) {
 	for _, secret := range secretEnvironment() {
 		t.Run(secret, func(t *testing.T) {
 			environment := placeholderEnvironment()

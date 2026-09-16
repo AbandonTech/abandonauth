@@ -16,7 +16,7 @@ import (
 // own spelling. A provider that answers with something this service cannot
 // store as an identifier signs nobody in, rather than creating an account under
 // a value that has been quietly coerced.
-func TestAPersonAProviderDescribesUnusablyIsNotSignedIn(t *testing.T) {
+func TestPersonDescribedUnusablyByProviderIsNotSignedIn(t *testing.T) {
 	t.Parallel()
 
 	unusable := map[string]struct {

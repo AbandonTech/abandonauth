@@ -44,7 +44,7 @@ func forwarded(peer string, lines ...[2]string) *http.Request {
 // The client a request is counted against is the one the configured proxies
 // saw: a header from anywhere else is ignored, and anything a client put in
 // front of what the proxy appended is ignored too.
-func TestTheClientAddressIsReadFromTheTrustedEndOfTheChain(t *testing.T) {
+func TestClientAddressIsReadFromTrustedEndOfChain(t *testing.T) {
 	t.Parallel()
 
 	cases := map[string]struct {
@@ -133,7 +133,7 @@ func TestTheClientAddressIsReadFromTheTrustedEndOfTheChain(t *testing.T) {
 // A chain that is present but cannot be read in full is not read at all: the
 // request is counted against the peer, and X-Real-IP, which the same client
 // could have sent, is not consulted in its place.
-func TestAnUnreadableChainFallsBackToThePeerAndNeverToXRealIP(t *testing.T) {
+func TestUnreadableChainFallsBackToPeerAndNeverToXRealIP(t *testing.T) {
 	t.Parallel()
 
 	unreadable := map[string][]string{
@@ -171,7 +171,7 @@ func TestAnUnreadableChainFallsBackToThePeerAndNeverToXRealIP(t *testing.T) {
 
 // A peer that is not an address at all is trusted by nobody and counted as
 // what it is.
-func TestAPeerThatIsNotAnAddressIsNotTrusted(t *testing.T) {
+func TestNonAddressPeerIsNotTrusted(t *testing.T) {
 	t.Parallel()
 
 	service := behindProxies(t, "0.0.0.0/0", "::/0")

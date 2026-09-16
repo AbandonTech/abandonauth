@@ -21,7 +21,7 @@ import (
 // identity before this is reached, and a login names a provider this service
 // offers or is refused. They are stated here because the account layer is what
 // must not create an account from them if that ever changes.
-func TestAnIncompleteIdentityCreatesNoAccount(t *testing.T) {
+func TestIncompleteIdentityCreatesNoAccount(t *testing.T) {
 	t.Parallel()
 
 	people := accounts.New(testdatabase.NewMigrated(t))
@@ -54,7 +54,7 @@ func TestAnIncompleteIdentityCreatesNoAccount(t *testing.T) {
 
 // An identifier nobody holds names nobody, and is reported as such rather than
 // as an empty account.
-func TestAnIdentifierNobodyHoldsNamesNobody(t *testing.T) {
+func TestIdentifierNobodyHoldsNamesNobody(t *testing.T) {
 	t.Parallel()
 
 	people := accounts.New(testdatabase.NewMigrated(t))
@@ -67,7 +67,7 @@ func TestAnIdentifierNobodyHoldsNamesNobody(t *testing.T) {
 // The account a provider identity resolves to is the one that identifier is
 // then found by, and resolving the same identity again is the same person
 // rather than a second account.
-func TestAnIdentityResolvesToOneAccountThatCanBeFoundAgain(t *testing.T) {
+func TestIdentityResolvesToOneAccountThatCanBeFoundAgain(t *testing.T) {
 	t.Parallel()
 
 	people := accounts.New(testdatabase.NewMigrated(t))
@@ -101,7 +101,7 @@ func TestAnIdentityResolvesToOneAccountThatCanBeFoundAgain(t *testing.T) {
 // A request cancelled while an account is half created leaves nothing behind:
 // not the account without its provider identity, and not a lock that would
 // stop the same person signing in next time.
-func TestACancelledResolutionLeavesNoHalfCreatedAccount(t *testing.T) {
+func TestCancelledResolutionLeavesNoHalfCreatedAccount(t *testing.T) {
 	t.Parallel()
 
 	pool := testdatabase.NewMigrated(t)

@@ -11,7 +11,7 @@ import (
 // and swag reads the annotations without honouring that. Narrowing the document
 // to what is served is the only thing that keeps a deployment from publishing
 // an address it answers 404 at.
-func TestADeploymentPublishesNoPasswordSignIn(t *testing.T) {
+func TestDeploymentPublishesNoPasswordSignIn(t *testing.T) {
 	t.Parallel()
 
 	published := documentedOperations(publishedSchema(t))

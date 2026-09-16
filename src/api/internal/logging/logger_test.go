@@ -9,7 +9,7 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/logging"
 )
 
-func TestNewWritesJSONWithATimestamp(t *testing.T) {
+func TestNewWritesJSONWithTimestamp(t *testing.T) {
 	t.Parallel()
 
 	var output bytes.Buffer

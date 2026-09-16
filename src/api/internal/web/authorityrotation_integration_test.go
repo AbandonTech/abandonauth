@@ -17,7 +17,7 @@ import (
 //
 // Each of them is proved to work first, so a refusal afterwards cannot pass by
 // the whole arrangement having been broken from the start.
-func TestNothingIssuedBeforeARotationIsAcceptedAfterIt(t *testing.T) {
+func TestNothingIssuedBeforeRotationIsAcceptedAfterIt(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)

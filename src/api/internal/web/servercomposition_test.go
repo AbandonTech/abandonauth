@@ -73,7 +73,7 @@ func (w *deadlineWriter) SetWriteDeadline(deadline time.Time) error {
 
 // A route this build declares but cannot answer would reply with a surprise
 // rather than with its contract, so start-up refuses to serve with any gap.
-func TestEveryDeclaredRouteHasAHandler(t *testing.T) {
+func TestEveryDeclaredRouteHasHandler(t *testing.T) {
 	t.Parallel()
 
 	if missing := composed().MissingHandlers(); len(missing) > 0 {
@@ -84,7 +84,7 @@ func TestEveryDeclaredRouteHasAHandler(t *testing.T) {
 // The route table is the only place a URL is written. A handler bound to a name
 // the table does not carry would never be reached, and would hide the fact that
 // the endpoint it was written for is not served.
-func TestNoHandlerIsBoundToARouteThatIsNotDeclared(t *testing.T) {
+func TestNoHandlerIsBoundToRouteThatIsNotDeclared(t *testing.T) {
 	t.Parallel()
 
 	declared := make([]RouteName, 0, len(Routes()))
@@ -101,7 +101,7 @@ func TestNoHandlerIsBoundToARouteThatIsNotDeclared(t *testing.T) {
 
 // A defect in one handler ends that request, not the process, and the client
 // gets something it can parse rather than a dropped connection.
-func TestAPanicIsAnsweredAndDoesNotEscape(t *testing.T) {
+func TestPanicIsAnsweredAndDoesNotEscape(t *testing.T) {
 	t.Parallel()
 
 	const secret = "placeholder-credential-in-scope"
@@ -142,7 +142,7 @@ func TestAPanicIsAnsweredAndDoesNotEscape(t *testing.T) {
 // An answer that has already begun is not followed by a second one. Whatever a
 // handler had written when it failed is what the client gets, not that and
 // then a failure body glued to it.
-func TestAPanicAfterAnAnswerHasBegunAddsNothingToIt(t *testing.T) {
+func TestPanicAfterAnswerHasBegunAddsNothingToIt(t *testing.T) {
 	t.Parallel()
 
 	begun := map[string]func(http.ResponseWriter){
@@ -181,7 +181,7 @@ func TestAPanicAfterAnAnswerHasBegunAddsNothingToIt(t *testing.T) {
 
 // Flushing commits the response as much as writing does, whichever way the
 // handler asks for it, so a failure after a flush is not answered either.
-func TestAPanicAfterAFlushAddsNothing(t *testing.T) {
+func TestPanicAfterFlushAddsNothing(t *testing.T) {
 	t.Parallel()
 
 	flushes := map[string]func(http.ResponseWriter){
@@ -230,7 +230,7 @@ func TestAPanicAfterAFlushAddsNothing(t *testing.T) {
 
 // Once a handler has taken the connection, nothing more can be written through
 // the response, and a failure afterwards writes nothing.
-func TestAPanicAfterAHijackWritesNothing(t *testing.T) {
+func TestPanicAfterHijackWritesNothing(t *testing.T) {
 	t.Parallel()
 
 	service := composed()
@@ -260,7 +260,7 @@ func TestAPanicAfterAHijackWritesNothing(t *testing.T) {
 // The recorder in front of the listener's writer does not hide what that
 // writer can do: an operation it does not observe reaches the listener when
 // the listener supports it, and is reported unsupported when it does not.
-func TestOptionalWriterOperationsReachTheListener(t *testing.T) {
+func TestOptionalWriterOperationsReachListener(t *testing.T) {
 	t.Parallel()
 
 	deadline := time.Date(2026, time.September, 13, 12, 0, 0, 0, time.UTC)
@@ -300,7 +300,7 @@ func TestOptionalWriterOperationsReachTheListener(t *testing.T) {
 
 // Recovery is outermost and identification is inside it, so the request that
 // provoked a defect is the one a report can be traced by.
-func TestAnAnswerCarriesAnIdentifierEvenWhenTheHandlerFails(t *testing.T) {
+func TestAnswerCarriesIdentifierEvenWhenHandlerFails(t *testing.T) {
 	t.Parallel()
 
 	service := composed()
@@ -319,7 +319,7 @@ func TestAnAnswerCarriesAnIdentifierEvenWhenTheHandlerFails(t *testing.T) {
 // A client that opens a connection and then stalls must not hold a worker
 // indefinitely, so each phase of a request is bounded rather than relying on one
 // overall limit a slow body could evade.
-func TestEveryPhaseOfAConnectionIsBounded(t *testing.T) {
+func TestEveryPhaseOfConnectionIsBounded(t *testing.T) {
 	t.Parallel()
 
 	listener := NewHTTPServer("127.0.0.1:8000", http.NotFoundHandler())

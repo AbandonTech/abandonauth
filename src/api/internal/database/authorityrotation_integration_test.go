@@ -26,7 +26,7 @@ const rotationRootSecret = "placeholder-rotation-secret-placeholder-rotation-sec
 // Rotating the authority makes one promise: nothing this service was holding
 // for anybody is honoured afterwards, and the value every credential is
 // measured against is no longer the one they were stamped with.
-func TestRotatingTheAuthorityWithdrawsEverythingOutstanding(t *testing.T) {
+func TestRotatingAuthorityWithdrawsEverythingOutstanding(t *testing.T) {
 	t.Parallel()
 
 	pool := testdatabase.NewMigrated(t)
@@ -46,7 +46,7 @@ func TestRotatingTheAuthorityWithdrawsEverythingOutstanding(t *testing.T) {
 		t.Fatalf("registering an account: %v", err)
 	}
 
-	registry := applications.New(pool)
+	registry := applications.New(pool, nil)
 
 	application, _, err := registry.Create(ctx, person.ID, "an application")
 	if err != nil {

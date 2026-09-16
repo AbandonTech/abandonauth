@@ -16,7 +16,7 @@ func withdrawRequest(body string) *http.Request {
 
 // Whatever a caller is holding is withdrawn as it was sent: the endpoint reads
 // text and does not decide here what kind of credential it is.
-func TestWithdrawingReadsTheCredentialAsGiven(t *testing.T) {
+func TestWithdrawingReadsCredentialAsGiven(t *testing.T) {
 	t.Parallel()
 
 	given := inputs.New(withdrawRequest(`{"token":"a-placeholder-credential"}`))

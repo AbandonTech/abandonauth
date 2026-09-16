@@ -11,7 +11,7 @@ import (
 
 // A session that never ends is not a session. Refusing to build the store at
 // all is what stops a missing setting from becoming an unbounded sign-in.
-func TestASessionStoreNeedsALifetime(t *testing.T) {
+func TestSessionStoreNeedsLifetime(t *testing.T) {
 	t.Parallel()
 
 	for name, lifetime := range map[string]time.Duration{
@@ -30,7 +30,7 @@ func TestASessionStoreNeedsALifetime(t *testing.T) {
 
 // The store keeps the lifetime it was given, because the cookies it sets are
 // kept for exactly as long as the session behind them.
-func TestASessionStoreKeepsTheLifetimeItWasGiven(t *testing.T) {
+func TestSessionStoreKeepsLifetimeItWasGiven(t *testing.T) {
 	t.Parallel()
 
 	store, err := sessions.NewStore(nil, sessions.Options{Lifetime: 90 * time.Minute})
@@ -45,7 +45,7 @@ func TestASessionStoreKeepsTheLifetimeItWasGiven(t *testing.T) {
 
 // A session stands for a person. One that stood for nobody would be a signed-in
 // browser belonging to no account.
-func TestASessionCannotBeCreatedWithoutAPerson(t *testing.T) {
+func TestSessionCannotBeCreatedWithoutPerson(t *testing.T) {
 	t.Parallel()
 
 	store, err := sessions.NewStore(nil, sessions.Options{Lifetime: time.Hour})
@@ -61,7 +61,7 @@ func TestASessionCannotBeCreatedWithoutAPerson(t *testing.T) {
 // Signing out without a session is not an error: the endpoint answers the same
 // way whether or not there was anything to end, so it cannot be used to
 // discover which session values exist.
-func TestEndingNothingIsNotAFailure(t *testing.T) {
+func TestEndingNothingDoesNotFail(t *testing.T) {
 	t.Parallel()
 
 	store, err := sessions.NewStore(nil, sessions.Options{Lifetime: time.Hour})
@@ -77,7 +77,7 @@ func TestEndingNothingIsNotAFailure(t *testing.T) {
 // A CSRF token is matched against the session it was issued with. An empty one
 // never matches, so a request that sends no token cannot pass the check by
 // arriving before the token was read.
-func TestAnEmptyCSRFTokenMatchesNothing(t *testing.T) {
+func TestEmptyCSRFTokenMatchesNothing(t *testing.T) {
 	t.Parallel()
 
 	var session sessions.Session

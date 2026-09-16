@@ -16,7 +16,7 @@ import (
 // A request this service cannot answer is refused, and the refusal says only
 // that. Nothing is served from a credential, a session or an ownership check
 // that could not be verified, and nothing about the failure reaches the caller.
-func TestNothingIsAnsweredWhenTheDatabaseCannotBeReached(t *testing.T) {
+func TestNothingIsAnsweredWhenDatabaseCannotBeReached(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -110,7 +110,7 @@ func TestNothingIsAnsweredWhenTheDatabaseCannotBeReached(t *testing.T) {
 
 // The service refuses a token it cannot check against the database rather than
 // accepting it on the strength of its signature alone.
-func TestATokenIsNotAcceptedOnItsSignatureAlone(t *testing.T) {
+func TestTokenIsNotAcceptedOnItsSignatureAlone(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -137,7 +137,7 @@ func TestATokenIsNotAcceptedOnItsSignatureAlone(t *testing.T) {
 
 // A login started for an application that is deleted before the person returns
 // cannot be completed, and says nothing about why.
-func TestALoginForAnApplicationThatIsGoneCannotBeFinished(t *testing.T) {
+func TestLoginForApplicationThatIsGoneCannotBeFinished(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -167,7 +167,7 @@ func TestALoginForAnApplicationThatIsGoneCannotBeFinished(t *testing.T) {
 
 // An application identifier that is well formed but names nothing is refused
 // the same way one that belongs to somebody else is.
-func TestAnApplicationThatNeverExistedIsRefusedLikeOneSomebodyElseOwns(t *testing.T) {
+func TestApplicationThatNeverExistedIsRefusedLikeOneSomebodyElseOwns(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)

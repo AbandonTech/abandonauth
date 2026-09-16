@@ -178,10 +178,14 @@ A change to a control above extends these rather than replacing them:
   its published input.
 
 Credential hashing is one production path: `credentials.Hash` creates bcrypt at
-`credentials.HashCost` and `credentials.Matches` verifies it. No build carries
-another work factor, a `Hasher` value or an injected implementation, so a test
-cannot be composed with a cheaper one; the deployed factor is asserted in
-`internal/services/credentials/credentials_test.go`.
+`credentials.HashCost` and `credentials.Matches` verifies it, and neither takes
+a factor. `applications.New` accepts a `CredentialHasher` whose nil value is
+that path, so `cmd/operations.go`, which names none, stores at `HashCost`; the
+guard is `internal/services/applications/credentialhash_test.go`, and the
+factor itself is asserted in `internal/services/credentials/credentials_test.go`.
+The only other implementation is `servertest.testHasher`, set through
+`web.Dependencies.CredentialHasher` by the test harness alone; no binary imports
+that package.
 `applications.Authenticate` refuses an empty or overlength credential before
 looking the identifier up, then compares a valid one against either the stored
 hash or a fixed comparison hash at `HashCost`, and only then combines that

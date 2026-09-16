@@ -14,7 +14,7 @@ var passwordOperations = []string{"POST /api/create_test_user", "POST /api/login
 
 // Every documented route must appear in the deployment schema and every schema
 // operation must be served, so documentation cannot drift away from the router.
-func TestDocumentedRoutesMatchTheDeployedAPISchema(t *testing.T) {
+func TestDocumentedRoutesMatchDeployedAPISchema(t *testing.T) {
 	t.Parallel()
 
 	want := documentedOperations(loadAPISchema(t, apiSchemaFile))
@@ -27,7 +27,7 @@ func TestDocumentedRoutesMatchTheDeployedAPISchema(t *testing.T) {
 
 // The password routes exist only to seed local development data. Serving them
 // from a deployment would expose account creation without a provider.
-func TestADeploymentDeclaresNoPasswordRoute(t *testing.T) {
+func TestDeploymentDeclaresNoPasswordRoute(t *testing.T) {
 	t.Parallel()
 
 	served := make(map[string]bool, len(Routes()))
@@ -45,7 +45,7 @@ func TestADeploymentDeclaresNoPasswordRoute(t *testing.T) {
 // The reference for what a deployment publishes is committed, so an operation
 // added to it is a decision to serve that address in every build. Password
 // sign-in is not one a deployment carries.
-func TestThePublishedReferencePromisesNoPasswordSignIn(t *testing.T) {
+func TestPublishedReferencePromisesNoPasswordSignIn(t *testing.T) {
 	t.Parallel()
 
 	published := documentedOperations(loadAPISchema(t, apiSchemaFile))
