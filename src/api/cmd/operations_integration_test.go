@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/abandontech/abandonauth/src/api/internal/config"
 	"github.com/abandontech/abandonauth/src/api/internal/database/testdatabase"
@@ -72,16 +75,41 @@ func operationalSettings(t *testing.T, databaseURL, address string) config.Confi
 	return configuration
 }
 
-// Serving brings the schema up to date before it accepts anything, so a
-// deployment needs no separate migration step.
-func TestServingMigratesDatabaseAndThenAnswers(t *testing.T) {
+// Serving answers against a database the deployment migrated, and leaves every
+// table and every recorded row exactly as it found them.
+func TestServingAnswersPreparedDatabaseWithoutChangingIt(t *testing.T) {
+	t.Parallel()
+
+	pool, databaseURL := testdatabase.NewMigratedWithURL(t)
+	before := tableContents(t, pool)
+
+	serveAndAskRouteRoot(t, databaseURL)
+
+	if after := tableContents(t, pool); after != before {
+		t.Errorf("serving changed the database:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
+// The application carries no schema, so serving an empty database creates
+// nothing in it; its requests are refused instead.
+func TestServingLeavesEmptyDatabaseEmpty(t *testing.T) {
 	t.Parallel()
 
 	pool, databaseURL := testdatabase.NewWithURL(t)
-	address := freeAddress(t)
 
-	// The pool is only used to observe what serving left behind.
-	defer pool.Close()
+	serveAndAskRouteRoot(t, databaseURL)
+
+	if after := tableContents(t, pool); after != "" {
+		t.Errorf("serving created tables in an empty database:\n%s", after)
+	}
+}
+
+// serveAndAskRouteRoot serves the database until the route root has answered,
+// then stops serving.
+func serveAndAskRouteRoot(t *testing.T, databaseURL string) {
+	t.Helper()
+
+	address := freeAddress(t)
 
 	ctx, stop := context.WithCancel(t.Context())
 
@@ -100,23 +128,14 @@ func TestServingMigratesDatabaseAndThenAnswers(t *testing.T) {
 
 	response, err := client.Get("http://" + address + web.APIRoot + "/")
 	if err != nil {
+		stop()
 		t.Fatalf("asking the running service for its route root: %v", err)
 	}
 
-	defer response.Body.Close()
+	_ = response.Body.Close()
 
 	if response.StatusCode != http.StatusTemporaryRedirect {
 		t.Errorf("the route root answered %d, want %d", response.StatusCode, http.StatusTemporaryRedirect)
-	}
-
-	var version int64
-	if err := pool.QueryRow(t.Context(),
-		"SELECT max(version_id) FROM goose_db_version").Scan(&version); err != nil {
-		t.Fatalf("reading what serving migrated: %v", err)
-	}
-
-	if version <= 0 {
-		t.Error("serving accepted a request without having migrated the database")
 	}
 
 	stop()
@@ -131,12 +150,44 @@ func TestServingMigratesDatabaseAndThenAnswers(t *testing.T) {
 	}
 }
 
+// tableContents renders every public table and how many rows it holds.
+func tableContents(t *testing.T, pool *pgxpool.Pool) string {
+	t.Helper()
+
+	rows, err := pool.Query(t.Context(),
+		`SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`)
+	if err != nil {
+		t.Fatalf("listing tables: %v", err)
+	}
+
+	tables, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		t.Fatalf("listing tables: %v", err)
+	}
+
+	var rendered strings.Builder
+
+	for _, table := range tables {
+		var count int64
+
+		if err := pool.QueryRow(t.Context(),
+			fmt.Sprintf(`SELECT count(*) FROM %s`, pgx.Identifier{table}.Sanitize()),
+		).Scan(&count); err != nil {
+			t.Fatalf("counting %s: %v", table, err)
+		}
+
+		fmt.Fprintf(&rendered, "%s %d\n", table, count)
+	}
+
+	return rendered.String()
+}
+
 // Serving reports an address it cannot bind at once, naming the address, after
 // the database is ready and before anything else is started for it.
 func TestServingReportsAddressItCannotBind(t *testing.T) {
 	t.Parallel()
 
-	_, databaseURL := testdatabase.NewWithURL(t)
+	_, databaseURL := testdatabase.NewMigratedWithURL(t)
 
 	occupied, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -226,8 +277,7 @@ func TestMaintenanceAnswersEveryRequestWithoutDatabase(t *testing.T) {
 func TestRotatingAuthoritySucceedsOnMigratedDatabase(t *testing.T) {
 	t.Parallel()
 
-	pool, databaseURL := testdatabase.NewWithURL(t)
-	testdatabase.Migrate(t, pool)
+	pool, databaseURL := testdatabase.NewMigratedWithURL(t)
 
 	configuration := operationalSettings(t, databaseURL, freeAddress(t))
 

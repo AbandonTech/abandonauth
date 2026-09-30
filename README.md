@@ -127,10 +127,12 @@ address it is counted as.
 ## The published image
 
 The image built from `src/api/Dockerfile` (the `deployment` target) contains no
-password sign-in, refuses to start with `DEBUG` set, runs as an account that is
-not root, and holds nothing but the binary and a certificate bundle. Migrations
-are embedded in the binary. The API documentation is served at `/api/docs` and
-the schema at `/api/openapi.json`.
+password sign-in, refuses to start with `DEBUG` set, and runs as an account that
+is not root. It holds the service binary, the pinned PostgreSQL-only
+[Goose](https://github.com/pressly/goose) CLI at `/usr/local/bin/goose`, the SQL
+migrations at `/migrations`, and a certificate bundle. Its entrypoint is the
+service; the service itself never migrates. The API documentation is served at
+`/api/docs` and its OpenAPI schema at `/api/openapi.json`.
 
 `compose.yml` builds that target unless `API_BUILD_TARGET` names the other one.
 Deploy with:
@@ -149,13 +151,65 @@ problem.
 
 ## The database
 
-`abandonauth serve` applies outstanding migrations before it accepts a request.
-It migrates only an empty database or one it migrated itself; anything else is
-refused and left as it was found, so start a deployment against an empty
-database and do not delete a volume to get past a refusal.
+`docker compose up` starts PostgreSQL, then the one-shot `migrations` service,
+which runs `goose up` from the same image, and starts the API only once that
+exits successfully. If the migration fails, the API container is left created
+but never started; fix the migration or configuration and run the same command
+again. Starting the API any other way does not migrate anything, and requests
+needing the database are refused until it has been migrated.
+
+If the API image or its configuration changed, Compose replaces the running API
+container before the migration runs, so the API is down until it succeeds. To
+keep the running API serving while a migration that it is compatible with runs,
+migrate first and then start the rest:
+
+```shell
+docker compose up --build migrations
+docker compose up --build -d
+```
+
+Every Up migration must work with both the build already serving and the one
+being deployed; a destructive change ships as an additive release, a deployment,
+and a removal release. Run migrations only through that one `migrations`
+service and one Goose command at a time: never scale it, and never start a
+command while a `docker compose up` or another command may still be migrating,
+because the Goose CLI takes no database-wide lock.
+
+The migration service receives four settings and nothing else: `GOOSE_DRIVER`,
+`GOOSE_MIGRATION_DIR`, `GOOSE_DBSTRING`, and `PGPASSWORD`, which Compose copies
+from `POSTGRES_PASSWORD`. `GOOSE_DBSTRING` must never contain a password, because
+Goose quotes it when a connection fails. Goose runs with `-env=none`, so it reads
+no `.env` file.
+
+Other Goose commands run through the same service, with the command replacing
+`up`:
+
+```shell
+docker compose run --rm migrations status
+docker compose run --rm migrations version
+docker compose run --rm migrations up-to 20260827000100
+docker compose run --rm migrations down
+docker compose run --rm migrations down-to 20260827000100
+docker compose run --rm migrations redo
+docker compose run --rm migrations reset
+```
+
+Down migrations run only when an operator runs one of these; no start-up path
+selects them. Stop the API first (`docker compose stop abandonauth`) and take a
+backup. What each Down removes, with its data:
+
+| Down of | Removes |
+| --- | --- |
+| `20260827000200_auth_state_and_rate_limits` | every browser session, login in progress, one-time code, token revocation and request budget, the auth epoch, and every developer application's credential version |
+| `20260827000100_baseline_schema` | every user, Discord, GitHub, Google and password account, developer application and callback URI |
+
+`down` and `down-to 20260827000100` remove the first row; `down-to 0` and
+`reset` remove both. `redo` removes and reapplies the newest migration, so it
+empties that migration's tables. Applying the auth-state migration again creates
+a new auth epoch, so no credential issued before its Down is accepted afterwards.
 
 To recover from a backup: serve `abandonauth maintenance`, restore a backup of
-a database this service migrated, start the deployment image again, and run
+this deployment's database, run `docker compose up --build -d`, and run
 `abandonauth database rotate-auth-epoch` if the signing secret changed.
 
 # Local Development
@@ -224,16 +278,30 @@ committed, and is never edited by hand.
 
 ## Migrations
 
-The schema is the [goose](https://github.com/pressly/goose) migrations under
-[`src/api/internal/database/migrations/`](./src/api/internal/database/migrations),
-embedded in the binary and applied by `abandonauth serve` on start-up. goose is
-a pinned tool in `src/api/go.mod`, so it needs no separate install.
+The schema is the [Goose](https://github.com/pressly/goose) SQL migrations under
+[`src/api/migrations/`](./src/api/migrations), applied by the standalone Goose
+CLI and never by the service. Goose is a pinned tool in `src/api/go.mod`, so it
+needs no separate install. The deployment image builds the same version.
 
 To add one, from `src/api`:
 
 ```shell
-go tool goose -dir internal/database/migrations create <what_it_does> sql
+go tool goose -env=none -dir migrations create <what_it_does> sql
+go tool goose -env=none -dir migrations validate
 ```
+
+An Up migration must work with the build already serving. One that changes the
+auth epoch, login state, one-time codes, browser sessions, revocations,
+developer credential versions or request budgets first locks the epoch row, as
+`abandonauth database rotate-auth-epoch` does:
+
+```sql
+SELECT epoch FROM auth_epoch WHERE singleton FOR UPDATE;
+```
+
+The tests never build a schema themselves: `./scripts/check.sh --integration`
+migrates a template database with the image's Goose, runs it through up, down,
+`down-to 0` and up again, and every test database is a clone of the result.
 
 Queries live in
 [`src/api/internal/database/queries/`](./src/api/internal/database/queries);

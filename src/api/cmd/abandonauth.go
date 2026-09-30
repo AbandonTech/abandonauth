@@ -143,7 +143,7 @@ func maintenanceCommand(perform operations) *cli.Command {
 func databaseCommand(perform operations) *cli.Command {
 	return &cli.Command{
 		Name:  "database",
-		Usage: "operate on the schema and on the authority behind issued credentials",
+		Usage: "operate on the authority behind issued credentials",
 		Commands: []*cli.Command{
 			{
 				Name:  "rotate-auth-epoch",

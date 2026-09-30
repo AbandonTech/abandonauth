@@ -12,8 +12,12 @@ controls in force, and where they live".
   the `development` build over the published `deployment` one.
 - API and site publish `API_PORT` and `WEBSITE_PORT`. The database publishes
   nothing: an internal network the site does not join, reachable at
-  `database:5432` from the API alone, denied outbound access. The API is on both
-  networks and so still reaches the provider APIs.
+  `database:5432` from the API and the `migrations` service alone, denied
+  outbound access. The API is on both networks and so still reaches the provider
+  APIs; `migrations` is on the internal one only.
+- Start-up order is the migration boundary: PostgreSQL healthy, then the
+  one-shot `migrations` service runs `goose up`, then the API starts only once
+  that exits successfully, then the site. See "Persistence".
 - No web framework: a `net/http` router, interface-backed services, sqlc queries
   over pgx.
 - Only routes `internal/web/routes.go` declares are answered, and `serve`
@@ -130,8 +134,8 @@ stored with the session.
 - A developer application's token carries the credential version it was issued
   under, so resetting that credential refuses every token issued before.
 - Every check is measured against the auth epoch, which
-  `database rotate-auth-epoch` replaces in one transaction, withdrawing every
-  token, login in progress, one-time code and session at once.
+  `database rotate-auth-epoch` replaces in one transaction holding its row lock,
+  withdrawing every token, login in progress, one-time code and session at once.
 - `internal/services/ratelimit` counts fixed windows in the database, keyed by a
   digest of whoever is limited rather than a client address in clear, so budgets
   hold across workers. The window a request falls in, and how long a refused
@@ -158,19 +162,34 @@ stored with the session.
 
 ## Persistence
 
-The schema is the goose migrations under `internal/database/migrations/`,
-embedded in the binary, so a deployment carries no schema file. The SQL under
-`internal/database/queries/` becomes the generated, gitignored `query` package.
+The schema is the Goose SQL migrations under `src/api/migrations/`. The SQL
+under `internal/database/queries/` becomes the generated, gitignored `query`
+package, which sqlc builds against those migrations.
 
-`serve` migrates before answering a request, and decides whether it may under
-the same advisory lock it migrates under, so one instance never judges a
-database another is halfway through building. It migrates an empty database, one
-the baseline built, and one already at a version the binary carries. Every other
-state is refused with the database left exactly as found: account tables lacking
-either the migration history or the `schema_identity` marker the baseline
-writes, a partial set of them, a gap or unknown version in the history, a
-migration recorded unfinished. That marker stops a hand-written history passing
-a schema off as one these migrations built.
+The application has no knowledge of migrations: it imports no migration library,
+reads no migration file or history, and never changes the schema. Both image
+targets carry a PostgreSQL-only build of the pinned Goose CLI and the migration
+files beside the service binary, and `compose.yml` runs them as the `migrations`
+service: the same image with Goose as its entrypoint, `-env=none`, four settings
+(`GOOSE_DRIVER`, `GOOSE_MIGRATION_DIR`, a password-free `GOOSE_DBSTRING`,
+`PGPASSWORD`), and the internal database network alone. The API depends on it
+completing successfully, so a failed migration leaves the API created and never
+started. A changed API container is replaced before the migration runs; an
+unchanged running one keeps serving, which is how `docker compose up migrations`
+followed by `docker compose up` migrates without stopping it.
+
+Goose takes no database-wide lock, so the one `migrations` service of a Compose
+project is the only migration controller its project-scoped database has. Every
+Up migration must work with both the build serving and the one being deployed.
+Down migrations run only when an operator runs a Goose command through that
+service; nothing starts one.
+
+An API started against a database no one migrated answers nothing that needs
+the database: each such request fails closed.
+
+Rotating the authority and any migration changing authority-bound state both
+begin by locking the `auth_epoch` row `FOR UPDATE`, so neither interleaves with
+the other or with a second rotation.
 
 ## Build modes
 
@@ -180,8 +199,9 @@ handlers compile only under `-tags=devtools` — and refuses to start with `DEBU
 set at all. `development` carries them, served only with debug mode on and a
 loopback-only bind.
 
-Both carry the documentation and the schema, which this public API serves
-whatever the build and configuration. Swag's annotations carry no build
+Both carry the documentation and its OpenAPI schema, which this public API
+serves whatever the build and configuration, and the Goose CLI and migration
+files the `migrations` service runs. Swag's annotations carry no build
 constraints, so its document names password sign-in in either build;
 `internal/web/apidocumentation.go` narrows it to the addresses the running build
 serves before publishing. The document declares no server and every path is a

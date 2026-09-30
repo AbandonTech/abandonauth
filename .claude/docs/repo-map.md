@@ -13,8 +13,8 @@ scripts/          the validation pipeline, shared by local runs and CI
 .opencode/        OpenCode planner and security reviewer
 .claude/          Claude implementer, skill, and repository guidance
 .plans/           cross-session implementation plans
-compose.yml       the stack: API, website, and PostgreSQL
-compose.test.yml  the throwaway database and check container
+compose.yml       the stack: PostgreSQL, the one-shot Goose migrations, API, website
+compose.test.yml  the throwaway database, its migrated template, the check container
 ```
 
 ## API
@@ -42,23 +42,22 @@ are relative to `src/api/`.
 
 ### Database
 
-- `internal/database/migrations/` — embedded goose migrations: baseline schema
-  and its `schema_identity` marker, then auth state, sessions, revocation, rate
-  limits
+- `migrations/` — the Goose SQL migrations, applied only by the standalone
+  Goose CLI: the baseline schema, then auth state, sessions, revocation, rate
+  limits. The application never reads them; sqlc does
 - `internal/database/queries/` — the SQL source; edit this, never generated
   code; `rate_limits.sql` derives the budget window and the wait from the
-  database clock, `developer_applications.sql` carries the application row lock
+  database clock, `developer_applications.sql` carries the application row lock,
+  `credentials.sql` the auth epoch's row lock
 - `internal/database/query/` — sqlc output: gitignored, regenerated every run
 - `internal/database/pool.go` — connection pool lifecycle
 - `internal/database/rollback.go` — the detached, bounded rollback every
   transaction is abandoned with
-- `internal/database/migrate.go` — the embedded runner; inspects and migrates
-  under one advisory lock
-- `internal/database/schemastate.go` — what a database looks like untouched, and
-  which states may be migrated
-- `internal/database/authorityrotation.go` — `rotate-auth-epoch`: every token,
-  state, code and session invalidated in one transaction
-- `internal/database/testdatabase/` — a migrated database per test, and
+- `internal/database/authorityrotation.go` — `rotate-auth-epoch`: the auth
+  epoch's row locked, then every token, state, code and session invalidated in
+  one transaction
+- `internal/database/testdatabase/` — a database per test, empty or cloned from
+  the template Goose migrated (`TEST_TEMPLATE_DATABASE`), and
   `AwaitLockWaiters` for a test that blocks a connection on purpose
 
 `RotateAuthority` is proved twice: against the database in
@@ -183,7 +182,7 @@ address. `/api` is the API's route root, so a browser's path is forwarded whole.
 
 ## Data
 
-`internal/database/migrations/` defines `User`, the provider accounts,
+`migrations/` defines `User`, the provider accounts,
 `PasswordAccount`, `DeveloperApplication` and `CallbackUri`, then the auth
 epoch, OAuth state, exchange codes, browser sessions, JWT revocations and rate
 limit buckets. Provider accounts are one-to-one with users; users own developer
@@ -196,15 +195,21 @@ rewrite live data for no functional gain and is deliberately out of scope.
 
 ## Validation
 
-- `./scripts/check.sh` — codegen, formatting, tidiness, both builds, revive, vet
-  and staticcheck on every tag set, dead-code analysis of the deployment
-  integration graph, then `go test ./...` and `go test -tags=devtools ./...`
-- `./scripts/check.sh --integration` — the same up to vet, then the container:
-  `-tags='integration devtools' ./...` and `-tags=integration ./...` with race
-  detection, a database and coverage
-- `./scripts/containercheck.sh` — what runs inside the container, and the
-  coverage gate
-- `./scripts/db.sh up` / `down` — the throwaway database
+- `./scripts/check.sh` — codegen, formatting, tidiness, `goose validate`, proof
+  the service binary imports no Goose, both builds, revive, vet and staticcheck
+  on every tag set, dead-code analysis of the deployment integration graph, then
+  `go test ./...` and `go test -tags=devtools ./...`
+- `./scripts/check.sh --integration` — the same up to vet, then the migration
+  controller checks, then the container: `-tags='integration devtools' ./...`
+  and `-tags=integration ./...` with race detection, a database and coverage
+- `./scripts/migrationcheck.sh` — in a Compose project of its own: concurrent
+  `up` requests converging on one migration, a failed migration starting no API,
+  and the password in neither Goose's arguments nor its log
+- `./scripts/containercheck.sh` — what runs inside the container: the Goose
+  lifecycle on the template (no-op up, down, `down-to 0`, up), the tests, and
+  the coverage gate
+- `./scripts/db.sh up` / `down` — the throwaway database and its migrated
+  template
 
 Suites are selected by package pattern and build constraint, never by test
 name. `go test -race` links a C runtime, so the race, integration and coverage
@@ -226,11 +231,14 @@ When to run which, and what to report, is in `.claude/docs/testing.md`.
 - `.github/dependabot.yml` — dependency updates
 
 The published deployment image carries no password sign-in, refuses
-`DEBUG=true`, runs as an account that is not root, and holds only the binary and
-a certificate bundle; it does carry the documentation and schema every build
-serves. `compose.yml` builds it unless `API_BUILD_TARGET` in `.env` names the
-`development` target, the variant the password routes compile into. Both images
-are built on every pull request by `.github/workflows/`.
+`DEBUG=true`, runs as an account that is not root, and holds the service binary,
+the PostgreSQL-only Goose CLI, the migration files and a certificate bundle; the
+service binary carries the documentation and OpenAPI schema every build serves.
+`compose.yml` builds it unless `API_BUILD_TARGET` in `.env` names the
+`development` target, the variant the password routes compile into, and runs its
+`migrations` service, the same image with Goose as the entrypoint on the
+internal database network only, to completion before the API starts. Both
+images are built on every pull request by `.github/workflows/`.
 
 ## Documentation and agent tooling
 

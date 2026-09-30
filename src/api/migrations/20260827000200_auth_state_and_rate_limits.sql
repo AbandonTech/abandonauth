@@ -24,7 +24,9 @@ ALTER TABLE "DeveloperApplication"
 
 -- A single row whose value is stamped into every credential this service issues.
 -- Rotating it invalidates all of them at once, which is what makes recovery from
--- a suspected key compromise a single transaction rather than a sweep.
+-- a suspected key compromise a single transaction rather than a sweep. Rotation,
+-- and any migration changing authority-bound state, first locks this row FOR
+-- UPDATE so neither interleaves with the other.
 CREATE TABLE auth_epoch (
     singleton BOOLEAN PRIMARY KEY CHECK (singleton),
     epoch UUID NOT NULL,
@@ -192,8 +194,9 @@ CREATE INDEX rate_limit_bucket_expires_at_idx
 
 -- +goose Down
 -- +goose StatementBegin
--- Reversing this migration signs every browser out and abandons every login in
--- progress. It exists for disposable test databases.
+-- Signs every browser out, abandons every login in progress and one-time code,
+-- forgets every revocation and request budget, and removes the auth epoch and
+-- developer credential versions.
 DROP TABLE IF EXISTS rate_limit_bucket;
 DROP TABLE IF EXISTS jwt_revocation;
 DROP TABLE IF EXISTS browser_session;

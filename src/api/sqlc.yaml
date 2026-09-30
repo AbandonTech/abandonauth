@@ -3,7 +3,7 @@ version: "2"
 # The generated code is not committed, so the SQL stays the only source of truth.
 sql:
   - engine: postgresql
-    schema: internal/database/migrations
+    schema: migrations
     queries: internal/database/queries
     gen:
       go:

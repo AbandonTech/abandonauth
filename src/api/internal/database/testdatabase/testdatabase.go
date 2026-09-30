@@ -1,16 +1,17 @@
 // Package testdatabase gives a test its own PostgreSQL database, so tests run
 // in parallel and cannot see each other's rows.
 //
-// The server is named by TEST_DATABASE_URL. Selecting a test that needs one is
-// asking for PostgreSQL, so without it the test fails. Never point it at a
-// database holding real accounts: these helpers create databases, drop them,
-// and rewrite migration history.
+// The server is named by TEST_DATABASE_URL, connected to as its administrative
+// database, and the schema comes from the template named by
+// TEST_TEMPLATE_DATABASE, which the Goose CLI migrated before the tests start.
+// Selecting a test that needs either is asking for PostgreSQL, so without them
+// the test fails. Never point them at a server holding real accounts: these
+// helpers create and drop databases.
 package testdatabase
 
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"net/url"
@@ -20,12 +21,14 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/abandontech/abandonauth/src/api/internal/database"
 )
 
 // ServerURLVariable names the environment variable that points at the server.
 const ServerURLVariable = "TEST_DATABASE_URL"
+
+// TemplateVariable names the environment variable holding the name of the
+// migrated database every schema-bearing test database is cloned from.
+const TemplateVariable = "TEST_TEMPLATE_DATABASE"
 
 // statementTimeout bounds every helper's work, so a test that deadlocks against
 // another connection fails with its own message instead of the suite timing out.
@@ -36,12 +39,7 @@ const statementTimeout = 30 * time.Second
 func ServerURL(t *testing.T) string {
 	t.Helper()
 
-	value := strings.TrimSpace(os.Getenv(ServerURLVariable))
-	if value == "" {
-		t.Fatalf("%s is not set, so the database tests cannot run", ServerURLVariable)
-	}
-
-	return value
+	return requireSetting(t, ServerURLVariable)
 }
 
 // New creates an empty database for one test and returns a pool connected to it.
@@ -58,12 +56,40 @@ func New(t *testing.T) *pgxpool.Pool {
 func NewWithURL(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
 
+	return create(t, "")
+}
+
+// NewMigrated creates a database holding this service's schema.
+func NewMigrated(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+
+	pool, _ := NewMigratedWithURL(t)
+
+	return pool
+}
+
+// NewMigratedWithURL creates a database holding this service's schema and also
+// returns its connection URL, for a test that starts a command against it.
+func NewMigratedWithURL(t *testing.T) (*pgxpool.Pool, string) {
+	t.Helper()
+
+	return create(t, requireSetting(t, TemplateVariable))
+}
+
+func create(t *testing.T, template string) (*pgxpool.Pool, string) {
+	t.Helper()
+
 	serverURL := ServerURL(t)
 	name := uniqueName(t)
 
 	administrative := connect(t, serverURL, 1)
 
-	execute(t, administrative, fmt.Sprintf("CREATE DATABASE %s", quoteIdentifier(name)))
+	statement := "CREATE DATABASE " + quoteIdentifier(name)
+	if template != "" {
+		statement += " TEMPLATE " + quoteIdentifier(template)
+	}
+
+	execute(t, administrative, statement)
 
 	t.Cleanup(func() {
 		// FORCE closes connections the test left open. Without it a pool that
@@ -90,68 +116,26 @@ func NewWithURL(t *testing.T) (*pgxpool.Pool, string) {
 	return pool, databaseURL
 }
 
-// NewMigrated creates a database with this service's schema applied.
-func NewMigrated(t *testing.T) *pgxpool.Pool {
+// requireSetting reads a setting the database tests cannot run without.
+func requireSetting(t *testing.T, name string) string {
 	t.Helper()
 
-	pool := New(t)
-
-	Migrate(t, pool)
-
-	return pool
-}
-
-// Migrate applies every migration this service carries.
-func Migrate(t *testing.T, pool *pgxpool.Pool) {
-	t.Helper()
-
-	handle := database.OpenMigrationHandle(pool)
-	defer handle.Close()
-
-	if err := database.Migrate(t.Context(), handle, quietMigrationLog{}); err != nil {
-		t.Fatalf("applying migrations: %v", err)
-	}
-}
-
-// NewUnrecognised creates a database that holds the account schema but no record of
-// this service having migrated it.
-func NewUnrecognised(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-
-	pool := New(t)
-
-	MakeUnrecognised(t, pool)
-
-	return pool
-}
-
-// MakeUnrecognised brings an empty database to the state a start-up must refuse to
-// migrate: it holds the account schema, but nothing records that this service
-// put it there.
-func MakeUnrecognised(t *testing.T, pool *pgxpool.Pool) {
-	t.Helper()
-
-	handle := database.OpenMigrationHandle(pool)
-	defer handle.Close()
-
-	if err := database.MigrateTo(
-		t.Context(), handle, quietMigrationLog{}, database.BaselineVersion,
-	); err != nil {
-		t.Fatalf("building the account schema: %v", err)
+	value, err := setting(name)
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	// Leaving the history the baseline just wrote would make the database look
-	// migrated by this service, which is the state these tests need it not to be
-	// in.
-	execute(t, pool, "DROP TABLE IF EXISTS "+database.MigrationHistoryTable)
+	return value
 }
 
-// quietMigrationLog keeps the migration runner's progress out of test output,
-// where it would bury the assertion that failed.
-type quietMigrationLog struct{}
+func setting(name string) (string, error) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return "", fmt.Errorf("%s is not set, so the database tests cannot run", name)
+	}
 
-func (quietMigrationLog) Printf(string, ...any) {}
-func (quietMigrationLog) Fatalf(string, ...any) {}
+	return value, nil
+}
 
 // maxTestConnections keeps one test's pool small. Tests run in parallel and each
 // one holds its own database, so a pool sized for a deployment would exhaust the
@@ -287,19 +271,4 @@ func replaceDatabaseName(t *testing.T, serverURL, name string) string {
 	parsed.Path = "/" + name
 
 	return parsed.String()
-}
-
-// OpenMigrationHandle returns a database/sql handle for the procedures that are
-// written against it.
-func OpenMigrationHandle(t *testing.T, pool *pgxpool.Pool) *sql.DB {
-	t.Helper()
-
-	handle := database.OpenMigrationHandle(pool)
-	t.Cleanup(func() {
-		if err := handle.Close(); err != nil {
-			t.Errorf("closing the migration handle: %v", err)
-		}
-	})
-
-	return handle
 }

@@ -36,8 +36,18 @@ FROM source AS compile-development
 RUN CGO_ENABLED=0 go build -trimpath -tags=devtools -o /abandonauth ./cmd
 
 
-# Nothing but the binary, a certificate bundle for the provider APIs, and a
-# non-root account. There is no shell, no package manager and no interpreter.
+# The pinned Goose CLI with every driver but PostgreSQL excluded, kept a
+# separate executable so the service binary links no migration code.
+FROM source AS compile-migrations
+
+RUN CGO_ENABLED=0 go build -trimpath \
+        -tags='no_clickhouse no_libsql no_mssql no_mysql no_sqlite3 no_vertica no_ydb' \
+        -o /goose github.com/pressly/goose/v3/cmd/goose
+
+
+# The binaries, the migration files, a certificate bundle for the provider APIs,
+# and a non-root account. There is no shell, no package manager and no
+# interpreter.
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 
 LABEL org.opencontainers.image.title="AbandonAuth" \
@@ -48,8 +58,10 @@ LABEL org.opencontainers.image.title="AbandonAuth" \
 
 EXPOSE 8000
 
-# The schema and the commands that operate on it are in the binary, so the
-# recovery path is this same image started with `maintenance`.
+COPY --from=compile-migrations /goose /usr/local/bin/goose
+COPY --from=source /src/migrations /migrations
+
+# Migration runs only when a deployment names Goose as the entrypoint.
 ENTRYPOINT ["/usr/local/bin/abandonauth"]
 CMD ["serve"]
 

@@ -1,10 +1,27 @@
 services:
 
-  abandonauth:
-    build:
+  migrations:
+    build: &api-build
       context: src/api
       dockerfile: Dockerfile
       target: ${API_BUILD_TARGET:-deployment}
+    entrypoint: ["/usr/local/bin/goose", "-env=none", "-no-color"]
+    command: ["up"]
+    # An allowlist: no JWT or provider secret reaches Goose, and the password
+    # stays out of the DSN, which Goose quotes when a connection cannot open.
+    environment:
+      GOOSE_DRIVER: postgres
+      GOOSE_MIGRATION_DIR: /migrations
+      GOOSE_DBSTRING: ${GOOSE_DBSTRING}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    networks:
+      - db_access
+    depends_on:
+      database:
+        condition: service_healthy
+
+  abandonauth:
+    build: *api-build
     env_file:
       - ".env"
     ports:
@@ -15,6 +32,8 @@ services:
     depends_on:
       database:
         condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
 
   website:
     build:

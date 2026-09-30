@@ -133,7 +133,27 @@ deadcode_stage() {
     ok "$name"
 }
 
+# The service binary must link no migration code; Goose ships as its own
+# executable beside it.
+dependency_stage() {
+    name="service binary links no migration tool"
+    for tags in "" "$DEVTOOLS_TAG"; do
+        if ! dependencies=$(go list -deps -tags="$tags" ./cmd 2>&1); then
+            printf '==> %s ... FAILED\n%s\n' "$name" "$dependencies" >&2
+            exit 1
+        fi
+        if printf '%s\n' "$dependencies" | grep -q '^github.com/pressly/goose'; then
+            printf '==> %s ... FAILED\n' "$name" >&2
+            printf 'the service binary (tags: %s) imports Goose\n' "${tags:-none}" >&2
+            exit 1
+        fi
+    done
+    ok "$name"
+}
+
 fmt_stage
+run_stage "goose validate" go tool goose -env=none -dir migrations validate
+dependency_stage
 run_stage "go build" go build ./...
 run_stage "go build (-tags=$DEVTOOLS_TAG)" go build -tags="$DEVTOOLS_TAG" ./...
 # revive resolves packages through go/build's default context, which has no
@@ -155,6 +175,8 @@ deadcode_stage
 
 if [ "$integration" -eq 1 ]; then
     require_command docker 'Install Docker from https://docs.docker.com/get-docker/.'
+
+    stream_stage "migration controller checks" sh "$REPO_ROOT/scripts/migrationcheck.sh"
 
     # Each test runs once per invocation, and with --integration that once is in
     # the container, under the race detector and against a database. This stage

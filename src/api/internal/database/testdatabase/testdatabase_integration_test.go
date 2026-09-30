@@ -1,12 +1,12 @@
 //go:build integration && !devtools
 
-package testdatabase_test
+package testdatabase
 
 import (
+	"strings"
 	"testing"
 
-	"github.com/abandontech/abandonauth/src/api/internal/database"
-	"github.com/abandontech/abandonauth/src/api/internal/database/testdatabase"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // The helpers decide what every database test is run against, so a defect in
@@ -15,29 +15,23 @@ import (
 func TestEachTestGetsItsOwnEmptyDatabase(t *testing.T) {
 	t.Parallel()
 
-	first, firstURL := testdatabase.NewWithURL(t)
-	_, secondURL := testdatabase.NewWithURL(t)
+	first := New(t)
+	_, firstURL := NewWithURL(t)
+	_, secondURL := NewWithURL(t)
 
 	if firstURL == secondURL {
 		t.Fatal("two tests were given the same database")
 	}
 
-	handle := testdatabase.OpenMigrationHandle(t, first)
-
-	state, err := database.InspectSchema(t.Context(), handle)
-	if err != nil {
-		t.Fatalf("inspecting the schema: %v", err)
-	}
-
-	if !state.IsEmpty() {
-		t.Errorf("a new test database already holds %v", state.PresentAccountTables)
+	if tables := publicTables(t, first); tables != 0 {
+		t.Errorf("a new empty test database already holds %d tables", tables)
 	}
 }
 
-func TestMigratedDatabaseIsReadyToUse(t *testing.T) {
+func TestMigratedDatabaseIsReadyForAuthority(t *testing.T) {
 	t.Parallel()
 
-	pool := testdatabase.NewMigrated(t)
+	pool := NewMigrated(t)
 
 	var epochs int
 
@@ -50,30 +44,69 @@ func TestMigratedDatabaseIsReadyToUse(t *testing.T) {
 	}
 }
 
-func TestUnrecognisedDatabaseCanBeBuilt(t *testing.T) {
+// Clones share a template, so a row written into one must not reach another or
+// the template every later clone is made from.
+func TestMigratedDatabasesAreIsolated(t *testing.T) {
 	t.Parallel()
 
-	pool := testdatabase.NewUnrecognised(t)
-	handle := testdatabase.OpenMigrationHandle(t, pool)
+	first, firstURL := NewMigratedWithURL(t)
+	second, secondURL := NewMigratedWithURL(t)
 
-	state, err := database.InspectSchema(t.Context(), handle)
-	if err != nil {
-		t.Fatalf("inspecting the schema: %v", err)
+	if firstURL == secondURL {
+		t.Fatal("two tests were given the same database")
 	}
 
-	if !state.IsComplete() {
-		t.Errorf("these tables are missing: %v", state.MissingAccountTables)
-	}
+	Execute(t, first, `INSERT INTO "User" (username) VALUES ('isolated')`)
 
-	if state.HasMigrationHistory {
-		t.Error("a database this service did not build must not already carry its history")
+	for name, pool := range map[string]*pgxpool.Pool{
+		"another clone":           second,
+		"a clone made afterwards": NewMigrated(t),
+	} {
+		var users int
+
+		if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM "User"`).Scan(&users); err != nil {
+			t.Fatalf("counting users in %s: %v", name, err)
+		}
+
+		if users != 0 {
+			t.Errorf("%s holds %d users written elsewhere", name, users)
+		}
 	}
 }
 
 func TestServerURLNamesConfiguredServer(t *testing.T) {
 	t.Parallel()
 
-	if testdatabase.ServerURL(t) == "" {
+	if ServerURL(t) == "" {
 		t.Error("the configured server URL is empty")
 	}
+}
+
+func TestMissingSettingIsNamedInRefusal(t *testing.T) {
+	t.Parallel()
+
+	const absent = "ABANDONAUTH_TEST_SETTING_NEVER_SET"
+
+	value, err := setting(absent)
+	if err == nil {
+		t.Fatalf("an absent setting was read as %q", value)
+	}
+
+	if !strings.Contains(err.Error(), absent) {
+		t.Errorf("the refusal does not name the setting: %v", err)
+	}
+}
+
+func publicTables(t *testing.T, pool *pgxpool.Pool) int {
+	t.Helper()
+
+	var tables int
+
+	if err := pool.QueryRow(t.Context(),
+		`SELECT count(*) FROM pg_tables WHERE schemaname = 'public'`,
+	).Scan(&tables); err != nil {
+		t.Fatalf("counting tables: %v", err)
+	}
+
+	return tables
 }

@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 
 	"github.com/abandontech/abandonauth/src/api/internal/buildmode"
@@ -21,8 +20,8 @@ import (
 // service performs the commands against the real database and network.
 type service struct{}
 
-// Serve brings the schema up to date and then answers requests until the
-// context is cancelled.
+// Serve answers requests until the context is cancelled. It never changes the
+// schema; the deployment migrates the database before starting it.
 func (service) Serve(ctx context.Context, configuration config.Config) error {
 	logger := loggerFor(configuration)
 
@@ -31,10 +30,6 @@ func (service) Serve(ctx context.Context, configuration config.Config) error {
 		return err
 	}
 	defer pool.Close()
-
-	if err := migrate(ctx, pool, logger); err != nil {
-		return err
-	}
 
 	server, err := web.NewServer(configuration, web.Dependencies{
 		Pool:   pool,
@@ -139,13 +134,6 @@ func loggerFor(configuration config.Config) zerolog.Logger {
 		Verbose: configuration.Verbose,
 		Pretty:  configuration.Pretty,
 	})
-}
-
-func migrate(ctx context.Context, pool *pgxpool.Pool, logger zerolog.Logger) error {
-	handle := database.OpenMigrationHandle(pool)
-	defer handle.Close()
-
-	return database.Migrate(ctx, handle, database.NewMigrationLog(logger))
 }
 
 // listen opens the address before anything is served on it, so an address that

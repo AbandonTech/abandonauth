@@ -61,16 +61,17 @@ request is not a substitute.
   `src/api/internal/database/query/` and Swagger output under `src/api/docs/`.
   Change the SQL in `internal/database/queries/` or the handler annotations, and
   regenerate.
-- The schema is the goose migrations under
-  `src/api/internal/database/migrations/`, embedded in the binary; do not add a
-  second description of it. Change a schema only by migration. Never push a
-  schema at a production database, never migrate one down there, and never
-  assume a database is empty.
+- The schema is the Goose SQL migrations under `src/api/migrations/`; do not
+  add a second description of it. Change a schema only by migration, and apply
+  it in either direction only with the pinned standalone Goose CLI, never from
+  application code. Never push a schema at a database by any other route, and
+  never assume a database is empty.
 - Two API builds come from one Dockerfile. The published `deployment` target
   carries no password sign-in; the `development` target is built with
   `-tags=devtools` and carries it. Code that must not exist in a deployment
-  lives in a file guarded by that tag. Both carry the documentation and the
-  schema, which every build serves.
+  lives in a file guarded by that tag. Both carry the API documentation and its
+  OpenAPI schema, which every build serves, and the Goose CLI and migration
+  files, which the service binary never uses.
 - Preserve unrelated user changes and ignored local configuration.
 
 ## Naming and documentation

@@ -1,7 +1,8 @@
 # AbandonAuth API
 
 The identity provider and OAuth application broker. One Go program: it serves
-the API, carries the schema, and runs the operational commands.
+the API and runs the operational commands. It carries no migrations and never
+changes the schema.
 
 Settings, provider registration, deployment and the check commands are in the
 [repository README](../../README.md).
@@ -32,13 +33,23 @@ needs a separate install.
 
 ## Migrations
 
-The schema is the [goose](https://github.com/pressly/goose) migrations under
-`internal/database/migrations/`, embedded in the binary. goose is a `tool`
-directive in `go.mod`. To add one:
+The schema is the [Goose](https://github.com/pressly/goose) SQL migrations under
+`migrations/`, the directory the standalone Goose CLI reads; sqlc reads the same
+files. Goose is a `tool` directive in `go.mod`, and both image targets carry a
+PostgreSQL-only build of it at `/usr/local/bin/goose` with the files at
+`/migrations`. From this directory:
 
 ```shell
-go tool goose -dir internal/database/migrations create <what_it_does> sql
+go tool goose -env=none -dir migrations create <what_it_does> sql
+go tool goose -env=none -dir migrations validate
 ```
+
+Against a database, set `GOOSE_DRIVER=postgres`, a `GOOSE_DBSTRING` holding no
+password, and `PGPASSWORD`, then run `go tool goose -env=none -dir migrations`
+with `status`, `version`, `up`, `up-to`, `down`, `down-to`, `redo` or `reset`. A
+deployment runs these through the Compose `migrations` service, as the
+[repository README](../../README.md#the-database) describes, including what each
+Down removes.
 
 ## The two builds
 

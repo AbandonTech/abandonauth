@@ -3,19 +3,6 @@
 
 -- +goose Up
 -- +goose StatementBegin
--- The marker proving this service's migrations built this schema. Start-up
--- refuses account tables without it, so a hand-written history cannot pass.
-CREATE TABLE schema_identity (
-    singleton BOOLEAN NOT NULL DEFAULT TRUE,
-    baseline_version BIGINT NOT NULL,
-
-    CONSTRAINT schema_identity_pkey PRIMARY KEY (singleton),
-    CONSTRAINT schema_identity_holds_one_row CHECK (singleton),
-    CONSTRAINT schema_identity_baseline_version CHECK (baseline_version = 20260827000100)
-);
-
-INSERT INTO schema_identity (baseline_version) VALUES (20260827000100);
-
 CREATE TABLE "User" (
     "username" TEXT NOT NULL,
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
@@ -107,8 +94,8 @@ ALTER TABLE "CallbackUri" ADD CONSTRAINT "CallbackUri_developer_application_id_f
 
 -- +goose Down
 -- +goose StatementBegin
--- Reversing this migration destroys every account. It exists for disposable test
--- databases; production recovery restores a backup instead.
+-- Deletes every user, provider and password account, developer application and
+-- callback URI.
 DROP TABLE IF EXISTS "CallbackUri";
 DROP TABLE IF EXISTS "DeveloperApplication";
 DROP TABLE IF EXISTS "PasswordAccount";
@@ -117,5 +104,4 @@ DROP TABLE IF EXISTS "GoogleAccount";
 DROP TABLE IF EXISTS "GitHubAccount";
 DROP TABLE IF EXISTS "DiscordAccount";
 DROP TABLE IF EXISTS "User";
-DROP TABLE IF EXISTS schema_identity;
 -- +goose StatementEnd

@@ -1,18 +1,15 @@
-// Package database owns the connection pool, the embedded schema migrations
-// and the inspection that decides whether a database may receive them, the
-// rotation of the authority every credential is measured against, and the
-// bounded rollback every transaction in the service is abandoned with.
+// Package database owns the connection pool, the rotation of the authority
+// every credential is measured against, and the bounded rollback every
+// transaction in the service is abandoned with.
 package database
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/jackc/pgx/v5/stdlib"
 )
 
 // Connection pool limits. They are fixed rather than configurable: the service
@@ -66,21 +63,4 @@ func Open(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	}
 
 	return pool, nil
-}
-
-// Conn is the part of database/sql that schema inspection needs. A pool, a
-// single connection and a transaction all satisfy it, which lets a check run on
-// the same connection that holds an advisory lock.
-type Conn interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
-
-// OpenMigrationHandle returns a database/sql handle over an existing pool.
-//
-// The migration runner is written against database/sql because that is what it
-// requires; everything a request touches goes through the pool directly.
-func OpenMigrationHandle(pool *pgxpool.Pool) *sql.DB {
-	return stdlib.OpenDBFromPool(pool)
 }

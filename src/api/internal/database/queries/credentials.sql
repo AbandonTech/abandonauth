@@ -3,6 +3,14 @@ SELECT epoch, updated_at
 FROM auth_epoch
 WHERE singleton;
 
+-- Serialises everything that replaces authority-bound state: a rotation holds
+-- this row until it commits, and so must a migration changing that state.
+-- name: LockAuthEpoch :one
+SELECT epoch
+FROM auth_epoch
+WHERE singleton
+FOR UPDATE;
+
 -- Replaces the epoch every credential is stamped with. Callers run this inside
 -- the transaction that also clears logins in progress, one-time codes and
 -- sessions, so nothing issued under the previous epoch survives.

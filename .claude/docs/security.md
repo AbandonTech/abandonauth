@@ -15,6 +15,8 @@ by `abandonauth-security-reviewer` before implementation.
 - `DATABASE_URL`, `JWT_SECRET` and the three provider client secrets are read
   from the environment only. Give none of them a command-line flag: an argument
   is readable by every process on the machine.
+- Goose gets the database password only as `PGPASSWORD`. `GOOSE_DBSTRING` holds
+  none, because Goose quotes it when a connection fails.
 - Redact authorization headers, cookies, query strings, and provider response
   bodies from logging and telemetry.
 
@@ -84,13 +86,15 @@ the work was about.
 | Exactly `HS512`, checked rather than obeyed; per-purpose keys derived from the signing root under fixed key identifiers | `internal/config`, `internal/services/keyring`, `internal/services/tokens` |
 | Two access token classes, never interchangeable, each accepted only as the exact shape this service issues: its own key and key identifier, issuer, type, canonical non-nil identifiers, the one scope string for its class and audience, an application token's audience being the site and carrying a positive credential version, and a validity interval of exactly the access lifetime from the moment of issue | `internal/services/tokens`, `internal/web/authentication.go` |
 | A developer application's credential version, refusing every token issued before its credential was reset | `internal/services/applications`, `internal/web/authentication.go` |
-| The auth epoch every check is measured against, replaced transactionally to withdraw everything at once | `internal/services/authority`, `internal/database/authorityrotation.go` |
+| The auth epoch every check is measured against, replaced transactionally to withdraw everything at once, after its row is locked `FOR UPDATE`; a migration changing authority-bound state takes the same row lock first | `internal/services/authority`, `internal/database/authorityrotation.go`, `internal/database/queries/credentials.sql`, `src/api/migrations/` |
 | Login state that is opaque, single-use, browser-bound, application-bound, callback-exact and expiring, consumed by one `DELETE ... RETURNING` | `internal/services/oauth` |
 | PKCE on every provider, with the verifier encrypted at rest | `internal/services/oauth` |
 | Google's issuer, audience and `azp`, RS256 only, signature, nonce, `at_hash` and clock claims, against compiled-in endpoints a discovery document cannot move | `internal/services/providers/google.go` |
 | Callback URI policy: absolute, HTTPS except on loopback where a port is required, no userinfo, no fragment, no control characters, reserved response keys refused at registration | `internal/urlpolicy` |
 | A browser returned to the exact registered spelling, one encoded response parameter appended and no existing byte rewritten | `internal/urlpolicy`, `internal/web/providerlogin.go`, `providercallback.go` |
-| A database migrated only when empty, or carrying both this service's migration history and the marker its baseline writes; every other state refused without being changed | `internal/database/schemastate.go`, `migrate.go` |
+| Schema changed only by the pinned standalone Goose CLI, never by the service binary, which imports no Goose | `src/api/Dockerfile`, `scripts/check.sh` |
+| One migration controller per Compose project: the `migrations` service on the internal database network alone, receiving only `GOOSE_DRIVER`, `GOOSE_MIGRATION_DIR`, a password-free `GOOSE_DBSTRING` and `PGPASSWORD`, run with `-env=none`, and never scaled or run beside another migration | `compose.yml`, `.env.sample` |
+| An API that Compose starts only after the migration exits successfully; one started against an unmigrated database grants nothing | `compose.yml`, `internal/web` |
 | Server-side sessions stored only as digests, absolute expiry, logout as a delete, double-submit CSRF with an exact `Origin` | `internal/services/sessions`, `internal/web/browsersession.go`, `cookies.go` |
 | Budgets keyed so a public identifier cannot lock anyone out, counted in the database in windows the database clock decides, so every instance counts one client in one window, with no setting that raises or removes one | `internal/services/ratelimit`, `internal/database/queries/rate_limits.sql`, `internal/web/requestlimit.go` |
 | One spelling of every address: a raw path carrying an escape, a repeated slash, a backslash or a dot segment is refused before CORS and before the router can decode or clean it into one that is served, and without a redirect to it; whether an address is declared is answered by the router that serves it | `internal/web/requesttarget.go`, `server.go` |
@@ -123,8 +127,24 @@ A change to a control above extends these rather than replacing them:
   target spellings than a budget allows, spending neither the login or one-time
   code they carry nor the budget.
 - `internal/web/unavailable_integration_test.go` — every endpoint refusing when
-  the database cannot be reached, and a genuine token refused rather than
-  accepted on its signature alone.
+  the database cannot be reached, a genuine token refused rather than
+  accepted on its signature alone, and genuine sessions, tokens, codes, logins
+  and application credentials granting nothing and naming nothing from the
+  database when it answers with an empty schema.
+- `internal/database/authorityrotation_integration_test.go` — a rotation
+  waiting on a held auth-epoch row, abandoned while waiting without changing
+  anything, and completing in full once the row is released.
+- `cmd/operations_integration_test.go` — serving leaving a migrated database and
+  an empty one exactly as found.
+- `cmd/environmentsample_test.go` — the sample migration connection carrying no
+  password.
+- `scripts/migrationcheck.sh` — concurrent `up` requests converging on one
+  migration, a failed migration leaving the API never started, and a sentinel
+  password in neither Goose's arguments nor its log, with the migration
+  container's settings held to its allowlist.
+- `scripts/containercheck.sh` — the migration lifecycle on the template: a
+  no-op second up, one down removing exactly the auth-state layer, `down-to 0`
+  removing the baseline, and up rebuilding the schema every test is cloned from.
 - `internal/web/requestlimit_integration_test.go` — budgets stated as the
   numbers the service promises, proof that spending one against a public
   application identifier does not lock it out, that a forwarding header is

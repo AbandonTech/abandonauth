@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/abandontech/abandonauth/src/api/internal/database/query"
@@ -25,9 +24,9 @@ type AuthorityRotation struct {
 // issues, so that all of them stop validating at once.
 //
 // Deleting the outstanding credentials and installing the new value happen in
-// one transaction, under AdvisoryLockKey. On commit, nothing issued earlier is
-// accepted. On rollback, everything issued earlier still works. There is no
-// state where a token validates but the login that produced it is gone.
+// one transaction holding the auth epoch's row lock. On commit, nothing issued
+// earlier is accepted. On rollback, everything issued earlier still works. There
+// is no state where a token validates but the login that produced it is gone.
 //
 // It runs during a maintenance window: every signed-in browser has to sign in
 // again, and every login in progress has to be restarted.
@@ -39,11 +38,15 @@ func RotateAuthority(ctx context.Context, pool *pgxpool.Pool) (AuthorityRotation
 
 	defer func() { _ = Rollback(ctx, transaction) }()
 
-	if err := takeRotationLock(ctx, transaction); err != nil {
-		return AuthorityRotation{}, err
+	queries := query.New(transaction)
+
+	// Locked before anything is deleted, so a second rotation or a migration
+	// changing authority-bound state waits rather than interleaving.
+	if _, err := queries.LockAuthEpoch(ctx); err != nil {
+		return AuthorityRotation{}, fmt.Errorf("locking the authority: %w", err)
 	}
 
-	rotation, err := withdrawOutstandingCredentials(ctx, query.New(transaction))
+	rotation, err := withdrawOutstandingCredentials(ctx, queries)
 	if err != nil {
 		return AuthorityRotation{}, err
 	}
@@ -53,17 +56,6 @@ func RotateAuthority(ctx context.Context, pool *pgxpool.Pool) (AuthorityRotation
 	}
 
 	return rotation, nil
-}
-
-// takeRotationLock serialises rotation against migration and against another
-// operator running the same command, both of which decide what the database
-// considers authoritative.
-func takeRotationLock(ctx context.Context, transaction pgx.Tx) error {
-	if _, err := transaction.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", AdvisoryLockKey); err != nil {
-		return fmt.Errorf("taking the rotation lock: %w", err)
-	}
-
-	return nil
 }
 
 func withdrawOutstandingCredentials(ctx context.Context, queries *query.Queries) (AuthorityRotation, error) {

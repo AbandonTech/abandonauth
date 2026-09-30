@@ -27,10 +27,12 @@ Mock provider HTTP calls and database access, or use isolated test databases.
 Never use a live OAuth client or a real credential. Test output, fixtures and
 snapshots contain placeholders only.
 
-Build test state from what the application itself produces: a test that needs
-the schema runs the migrations rather than carrying a copy of them. A checked-in
-fixture duplicating application output is a second source of truth, drifts from
-the first, and outlives whatever it was copied from. Test helpers follow
+Build test state from what the repository itself produces. Every test schema
+comes from the standalone Goose CLI: the check setup migrates a template
+database with the deployment image's Goose, and `internal/database/testdatabase`
+clones it. No test carries a copy of the schema, and no Go code runs a
+migration. A checked-in fixture duplicating that output is a second source of
+truth, drifts from the first, and outlives whatever it was copied from. Test helpers follow
 `CLAUDE.md` → "Naming and documentation" in full, and describe database state by
 the operation this service performs on it, never as a "prior" or "legacy"
 anything.
@@ -99,9 +101,19 @@ On Windows, invoke them with
 
 `--integration` is authoritative for coverage, and is required after a change to
 an integration test, to `internal/database/testdatabase`, to
-`internal/web/servertest`, or to the container check scripts. Both images are
-built on every pull request by `.github/workflows/`, which is what covers a
-Dockerfile change.
+`internal/web/servertest`, to a migration, to either Compose file, or to the
+container or migration check scripts. Both images are built on every pull
+request by `.github/workflows/`, which is what covers a Dockerfile change.
+
+The default run validates the migration files with `goose validate` and fails
+if the service binary imports Goose under either build. `--integration` then
+runs `scripts/migrationcheck.sh` from the host, in a Compose project of its own:
+two concurrent `up` requests must leave each version recorded once, a migration
+refused by the database must leave the dependent API never started, and a
+sentinel password must appear in neither Goose's arguments nor its log. Inside
+the container, `scripts/containercheck.sh` takes the template through a no-op
+`up`, `down`, `down-to 0` and `up` with the deployment image's Goose before any
+test clones it.
 
 Besides revive and vet, `scripts/check.sh` runs Staticcheck on all four tag
 sets (none, `devtools`, `integration`, `integration devtools`) and a dead-code
@@ -130,7 +142,10 @@ either build runs under both.
 
 Selecting an integration-tagged test is an explicit request for PostgreSQL:
 `internal/database/testdatabase` fails the test through `testing.T` when
-`TEST_DATABASE_URL` is absent or unusable. A plain `go test ./...` needs no
+`TEST_DATABASE_URL`, the server's administrative database, is absent or
+unusable, or when a test needing the schema finds no `TEST_TEMPLATE_DATABASE`.
+Nothing may stay connected to the template while tests run, or it cannot be
+cloned. A plain `go test ./...` needs no
 database because the integration files are build-constrained.
 
 The coverage profile is built with `-tags=integration` and **not** `devtools`,

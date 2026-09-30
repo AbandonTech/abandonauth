@@ -95,6 +95,23 @@ func TestSampleEnvironmentCallbacksAreAcceptedByService(t *testing.T) {
 	}
 }
 
+// Goose quotes its connection string when a connection cannot open, so the
+// password reaches it only through PGPASSWORD.
+func TestSampleMigrationConnectionCarriesNoPassword(t *testing.T) {
+	connection, present := sampleEnvironment(t)["GOOSE_DBSTRING"]
+	if !present || connection == "" {
+		t.Fatal("the sample environment declares no migration connection")
+	}
+
+	lowered := strings.ToLower(connection)
+
+	for _, carrier := range []string{"password", "postgres_password", "@", "://"} {
+		if strings.Contains(lowered, carrier) {
+			t.Errorf("the sample migration connection contains %q, which can carry a password", carrier)
+		}
+	}
+}
+
 func TestSampleEnvironmentSuppliesNoProviderCredential(t *testing.T) {
 	for name, value := range sampleEnvironment(t) {
 		if !strings.HasSuffix(name, "_CLIENT_SECRET") {
