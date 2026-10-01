@@ -71,7 +71,7 @@ setting that is missing or unusable stops the process with a message naming it.
 | `JWT_HASHING_ALGO` | `HS512` | yes | must be exactly `HS512` |
 | `ABANDON_AUTH_URL` | | yes | this API's own origin, and the issuer of its tokens |
 | `ABANDON_AUTH_SITE_URL` | | yes | the site's origin. The only origin allowed to call the API from a browser |
-| `ABANDON_AUTH_DEVELOPER_APP_ID` | | yes | the developer application that stands for this service's own site |
+| `ABANDON_AUTH_DEVELOPER_APP_ID` | | yes | the UUID of the developer application that stands for this service's own site. Choose it once and keep it. **See below** |
 | `BIND_ADDRESS` | `0.0.0.0:8000` | no | `host:port` to listen on |
 | `TRUSTED_PROXY_CIDRS` | `127.0.0.1/32,::1/128` | no | whose forwarding headers are believed. **See below** |
 | `ABANDON_AUTH_API_ADDRESS` | `ABANDON_AUTH_URL` | no | where the site's own server dials the API; `http://abandonauth:8000` on the compose network |
@@ -152,10 +152,10 @@ problem.
 ## The database
 
 `docker compose up` starts PostgreSQL, then the one-shot `migrations` service,
-which runs `goose up` from the same image, and starts the API only once that
-exits successfully. If the migration fails, the API container is left created
-but never started; fix the migration or configuration and run the same command
-again. Starting the API any other way does not migrate anything, and requests
+which runs `goose up` from the same image, then the one-shot `provisioning`
+service ([below](#the-sites-application)), and starts the API only once both
+exit successfully. If the migration fails, neither provisioning nor the API is
+started; fix the migration or configuration and run the same command again. Starting the API any other way does not migrate anything, and requests
 needing the database are refused until it has been migrated.
 
 If the API image or its configuration changed, Compose replaces the running API
@@ -212,6 +212,53 @@ To recover from a backup: serve `abandonauth maintenance`, restore a backup of
 this deployment's database, run `docker compose up --build -d`, and run
 `abandonauth database rotate-auth-epoch` if the signing secret changed.
 
+## The site's application
+
+The site signs people in as a developer application of its own, identified by
+`ABANDON_AUTH_DEVELOPER_APP_ID`. Set it to a UUID before the first start (any
+UUID generator will do) and never change it: other applications may rely on it.
+
+`docker compose up` runs `abandonauth provision` as the one-shot `provisioning`
+service after the migration and before the API. When no application holds the
+identifier it creates, in one transaction:
+
+- an owner named `abandonauth` holding no Discord, GitHub, Google or password
+  account, so nobody can sign in as it;
+- an application named `AbandonAuth` under the identifier, whose credential is
+  generated, stored only as a hash, and never printed or kept anywhere else;
+- the callback `ABANDON_AUTH_SITE_URL` followed by `/api/ui`, with one trailing
+  slash on the origin dropped first: the address the site returns its own
+  sign-in to.
+
+When an application already holds the identifier, provisioning succeeds and
+changes nothing: not the owner, name, callbacks or credential. It does not check
+that application, and rerunning it repairs nothing. Before starting against a
+database that already has one, confirm the application under that identifier is
+the site's and that its owner is trusted with it: an owner who can sign in can
+still delete it, replace its callbacks and reset its credential.
+
+Provisioning receives `DATABASE_URL` and `DEBUG` and nothing else, on the
+internal database network. It judges the site origin as `serve` does, so the
+published image refuses `DEBUG` and plain HTTP. If it fails, the API is left
+created but never started: correct the identifier, the origin or the database
+and run `docker compose up --build -d` again. Do not start the API around it.
+
+By hand, against a migrated database named by `DATABASE_URL`, which is read from
+the environment only:
+
+```shell
+abandonauth provision                                           # asks for both
+abandonauth provision --application-id <UUID> --site-url <ORIGIN>
+```
+
+Give both flags or neither; with one, it fails without asking for the other. On
+success it prints only `ABANDON_AUTH_DEVELOPER_APP_ID=<UUID>`.
+
+Changing the identifier provisions a second owner, application and callback.
+Removing the one no longer configured, like anything provisioning created when
+an image without it is deployed instead, is the operator's decision; nothing
+deletes it automatically.
+
 # Local Development
 
 ## Prerequisites
@@ -226,7 +273,8 @@ this deployment's database, run `docker compose up --build -d`, and run
 ## First time install
 
 Create your `.env` in the root of the project; copy `.env.sample` as the base.
-Fill in the provider registrations:
+Set `ABANDON_AUTH_DEVELOPER_APP_ID` to a UUID of your own
+([why](#the-sites-application)), and fill in the provider registrations:
 
 - [Discord](./docs/DISCORD-OAUTH2.md)
 - [GitHub](./docs/GITHUB-OAUTH2.md)

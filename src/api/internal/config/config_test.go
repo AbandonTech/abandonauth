@@ -385,6 +385,110 @@ func TestPasswordSignInNeedsDebugAndDevelopmentBuild(t *testing.T) {
 	}
 }
 
+// A command that needs only the database is held to the same connection rules
+// as serving, and the value it accepts stays a secret.
+func TestParseDatabaseURL(t *testing.T) {
+	t.Parallel()
+
+	const supplied = "postgresql://abandonauth:placeholder-database-password@database:5432/abandonauth"
+
+	parsed, err := config.ParseDatabaseURL(supplied)
+	if err != nil {
+		t.Fatalf("ParseDatabaseURL() = %v", err)
+	}
+
+	if parsed.Reveal() != supplied {
+		t.Error("Reveal() did not return the connection string")
+	}
+
+	if strings.Contains(fmt.Sprintf("%v %+v %#v", parsed, parsed, parsed), "placeholder-database-password") {
+		t.Error("the parsed connection string renders its password")
+	}
+
+	refused := map[string]string{
+		"empty":            "",
+		"blank":            "   ",
+		"another scheme":   "mysql://abandonauth:placeholder-database-password@database/abandonauth",
+		"no host":          "postgres:///abandonauth?password=placeholder-database-password",
+		"not a url at all": "postgres://abandonauth:placeholder-database-password@[database/abandonauth",
+	}
+
+	for name, raw := range refused {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := config.ParseDatabaseURL(raw)
+			if err == nil {
+				t.Fatal("ParseDatabaseURL() accepted the value")
+			}
+
+			if !strings.Contains(err.Error(), "DATABASE_URL") {
+				t.Errorf("error %q does not name DATABASE_URL", err)
+			}
+
+			if strings.Contains(err.Error(), "placeholder-database-password") {
+				t.Error("the refusal repeats the password")
+			}
+		})
+	}
+}
+
+// The site origin is judged by one rule for every command: a deployment build
+// refuses debug mode and plain HTTP, and a development build accepts loopback
+// HTTP only in debug mode.
+func TestParseSiteOrigin(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name             string
+		raw              string
+		debug            bool
+		developmentBuild bool
+		want             string
+		refusedSetting   string
+	}{
+		{"https in a deployment build", "https://auth.example.test", false, false, "https://auth.example.test", ""},
+		{"https with a trailing slash", "https://auth.example.test/", false, false, "https://auth.example.test", ""},
+		{"https in a development build", "https://auth.example.test", false, true, "https://auth.example.test", ""},
+		{"https in development debug mode", "https://auth.example.test", true, true, "https://auth.example.test", ""},
+		{"loopback http in development debug mode", "http://localhost:3000", true, true, "http://localhost:3000", ""},
+		{"loopback http in a deployment build", "http://localhost:3000", false, false, "", "ABANDON_AUTH_SITE_URL"},
+		{"loopback http without debug mode", "http://localhost:3000", false, true, "", "ABANDON_AUTH_SITE_URL"},
+		{"debug mode in a deployment build", "https://auth.example.test", true, false, "", "DEBUG"},
+		{"remote http in development debug mode", "http://auth.example.test", true, true, "", "ABANDON_AUTH_SITE_URL"},
+		{"a path", "https://auth.example.test/app", false, false, "", "ABANDON_AUTH_SITE_URL"},
+		{"empty", "", false, false, "", "ABANDON_AUTH_SITE_URL"},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			parsed, err := config.ParseSiteOrigin(testCase.raw, testCase.debug, testCase.developmentBuild)
+
+			if testCase.refusedSetting != "" {
+				if err == nil {
+					t.Fatalf("ParseSiteOrigin() accepted %q", testCase.raw)
+				}
+
+				if !strings.Contains(err.Error(), testCase.refusedSetting) {
+					t.Errorf("error %q does not name %s", err, testCase.refusedSetting)
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("ParseSiteOrigin() = %v", err)
+			}
+
+			if parsed.String() != testCase.want {
+				t.Errorf("origin = %q, want %q", parsed, testCase.want)
+			}
+		})
+	}
+}
+
 func TestTrustedProxiesAreParsed(t *testing.T) {
 	t.Parallel()
 

@@ -17,6 +17,7 @@ import (
 
 	"github.com/abandontech/abandonauth/src/api/internal/config"
 	"github.com/abandontech/abandonauth/src/api/internal/database/testdatabase"
+	"github.com/abandontech/abandonauth/src/api/internal/services/siteapplication"
 	"github.com/abandontech/abandonauth/src/api/internal/web"
 )
 
@@ -310,5 +311,111 @@ func TestRotatingAuthorityReportsDatabaseItCannotOpen(t *testing.T) {
 	err := service{}.RotateAuthority(t.Context(), operationalSettings(t, unreachable, freeAddress(t)))
 	if err == nil {
 		t.Fatal("rotating reported success against a database it could not open")
+	}
+}
+
+// databaseSecret holds a test database's address the way the command does.
+func databaseSecret(t *testing.T, databaseURL string) config.Secret {
+	t.Helper()
+
+	secret, err := config.ParseDatabaseURL(databaseURL)
+	if err != nil {
+		t.Fatalf("the test database address is not valid: %v", err)
+	}
+
+	return secret
+}
+
+// Provisioning a migrated database creates the site's owner, application and
+// callback once; provisioning it again reports the application present and
+// changes nothing.
+func TestProvisioningCreatesSiteApplicationOnce(t *testing.T) {
+	t.Parallel()
+
+	pool, databaseURL := testdatabase.NewMigratedWithURL(t)
+	applicationID := uuid.New()
+	callback := "https://auth.example.test" + web.SiteEntryPath
+
+	outcome, err := service{}.Provision(t.Context(), databaseSecret(t, databaseURL), applicationID, callback)
+	if err != nil {
+		t.Fatalf("provisioning: %v", err)
+	}
+
+	if outcome != siteapplication.Created {
+		t.Errorf("outcome = %v, want Created", outcome)
+	}
+
+	created := tableContents(t, pool)
+
+	for _, want := range []string{"User 1\n", "DeveloperApplication 1\n", "CallbackUri 1\n"} {
+		if !strings.Contains(created, want) {
+			t.Errorf("provisioning did not leave %q:\n%s", strings.TrimSpace(want), created)
+		}
+	}
+
+	var registered bool
+	if err := pool.QueryRow(t.Context(),
+		`SELECT EXISTS (SELECT 1 FROM "CallbackUri" WHERE "developer_application_id" = $1 AND "uri" = $2)`,
+		applicationID, callback,
+	).Scan(&registered); err != nil {
+		t.Fatalf("reading the registered callback: %v", err)
+	}
+
+	if !registered {
+		t.Error("the site's callback is not registered to the provisioned application")
+	}
+
+	outcome, err = service{}.Provision(t.Context(), databaseSecret(t, databaseURL), applicationID, callback)
+	if err != nil {
+		t.Fatalf("provisioning again: %v", err)
+	}
+
+	if outcome != siteapplication.AlreadyPresent {
+		t.Errorf("outcome = %v, want AlreadyPresent", outcome)
+	}
+
+	if again := tableContents(t, pool); again != created {
+		t.Errorf("provisioning again changed the database:\nbefore:\n%s\nafter:\n%s", created, again)
+	}
+}
+
+// A database the migrations have not prepared is refused, and left as empty as
+// it was found.
+func TestProvisioningRefusesUnpreparedDatabase(t *testing.T) {
+	t.Parallel()
+
+	pool, databaseURL := testdatabase.NewWithURL(t)
+
+	_, err := service{}.Provision(
+		t.Context(), databaseSecret(t, databaseURL), uuid.New(), "https://auth.example.test"+web.SiteEntryPath,
+	)
+	if err == nil {
+		t.Fatal("provisioning reported success against a database without the schema")
+	}
+
+	if after := tableContents(t, pool); after != "" {
+		t.Errorf("provisioning created tables in an empty database:\n%s", after)
+	}
+}
+
+// Provisioning against a database it cannot reach fails, and the failure does
+// not carry the database password.
+func TestProvisioningReportsDatabaseItCannotOpen(t *testing.T) {
+	t.Parallel()
+
+	const password = "placeholder-unreachable-password"
+
+	unreachable := "postgres://placeholder:" + password +
+		"@127.0.0.1:1/placeholder?sslmode=disable&connect_timeout=1"
+
+	_, err := service{}.Provision(
+		t.Context(), databaseSecret(t, unreachable), uuid.New(), "https://auth.example.test"+web.SiteEntryPath,
+	)
+	if err == nil {
+		t.Fatal("provisioning reported success against a database it could not open")
+	}
+
+	if strings.Contains(err.Error(), password) {
+		t.Error("the failure carries the database password")
 	}
 }

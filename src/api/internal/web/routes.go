@@ -17,6 +17,10 @@ const DevtoolsBuild = buildmode.Devtools
 // browser does.
 const APIRoot = "/api"
 
+// SiteEntryPath is where the site's own sign-in returns a browser, below the
+// site's origin.
+const SiteEntryPath = APIRoot + "/ui"
+
 // RouteName identifies a route independently of its URL, so a handler can be
 // attached to it and a test can name it without repeating the pattern.
 type RouteName string
@@ -118,8 +122,8 @@ var baseRoutes = []Route{
 
 	{Name: RouteGoogleCallback, Method: "GET", Pattern: APIRoot + "/google", Documented: true},
 
-	{Name: RouteSiteEntryBare, Method: "GET", Pattern: APIRoot + "/ui"},
-	{Name: RouteSiteEntry, Method: "GET", Pattern: APIRoot + "/ui/{$}"},
+	{Name: RouteSiteEntryBare, Method: "GET", Pattern: SiteEntryPath},
+	{Name: RouteSiteEntry, Method: "GET", Pattern: SiteEntryPath + "/{$}"},
 	{Name: RouteDiscordCallback, Method: "GET", Pattern: APIRoot + "/ui/discord-callback", Documented: true},
 	{Name: RouteGitHubCallback, Method: "GET", Pattern: APIRoot + "/ui/github-callback", Documented: true},
 	{Name: RouteProviderAuthorize, Method: "GET", Pattern: APIRoot + "/ui/{provider}/authorize", Documented: true},

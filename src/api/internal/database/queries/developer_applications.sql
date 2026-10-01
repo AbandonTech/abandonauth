@@ -3,6 +3,13 @@ INSERT INTO "DeveloperApplication" ("owner_id", "refresh_token", "name")
 VALUES ($1, $2, $3)
 RETURNING "id", "owner_id", "name", "refresh_token", "credential_version";
 
+-- The site's application keeps the identifier its deployment is configured
+-- with. No row affected means another transaction holds that identifier.
+-- name: CreateDeveloperApplicationWithID :execrows
+INSERT INTO "DeveloperApplication" ("id", "owner_id", "refresh_token", "name")
+VALUES ($1, $2, $3, $4)
+ON CONFLICT ("id") DO NOTHING;
+
 -- name: GetDeveloperApplication :one
 SELECT "id", "owner_id", "name", "refresh_token", "credential_version"
 FROM "DeveloperApplication"

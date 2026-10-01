@@ -94,7 +94,9 @@ the work was about.
 | A browser returned to the exact registered spelling, one encoded response parameter appended and no existing byte rewritten | `internal/urlpolicy`, `internal/web/providerlogin.go`, `providercallback.go` |
 | Schema changed only by the pinned standalone Goose CLI, never by the service binary, which imports no Goose | `src/api/Dockerfile`, `scripts/check.sh` |
 | One migration controller per Compose project: the `migrations` service on the internal database network alone, receiving only `GOOSE_DRIVER`, `GOOSE_MIGRATION_DIR`, a password-free `GOOSE_DBSTRING` and `PGPASSWORD`, run with `-env=none`, and never scaled or run beside another migration | `compose.yml`, `.env.sample` |
-| An API that Compose starts only after the migration exits successfully; one started against an unmigrated database grants nothing | `compose.yml`, `internal/web` |
+| An API that Compose starts only after the migration and provisioning exit successfully; one started against an unmigrated database grants nothing | `compose.yml`, `internal/web` |
+| The site's application provisioned only where its configured identifier is absent: an owner holding no provider or password account, the application, and the callback derived from the validated site origin and the route table's `SiteEntryPath`, in one transaction whose identifier insert yields to a concurrent winner; an identifier already held is a no-op that changes nothing, whoever owns it; the generated credential stored at `HashCost` and discarded | `internal/services/siteapplication`, `cmd/abandonauth.go` |
+| One `provisioning` service per Compose project, on the internal database network alone, receiving only `DATABASE_URL` and `DEBUG`, with non-secret identifier and origin as arguments, judging the origin with the parser `serve` uses, and printing only the identifier assignment | `compose.yml`, `internal/config`, `cmd/abandonauth.go` |
 | Server-side sessions stored only as digests, absolute expiry, logout as a delete, double-submit CSRF with an exact `Origin` | `internal/services/sessions`, `internal/web/browsersession.go`, `cookies.go` |
 | Budgets keyed so a public identifier cannot lock anyone out, counted in the database in windows the database clock decides, so every instance counts one client in one window, with no setting that raises or removes one | `internal/services/ratelimit`, `internal/database/queries/rate_limits.sql`, `internal/web/requestlimit.go` |
 | One spelling of every address: a raw path carrying an escape, a repeated slash, a backslash or a dot segment is refused before CORS and before the router can decode or clean it into one that is served, and without a redirect to it; whether an address is declared is answered by the router that serves it | `internal/web/requesttarget.go`, `server.go` |
@@ -135,13 +137,28 @@ A change to a control above extends these rather than replacing them:
   waiting on a held auth-epoch row, abandoned while waiting without changing
   anything, and completing in full once the row is released.
 - `cmd/operations_integration_test.go` — serving leaving a migrated database and
-  an empty one exactly as found.
+  an empty one exactly as found; provisioning creating once and changing nothing
+  the second time, refusing an unmigrated database, and failing against an
+  unreachable one without its password.
+- `cmd/provision_test.go`, `cmd/secretsource_test.go` — provisioning's two input
+  modes, one flag without the other, malformed and nil identifiers, unsafe and
+  credential-carrying origins, stray arguments, the build's transport rule, a
+  `--database-url` refused, and none of those values in errors or output.
+- `internal/services/siteapplication/siteapplication_integration_test.go` — an
+  owner no one can sign in as, the credential at `HashCost`, an identifier
+  already held by a login account left with its owner, callbacks, credential and
+  every power over it, a concurrent winner leaving one complete set, and a
+  cancelled provisioning leaving nothing.
 - `cmd/environmentsample_test.go` — the sample migration connection carrying no
   password.
 - `scripts/migrationcheck.sh` — concurrent `up` requests converging on one
-  migration, a failed migration leaving the API never started, and a sentinel
-  password in neither Goose's arguments nor its log, with the migration
-  container's settings held to its allowlist.
+  migration, a failed migration leaving provisioning and the API never started,
+  and a sentinel password in neither Goose's arguments nor its log, with the
+  migration container's settings held to its allowlist; refused provisioning
+  inputs starting no API, writing no row and repeated in no log; provisioning
+  finishing before the API starts, writing the exact callback for an origin with
+  or without a trailing slash, changing nothing when run again, carrying no
+  database connection in its arguments, and held to its own allowlist.
 - `scripts/containercheck.sh` — the migration lifecycle on the template: a
   no-op second up, one down removing exactly the auth-state layer, `down-to 0`
   removing the baseline, and up rebuilding the schema every test is cloned from.

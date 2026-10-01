@@ -19,6 +19,19 @@ describe("siteCallbackUri", () => {
     expect(siteCallbackUri("http://localhost:3000/")).toBe(siteCallbackUri("http://localhost:3000"));
   });
 
+  // `abandonauth provision` registers the callback from the same setting, and
+  // the two are matched exactly, so these are the spellings its tests expect.
+  it.each([
+    ["https://auth.example.test", "https://auth.example.test/api/ui"],
+    ["https://auth.example.test/", "https://auth.example.test/api/ui"],
+    ["HTTPS://Auth.Example.TEST/", "HTTPS://Auth.Example.TEST/api/ui"],
+    ["https://auth.example.test:443", "https://auth.example.test:443/api/ui"],
+    ["https://auth.example.test:8443", "https://auth.example.test:8443/api/ui"],
+    ["http://localhost:3000", "http://localhost:3000/api/ui"],
+  ])("keeps the spelling of %s and adds one slash before the path", (origin, callback) => {
+    expect(siteCallbackUri(origin)).toBe(callback);
+  });
+
   it("falls back to a path rather than an origin it invented", () => {
     expect(siteCallbackUri("")).toBe("/api/ui");
   });

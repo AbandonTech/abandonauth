@@ -20,6 +20,22 @@ services:
       database:
         condition: service_healthy
 
+  provisioning:
+    build: *api-build
+    entrypoint: ["/usr/local/bin/abandonauth"]
+    command:
+      - "provision"
+      - "--application-id=${ABANDON_AUTH_DEVELOPER_APP_ID}"
+      - "--site-url=${ABANDON_AUTH_SITE_URL}"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      DEBUG: ${DEBUG:-false}
+    networks:
+      - db_access
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+
   abandonauth:
     build: *api-build
     env_file:
@@ -33,6 +49,8 @@ services:
       database:
         condition: service_healthy
       migrations:
+        condition: service_completed_successfully
+      provisioning:
         condition: service_completed_successfully
 
   website:

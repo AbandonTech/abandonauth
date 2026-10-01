@@ -16,7 +16,7 @@ import (
 // own origin, which forwards the call to this service's entry point. The
 // session the callback created belongs to that origin, so a browser returned to
 // the API's origin instead would carry none of it.
-const SiteCallbackURI = SiteOrigin + web.APIRoot + "/ui"
+const SiteCallbackURI = SiteOrigin + web.SiteEntryPath
 
 // Site is the developer application that stands for AbandonAuth's own site.
 type Site struct {
@@ -33,7 +33,7 @@ type Site struct {
 // registerSite puts the site's own application in the database before the
 // service starts.
 //
-// An operator does this once, by hand, when the service is first deployed:
+// A deployment does this with `abandonauth provision` before serving:
 // registering an application needs an account, an account is created by a
 // sign-in, and a sign-in has to name an application that is already registered,
 // so nothing the service serves can produce the first of the three. The

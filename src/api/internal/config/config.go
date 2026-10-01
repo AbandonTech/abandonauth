@@ -178,20 +178,12 @@ func Load(settings Settings) (Config, error) {
 		return Config{}, err
 	}
 
-	// Debug mode relaxes transport rules, so a binary that cannot serve the
-	// development routes must not accept it either: it would only mislead.
-	if settings.Debug && !settings.DevelopmentBuild {
-		return Config{}, settingError(settingDebug, "this build does not support debug mode")
+	transport, err := transportPolicy(settings.Debug, settings.DevelopmentBuild)
+	if err != nil {
+		return Config{}, err
 	}
 
-	transport := urlpolicy.RequireSecureTransport
-	if settings.DevelopmentBuild && settings.Debug {
-		transport = urlpolicy.AllowLoopbackWithoutTransportSecurity
-	}
-
-	var err error
-
-	if loaded.DatabaseURL, err = databaseURL(settings.DatabaseURL); err != nil {
+	if loaded.DatabaseURL, err = ParseDatabaseURL(settings.DatabaseURL); err != nil {
 		return Config{}, err
 	}
 
@@ -219,7 +211,7 @@ func Load(settings Settings) (Config, error) {
 		return Config{}, settingError(settingInternalApplicationID, "must be a UUID")
 	}
 
-	if loaded.Site, err = origin(settingSiteURL, settings.SiteURL, transport); err != nil {
+	if loaded.Site, err = ParseSiteOrigin(settings.SiteURL, settings.Debug, settings.DevelopmentBuild); err != nil {
 		return Config{}, err
 	}
 
@@ -320,7 +312,36 @@ func bindsToLoopbackOnly(address string) bool {
 	return parsed.IsLoopback()
 }
 
-func databaseURL(raw string) (Secret, error) {
+// transportPolicy decides whether plain HTTP on the loopback interface is
+// acceptable for this build and debug setting.
+func transportPolicy(debug, developmentBuild bool) (urlpolicy.TransportPolicy, error) {
+	// Debug mode relaxes transport rules, so a binary that cannot serve the
+	// development routes must not accept it either: it would only mislead.
+	if debug && !developmentBuild {
+		return urlpolicy.RequireSecureTransport, settingError(settingDebug, "this build does not support debug mode")
+	}
+
+	if debug {
+		return urlpolicy.AllowLoopbackWithoutTransportSecurity, nil
+	}
+
+	return urlpolicy.RequireSecureTransport, nil
+}
+
+// ParseSiteOrigin validates the origin the site is served from under the
+// transport rules serving applies for the same build and debug setting.
+func ParseSiteOrigin(raw string, debug, developmentBuild bool) (urlpolicy.Origin, error) {
+	transport, err := transportPolicy(debug, developmentBuild)
+	if err != nil {
+		return urlpolicy.Origin{}, err
+	}
+
+	return origin(settingSiteURL, raw, transport)
+}
+
+// ParseDatabaseURL validates the database connection string, holding it as a
+// secret because it carries the database password.
+func ParseDatabaseURL(raw string) (Secret, error) {
 	if strings.TrimSpace(raw) == "" {
 		return Secret{}, settingError(settingDatabaseURL, "is required")
 	}

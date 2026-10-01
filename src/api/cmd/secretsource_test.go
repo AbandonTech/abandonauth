@@ -58,13 +58,48 @@ func TestSecretsSuppliedOnCommandLineAreRefusedWithoutBeingEchoed(t *testing.T) 
 	}
 }
 
+// Provisioning reads the database only from DATABASE_URL. A connection string
+// passed as a flag is refused before anything is asked or opened, and the
+// refusal repeats it nowhere.
+func TestProvisionRefusesDatabaseFlagWithoutEchoingIt(t *testing.T) {
+	databaseOnly(t)
+
+	value := removedSecretFlags["database-url"]
+
+	run := runProvision(t, &recorder{}, "",
+		append(flags(placeholderApplicationID, placeholderSiteOrigin), "--database-url="+value)...)
+
+	if run.err == nil {
+		t.Fatal("--database-url was accepted")
+	}
+
+	if run.perform.provisioned {
+		t.Error("--database-url was refused but provisioning ran anyway")
+	}
+
+	// The refusal prints the command's usage, which must not carry the value.
+	for name, text := range map[string]string{"error": run.err.Error(), "output": run.output, "prompts": run.prompts} {
+		if strings.Contains(text, value) || strings.Contains(text, "flag-supplied-database-password") {
+			t.Errorf("the %s repeats the refused connection string", name)
+		}
+	}
+
+	if !strings.Contains(run.err.Error(), "database-url") {
+		t.Errorf("the refusal does not name the flag: %v", run.err)
+	}
+
+	if run.asked {
+		t.Error("provisioning asked for inputs although its arguments were refused")
+	}
+}
+
 // The command-line surface is what `--help` prints and what a deployment can be
 // configured with, so a secret must be absent from it rather than merely
 // undocumented.
 func TestCommandLineOffersNoSecret(t *testing.T) {
 	secrets := secretEnvironment()
 
-	for _, flag := range settingFlags() {
+	for _, flag := range commandFlags(newCommand(&recorder{})) {
 		for _, name := range flag.Names() {
 			if _, removed := removedSecretFlags[name]; removed {
 				t.Errorf("--%s accepts a secret on the command line", name)

@@ -6,9 +6,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/urfave/cli/v3"
 
 	"github.com/abandontech/abandonauth/src/api/internal/config"
+	"github.com/abandontech/abandonauth/src/api/internal/services/siteapplication"
 )
 
 // placeholders are settings that pass validation. None of them is a real
@@ -57,8 +59,13 @@ type recorder struct {
 	served              bool
 	maintained          bool
 	rotated             bool
+	provisioned         bool
 	maintenanceAddress  string
 	configuration       config.Config
+	databaseURL         config.Secret
+	applicationID       uuid.UUID
+	callback            string
+	outcomeToReturn     siteapplication.Outcome
 	errorToReturnOnCall error
 }
 
@@ -81,6 +88,21 @@ func (r *recorder) RotateAuthority(_ context.Context, configuration config.Confi
 	r.configuration = configuration
 
 	return r.errorToReturnOnCall
+}
+
+func (r *recorder) Provision(
+	_ context.Context, databaseURL config.Secret, applicationID uuid.UUID, callback string,
+) (siteapplication.Outcome, error) {
+	r.provisioned = true
+	r.databaseURL = databaseURL
+	r.applicationID = applicationID
+	r.callback = callback
+
+	if r.outcomeToReturn == 0 {
+		return siteapplication.Created, r.errorToReturnOnCall
+	}
+
+	return r.outcomeToReturn, r.errorToReturnOnCall
 }
 
 func runCommand(t *testing.T, arguments ...string) (*recorder, error) {
@@ -305,10 +327,21 @@ func TestEveryCommandIsDocumented(t *testing.T) {
 
 	check(root.Commands, "")
 
-	for _, flag := range root.Flags {
+	for _, flag := range commandFlags(root) {
 		documented, ok := flag.(interface{ GetUsage() string })
 		if !ok || documented.GetUsage() == "" {
 			t.Errorf("flag %v has no usage line", flag.Names())
 		}
 	}
+}
+
+// commandFlags returns the flags a command and every command below it accept.
+func commandFlags(command *cli.Command) []cli.Flag {
+	flags := append([]cli.Flag{}, command.Flags...)
+
+	for _, below := range command.Commands {
+		flags = append(flags, commandFlags(below)...)
+	}
+
+	return flags
 }

@@ -13,7 +13,15 @@ Settings, provider registration, deployment and the check commands are in the
 abandonauth serve                          answer API requests
 abandonauth maintenance                    answer every request 503, opening no database connection
 abandonauth database rotate-auth-epoch     withdraw every issued credential
+abandonauth provision                      create the site's application, asking for its UUID and the site origin
+abandonauth provision --application-id <UUID> --site-url <ORIGIN>
+                                           the same, asking for nothing; both flags or neither
 ```
+
+`provision` reads `DATABASE_URL` from the environment only, needs a migrated
+database, and changes nothing when an application already holds the
+identifier. The [repository README](../../README.md#the-sites-application)
+describes what it creates.
 
 ## Generated code
 

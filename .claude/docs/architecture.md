@@ -12,12 +12,14 @@ controls in force, and where they live".
   the `development` build over the published `deployment` one.
 - API and site publish `API_PORT` and `WEBSITE_PORT`. The database publishes
   nothing: an internal network the site does not join, reachable at
-  `database:5432` from the API and the `migrations` service alone, denied
-  outbound access. The API is on both networks and so still reaches the provider
-  APIs; `migrations` is on the internal one only.
-- Start-up order is the migration boundary: PostgreSQL healthy, then the
-  one-shot `migrations` service runs `goose up`, then the API starts only once
-  that exits successfully, then the site. See "Persistence".
+  `database:5432` from the API and the `migrations` and `provisioning` services
+  alone, denied outbound access. The API is on both networks and so still
+  reaches the provider APIs; `migrations` and `provisioning` are on the internal
+  one only.
+- Start-up order is the migration and provisioning boundary: PostgreSQL
+  healthy, then the one-shot `migrations` service runs `goose up`, then the
+  one-shot `provisioning` service runs `abandonauth provision`, then the API
+  starts only once both exit successfully, then the site. See "Persistence".
 - No web framework: a `net/http` router, interface-backed services, sqlc queries
   over pgx.
 - Only routes `internal/web/routes.go` declares are answered, and `serve`
@@ -53,6 +55,16 @@ controls in force, and where they live".
 service's own site: an ordinary registered application, and what decides how a
 login ends. Its registered callback is the site's origin, where the session
 cookie belongs, plus `/api/ui`, the address the site forwards to.
+
+`abandonauth provision` creates it (`internal/services/siteapplication`) when
+no application holds the configured identifier: an owner named `abandonauth`
+with no provider or password account, so no sign-in reaches it; the application
+named `AbandonAuth`, whose generated credential is stored as a hash and
+discarded; and the callback, derived from `ABANDON_AUTH_SITE_URL` with one
+trailing slash dropped and `web.SiteEntryPath` appended, the spelling the site's
+`siteCallbackUri` builds from the same setting. The three are one transaction.
+The identifier alone decides: an application already holding it is left exactly
+as it is, whoever owns it.
 
 The site builds no provider address. `GET /api/ui/{provider}/authorize`, given
 an application and a callback:
@@ -187,6 +199,16 @@ service; nothing starts one.
 An API started against a database no one migrated answers nothing that needs
 the database: each such request fails closed.
 
+The site's application is data, not schema, so no migration carries it.
+`compose.yml` runs `abandonauth provision` as the `provisioning` service, the
+same image with the service binary as its entrypoint, receiving `DATABASE_URL`
+and `DEBUG` alone, on the internal database network alone. It depends on the
+migration completing, and the API depends on it completing, so a refused input
+or a database failure leaves the API created and never started. Provisioning
+checks the site origin with `config.ParseSiteOrigin`, the parser `serve` uses,
+so both apply one transport rule for a build and debug setting. The ordinary
+test template is migrated and never provisioned.
+
 Rotating the authority and any migration changing authority-bound state both
 begin by locking the `auth_epoch` row `FOR UPDATE`, so neither interleaves with
 the other or with a second rotation.
@@ -200,8 +222,9 @@ set at all. `development` carries them, served only with debug mode on and a
 loopback-only bind.
 
 Both carry the documentation and its OpenAPI schema, which this public API
-serves whatever the build and configuration, and the Goose CLI and migration
-files the `migrations` service runs. Swag's annotations carry no build
+serves whatever the build and configuration, the Goose CLI and migration files
+the `migrations` service runs, and the `provision` command the `provisioning`
+service runs. Swag's annotations carry no build
 constraints, so its document names password sign-in in either build;
 `internal/web/apidocumentation.go` narrows it to the addresses the running build
 serves before publishing. The document declares no server and every path is a

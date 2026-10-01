@@ -13,8 +13,8 @@ scripts/          the validation pipeline, shared by local runs and CI
 .opencode/        OpenCode planner and security reviewer
 .claude/          Claude implementer, skill, and repository guidance
 .plans/           cross-session implementation plans
-compose.yml       the stack: PostgreSQL, the one-shot Goose migrations, API, website
-compose.test.yml  the throwaway database, its migrated template, the check container
+compose.yml       the stack: PostgreSQL, the one-shot Goose migrations, the one-shot provisioning, API, website
+compose.test.yml  the throwaway database, its migrated template, the check container, the gate services
 ```
 
 ## API
@@ -29,11 +29,14 @@ are relative to `src/api/`.
 - `sqlc.yaml` — how `queries/` becomes the generated `query` package
 - `revive.toml` — lint rules
 - `cmd/abandonauth.go` — commands, flags, environment binding, Swagger metadata;
-  secrets are environment-only and have no flag
-- `cmd/operations.go` — `serve`, `maintenance`, `database rotate-auth-epoch`;
-  the listener is opened before housekeeping starts, and both stop together
+  secrets are environment-only and have no flag; `provision`'s two input modes,
+  its origin check and the callback it derives
+- `cmd/operations.go` — `serve`, `maintenance`, `database rotate-auth-epoch`,
+  `provision`; the listener is opened before housekeeping starts, and both stop
+  together
 - `internal/config/` — validated immutable configuration, the default and
-  maximum lifetimes; `PasswordSignInEnabled`
+  maximum lifetimes; `PasswordSignInEnabled`; `ParseDatabaseURL` and
+  `ParseSiteOrigin` for a command needing only those
 - `internal/buildmode/` — which variant compiled, by the `devtools` tag
 - `internal/logging/` — the logger; never a query string, header or cookie
 - `internal/urlpolicy/` — callback URI policy and origin parsing; `Callback`
@@ -47,7 +50,8 @@ are relative to `src/api/`.
   limits. The application never reads them; sqlc does
 - `internal/database/queries/` — the SQL source; edit this, never generated
   code; `rate_limits.sql` derives the budget window and the wait from the
-  database clock, `developer_applications.sql` carries the application row lock,
+  database clock, `developer_applications.sql` carries the application row lock
+  and the site application's conflict-safe insert under a given identifier,
   `credentials.sql` the auth epoch's row lock
 - `internal/database/query/` — sqlc output: gitignored, regenerated every run
 - `internal/database/pool.go` — connection pool lifecycle
@@ -81,6 +85,9 @@ endpoints that stop accepting credentials in
   application is checked against a fixed comparison hash so the attempt costs
   what a wrong credential costs; `New` takes a `CredentialHasher`, nil being
   `credentials.HashCost`
+- `internal/services/siteapplication/` — `abandonauth provision`: the site's
+  owner, application and callback created together where the identifier is
+  absent, nothing changed where it is held
 - `internal/services/oauth/` — authorization state with PKCE, one-time exchange
   codes
 - `internal/services/sessions/` — browser sessions and their CSRF tokens
@@ -97,7 +104,8 @@ endpoints that stop accepting credentials in
 
 ### Web
 
-- `internal/web/routes.go` — the route table: `APIRoot` and every URL, once
+- `internal/web/routes.go` — the route table: `APIRoot`, `SiteEntryPath` and
+  every URL, once
 - `internal/web/handlers.go` — binds each route name to its handler
 - `internal/web/server.go` — composition, middleware order, deadlines
 - `internal/web/requesttarget.go` — the one spelling of a target that is
@@ -203,8 +211,10 @@ rewrite live data for no functional gain and is deliberately out of scope.
   controller checks, then the container: `-tags='integration devtools' ./...`
   and `-tags=integration ./...` with race detection, a database and coverage
 - `./scripts/migrationcheck.sh` — in a Compose project of its own: concurrent
-  `up` requests converging on one migration, a failed migration starting no API,
-  and the password in neither Goose's arguments nor its log
+  `up` requests converging on one migration, a failed migration starting neither
+  provisioning nor API, the password in neither Goose's arguments nor its log;
+  refused provisioning starting no API and writing nothing, and provisioning
+  running once, before the API, with only its allowlisted settings
 - `./scripts/containercheck.sh` — what runs inside the container: the Goose
   lifecycle on the template (no-op up, down, `down-to 0`, up), the tests, and
   the coverage gate
@@ -236,8 +246,10 @@ the PostgreSQL-only Goose CLI, the migration files and a certificate bundle; the
 service binary carries the documentation and OpenAPI schema every build serves.
 `compose.yml` builds it unless `API_BUILD_TARGET` in `.env` names the
 `development` target, the variant the password routes compile into, and runs its
-`migrations` service, the same image with Goose as the entrypoint on the
-internal database network only, to completion before the API starts. Both
+`migrations` service, the same image with Goose as the entrypoint, then its
+`provisioning` service, the same image running `abandonauth provision` with
+only `DATABASE_URL` and `DEBUG`, both on the internal database network only and
+both to completion before the API starts. Both
 images are built on every pull request by `.github/workflows/`.
 
 ## Documentation and agent tooling

@@ -35,12 +35,30 @@ services:
       database:
         condition: service_healthy
 
+  provisioning:
+    profiles: ["migration-gate"]
+    build: *api-build
+    entrypoint: ["/usr/local/bin/abandonauth"]
+    # scripts/migrationcheck.sh substitutes refused inputs to force a failure.
+    command:
+      - "provision"
+      - "--application-id=${PROVISIONING_CHECK_APPLICATION_ID:-6f5902ac-237a-4ba0-8a51-1ed0b6c1c0f0}"
+      - "--site-url=${PROVISIONING_CHECK_SITE_URL:-https://auth.example.test/}"
+    environment:
+      DATABASE_URL: "postgres://abandonauth:placeholder@database:5432/abandonauth_template?sslmode=disable&connect_timeout=5"
+      DEBUG: "false"
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+
   migration-gate-api:
     profiles: ["migration-gate"]
     build: *api-build
     command: ["maintenance"]
     depends_on:
       migrations:
+        condition: service_completed_successfully
+      provisioning:
         condition: service_completed_successfully
 
   check:

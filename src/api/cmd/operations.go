@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
 	"github.com/abandontech/abandonauth/src/api/internal/buildmode"
@@ -14,6 +15,7 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/database"
 	"github.com/abandontech/abandonauth/src/api/internal/logging"
 	"github.com/abandontech/abandonauth/src/api/internal/services/housekeeping"
+	"github.com/abandontech/abandonauth/src/api/internal/services/siteapplication"
 	"github.com/abandontech/abandonauth/src/api/internal/web"
 )
 
@@ -127,6 +129,21 @@ func (service) RotateAuthority(ctx context.Context, configuration config.Config)
 		Msg("a new authority is in place; every credential issued before it is refused")
 
 	return nil
+}
+
+// Provision creates the site's application on a migrated database unless its
+// identifier is already in use. It reports what it did and nothing else: the
+// application's credential is never returned.
+func (service) Provision(
+	ctx context.Context, databaseURL config.Secret, applicationID uuid.UUID, callback string,
+) (siteapplication.Outcome, error) {
+	pool, err := database.Open(ctx, databaseURL.Reveal())
+	if err != nil {
+		return 0, err
+	}
+	defer pool.Close()
+
+	return siteapplication.Provision(ctx, pool, applicationID, callback)
 }
 
 func loggerFor(configuration config.Config) zerolog.Logger {

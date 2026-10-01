@@ -109,8 +109,17 @@ The default run validates the migration files with `goose validate` and fails
 if the service binary imports Goose under either build. `--integration` then
 runs `scripts/migrationcheck.sh` from the host, in a Compose project of its own:
 two concurrent `up` requests must leave each version recorded once, a migration
-refused by the database must leave the dependent API never started, and a
-sentinel password must appear in neither Goose's arguments nor its log. Inside
+refused by the database must leave provisioning and the dependent API never
+started, and a sentinel password must appear in neither Goose's arguments nor
+its log. It then drives the `provisioning` service: a refused site origin, a
+loopback HTTP origin, a nil or malformed identifier and `DEBUG` in the
+deployment image must each fail for that reason, start no API, write no row and
+repeat neither the refused value nor the database password; a successful run
+must finish before the API starts, write exactly the owner, application and
+callback, give an origin with and without a trailing slash the same callback,
+change nothing when run again, and receive only `DATABASE_URL` and `DEBUG`.
+That runs in the check's own Compose project; the template the tests clone is
+migrated and never provisioned, so each integration test owns its rows. Inside
 the container, `scripts/containercheck.sh` takes the template through a no-op
 `up`, `down`, `down-to 0` and `up` with the deployment image's Goose before any
 test clones it.
