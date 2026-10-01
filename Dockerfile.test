@@ -1,0 +1,33 @@
+# `go test -race` links ThreadSanitizer, a C library, and requires a compiler to link it with.
+FROM golang:1.27
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends postgresql-client && \
+    rm -rf /var/lib/apt/lists/*
+
+# The Goose executable and migration files the deployment image ships, so the
+# migration lifecycle is checked against exactly what a deployment runs.
+COPY --from=api /usr/local/bin/goose /usr/local/bin/goose
+COPY --from=api /migrations /migrations
+
+WORKDIR /repo/src/api
+
+COPY src/api/go.mod src/api/go.sum ./
+RUN go mod download
+
+COPY src/api/ ./
+COPY scripts/ /repo/scripts/
+COPY .env.sample /repo/.env.sample
+
+# Tool versions come from the tool directives in go.mod.
+RUN go tool sqlc generate && \
+    go tool swag init \
+        --v3.1 \
+        --generalInfo cmd/abandonauth.go \
+        --dir . \
+        --output docs \
+        --outputTypes go,json \
+        --parseDependency=false \
+        --quiet
+
+CMD ["sh", "/repo/scripts/containercheck.sh"]

@@ -5,10 +5,16 @@ Authentic Auth Service... Provides identification of a user from multiple extern
 Currently supported:
 - Discord
 - GitHub
+- Google
 
-# Using AbandonAuth
+- [Integrating your application](#integrating-your-application): signing
+  people in to your application with AbandonAuth.
+- [Running AbandonAuth](#running-abandonauth): deploying this service.
+- [Local development](#local-development): changing this repository.
 
-## Using AbandonAuth to Secure Your Application
+# Integrating your application
+
+## Register a developer application
 
 1. Login to [AbandonAuth](https://auth.abandontech.cloud)
 2. Create a Developer Application
@@ -16,48 +22,343 @@ Currently supported:
    2. Click `Create a new application`, then click `Create Application`
    3. Take note of/save your application token as it will never be visible again (you can reset it anytime)
 3. Navigate back to `Developer Applications` and click on the recently created app's UUID to edit it then click `Edit Callback URIs`. The callback URI you specify is where AbandonAuth will redirect users after authenticating. It should be whichever address your server is using to finish handling the login process.  Some examples are as follows:
-   1. For local dev you could have something like this `"http://your_computers_local_ip:8001/login/abandonauth-callback"`
-      1. Or you should be able to use localhost `"http://localhost:8001/login/abandonauth-callback"`
-   2. For a production website, you may use a domain name to redirect to `https://mc.abandonauth.cloud/api/callback`
+   1. For local dev, `http` is accepted only on the loopback interface and only with a port: `"http://localhost:8001/login/abandonauth-callback"`
+   2. Everywhere else the callback must be `https`, such as `https://mc.abandonauth.cloud/api/callback`
    ![Callback URIs](./docs/imgs/callback-uris-example.png)
 4. Configure *your* application to use your developer application ID and secret to authenticate users from AbandonAuth.
 
-For a quick example of how to log a user in using AbandonAuth, please see [AbandonAuth's login UI](./abandonauth/routers/ui.py)
+## What a callback URI may be
 
+A callback is matched exactly, so register the address you will actually be
+returned to. It must be absolute, and:
 
-## Local Development Guide
+- `https` anywhere; `http` only when the host is loopback, and then it must
+  state a port;
+- no user information, and no `#fragment`;
+- it may carry a query of its own, which is preserved, but it may not already
+  use the keys `code` or `authentication`, because those are what the answer is
+  returned in.
 
-## First Time Install
+## The exchange
 
-Create your `.env` file in the root project directory, you can copy `.env.sample` as the base for this.
+1. Send the person to the AbandonAuth login page with your `application_id` and
+   your registered `callback_uri`.
+2. They come back to that callback with a `code` query parameter. It is
+   one-time, short-lived, and bound to your application.
+3. Your **server** spends it at `POST /api/login`, sending the code in the
+   `exchange-token` header and identifying your application in the body with its
+   `id` and `refresh_token`. You get back a token for that person.
+4. Call `GET /api/me` with that token as a `Bearer` credential to identify them.
 
-Read how to setup [Discord OAuth2 here.](./docs/DISCORD-OAUTH2.md)
+Spend the code from your server, not from the browser: it identifies your
+application with your application's own credential.
 
-`docker compose up --build`
+Resetting your application's credential invalidates every token issued before
+the reset.
 
-A sample User schema has been created to allow the prisma client to generate upon project creation. This should be
-modified or deleted to fit your app's needs prior to creating any migrations.
+# Running AbandonAuth
+
+Every setting is read from the environment. The ones that carry no secret are
+also accepted as a command-line flag. All of them are validated at start-up: a
+setting that is missing or unusable stops the process with a message naming it.
+
+## Settings
+
+| Setting | Default | Required | What it is |
+| --- | --- | --- | --- |
+| `DATABASE_URL` | | yes | **environment only.** PostgreSQL connection URL. Scheme must be `postgres` or `postgresql` |
+| `JWT_SECRET` | | yes | **environment only.** The root every signing key is derived from. **At least 64 bytes** |
+| `JWT_HASHING_ALGO` | `HS512` | yes | must be exactly `HS512` |
+| `ABANDON_AUTH_URL` | | yes | this API's own origin, and the issuer of its tokens |
+| `ABANDON_AUTH_SITE_URL` | | yes | the site's origin. The only origin allowed to call the API from a browser |
+| `ABANDON_AUTH_DEVELOPER_APP_ID` | | yes | the UUID of the developer application that stands for this service's own site. Choose it once and keep it. **See below** |
+| `BIND_ADDRESS` | `0.0.0.0:8000` | no | `host:port` to listen on |
+| `TRUSTED_PROXY_CIDRS` | `127.0.0.1/32,::1/128` | no | whose forwarding headers are believed. **See below** |
+| `ABANDON_AUTH_API_ADDRESS` | `ABANDON_AUTH_URL` | no | where the site's own server dials the API; `http://abandonauth:8000` on the compose network |
+| `API_PORT`, `WEBSITE_PORT` | `8000`, `3000` | no | the host ports `compose.yml` publishes the two services on |
+| `API_BUILD_TARGET` | `deployment` | no | which of the two API builds `compose.yml` builds |
+| `JWT_EXPIRES_IN_SECONDS_SHORT_LIVED` | `120` | no | one-time code lifetime. Capped at 120 seconds |
+| `JWT_EXPIRES_IN_SECONDS_LONG_LIVED` | `2592000` | no | browser session lifetime. Capped at 30 days |
+| `DEBUG` | `false` | no | development build only; the published image refuses to start with it set |
+| `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `ABANDON_AUTH_DISCORD_CALLBACK` | | yes | see [Discord](./docs/DISCORD-OAUTH2.md) |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `ABANDON_AUTH_GITHUB_CALLBACK` | | yes | see [GitHub](./docs/GITHUB-OAUTH2.md) |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK` | | yes | see [Google](./docs/GOOGLE-OAUTH2.md) |
+
+Each `_CLIENT_SECRET` is environment only, alongside `DATABASE_URL` and
+`JWT_SECRET`. All three provider registrations are required.
+
+`ABANDON_AUTH_URL` and `ABANDON_AUTH_SITE_URL` are origins: scheme, host and an
+optional port, with no path. Every endpoint is under `/api`, which belongs to
+the API and is never part of either setting. Outside a loopback development
+build both must be `https`.
+
+## The signing secret
+
+Provision at least 64 random bytes from a secret manager. Replacing it
+invalidates every credential this service has issued, so after changing it run:
+
+```shell
+abandonauth database rotate-auth-epoch
+```
+
+That withdraws every access token, login in progress, one-time code and browser
+session. Run it during a maintenance window; everyone signs in again afterwards.
+
+## Behind a reverse proxy
+
+Request budgets are counted per client address. `X-Forwarded-For` and
+`X-Real-IP` are read only on connections from an address in
+`TRUSTED_PROXY_CIDRS`. The default, `127.0.0.1/32,::1/128`, covers no proxy and
+a loopback sidecar; for anything else list the ranges the proxy connects from:
+
+```dotenv
+TRUSTED_PROXY_CIDRS=10.0.0.0/8,172.16.0.0/12
+```
+
+`X-Forwarded-For` is walked right to left and the first address outside a
+trusted range is the client (the leftmost, if there is none). A header holding
+anything that is not an IP address is discarded and the request is counted
+against the peer. `X-Real-IP` is used only when `X-Forwarded-For` is absent.
+
+List every hop and nothing a client can connect from: an unlisted hop is taken
+for the client, and a listed range a client can reach from lets it choose the
+address it is counted as.
+
+## The published image
+
+The image built from `src/api/Dockerfile` (the `deployment` target) contains no
+password sign-in, refuses to start with `DEBUG` set, and runs as an account that
+is not root. It holds the service binary, the pinned PostgreSQL-only
+[Goose](https://github.com/pressly/goose) CLI at `/usr/local/bin/goose`, the SQL
+migrations at `/migrations`, and a certificate bundle. Its entrypoint is the
+service; the service itself never migrates. The API documentation is served at
+`/api/docs` and its OpenAPI schema at `/api/openapi.json`.
+
+`compose.yml` builds that target unless `API_BUILD_TARGET` names the other one.
+Deploy with:
+
+```shell
+docker compose up --build -d
+```
+
+It reads `.env` from the repository root. The database publishes no host port
+and is on a network the site does not join.
+
+The same image started with `abandonauth maintenance` answers every request
+with a 503 and `Retry-After`. It opens no database connection and reads no
+setting but the address, so it starts when the configuration itself is the
+problem.
+
+## The database
+
+`docker compose up` starts PostgreSQL, then the one-shot `migrations` service,
+which runs `goose up` from the same image, then the one-shot `provisioning`
+service ([below](#the-sites-application)), and starts the API only once both
+exit successfully. If the migration fails, neither provisioning nor the API is
+started; fix the migration or configuration and run the same command again. Starting the API any other way does not migrate anything, and requests
+needing the database are refused until it has been migrated.
+
+If the API image or its configuration changed, Compose replaces the running API
+container before the migration runs, so the API is down until it succeeds. To
+keep the running API serving while a migration that it is compatible with runs,
+migrate first and then start the rest:
+
+```shell
+docker compose up --build migrations
+docker compose up --build -d
+```
+
+Every Up migration must work with both the build already serving and the one
+being deployed; a destructive change ships as an additive release, a deployment,
+and a removal release. Run migrations only through that one `migrations`
+service and one Goose command at a time: never scale it, and never start a
+command while a `docker compose up` or another command may still be migrating,
+because the Goose CLI takes no database-wide lock.
+
+The migration service receives four settings and nothing else: `GOOSE_DRIVER`,
+`GOOSE_MIGRATION_DIR`, `GOOSE_DBSTRING`, and `PGPASSWORD`, which Compose copies
+from `POSTGRES_PASSWORD`. `GOOSE_DBSTRING` must never contain a password, because
+Goose quotes it when a connection fails. Goose runs with `-env=none`, so it reads
+no `.env` file.
+
+Other Goose commands run through the same service, with the command replacing
+`up`:
+
+```shell
+docker compose run --rm migrations status
+docker compose run --rm migrations version
+docker compose run --rm migrations up-to 20260827000100
+docker compose run --rm migrations down
+docker compose run --rm migrations down-to 20260827000100
+docker compose run --rm migrations redo
+docker compose run --rm migrations reset
+```
+
+Down migrations run only when an operator runs one of these; no start-up path
+selects them. Stop the API first (`docker compose stop abandonauth`) and take a
+backup. What each Down removes, with its data:
+
+| Down of | Removes |
+| --- | --- |
+| `20260827000200_auth_state_and_rate_limits` | every browser session, login in progress, one-time code, token revocation and request budget, the auth epoch, and every developer application's credential version |
+| `20260827000100_baseline_schema` | every user, Discord, GitHub, Google and password account, developer application and callback URI |
+
+`down` and `down-to 20260827000100` remove the first row; `down-to 0` and
+`reset` remove both. `redo` removes and reapplies the newest migration, so it
+empties that migration's tables. Applying the auth-state migration again creates
+a new auth epoch, so no credential issued before its Down is accepted afterwards.
+
+To recover from a backup: serve `abandonauth maintenance`, restore a backup of
+this deployment's database, run `docker compose up --build -d`, and run
+`abandonauth database rotate-auth-epoch` if the signing secret changed.
+
+## The site's application
+
+The site signs people in as a developer application of its own, identified by
+`ABANDON_AUTH_DEVELOPER_APP_ID`. Set it to a UUID before the first start (any
+UUID generator will do) and never change it: other applications may rely on it.
+
+`docker compose up` runs `abandonauth provision` as the one-shot `provisioning`
+service after the migration and before the API. When no application holds the
+identifier it creates, in one transaction:
+
+- an owner named `abandonauth` holding no Discord, GitHub, Google or password
+  account, so nobody can sign in as it;
+- an application named `AbandonAuth` under the identifier, whose credential is
+  generated, stored only as a hash, and never printed or kept anywhere else;
+- the callback `ABANDON_AUTH_SITE_URL` followed by `/api/ui`, with one trailing
+  slash on the origin dropped first: the address the site returns its own
+  sign-in to.
+
+When an application already holds the identifier, provisioning succeeds and
+changes nothing: not the owner, name, callbacks or credential. It does not check
+that application, and rerunning it repairs nothing. Before starting against a
+database that already has one, confirm the application under that identifier is
+the site's and that its owner is trusted with it: an owner who can sign in can
+still delete it, replace its callbacks and reset its credential.
+
+Provisioning receives `DATABASE_URL` and `DEBUG` and nothing else, on the
+internal database network. It judges the site origin as `serve` does, so the
+published image refuses `DEBUG` and plain HTTP. If it fails, the API is left
+created but never started: correct the identifier, the origin or the database
+and run `docker compose up --build -d` again. Do not start the API around it.
+
+By hand, against a migrated database named by `DATABASE_URL`, which is read from
+the environment only:
+
+```shell
+abandonauth provision                                           # asks for both
+abandonauth provision --application-id <UUID> --site-url <ORIGIN>
+```
+
+Give both flags or neither; with one, it fails without asking for the other. On
+success it prints only `ABANDON_AUTH_DEVELOPER_APP_ID=<UUID>`.
+
+Changing the identifier provisions a second owner, application and callback.
+Removing the one no longer configured, like anything provisioning created when
+an image without it is deployed instead, is the operator's decision; nothing
+deletes it automatically.
+
+# Local Development
+
+## Prerequisites
+
+| Needed for | Install |
+| --- | --- |
+| Everything | [Docker](https://docs.docker.com/get-docker/) |
+| The API checks on your own machine | [Go](https://go.dev/dl/) 1.27 |
+| The site's tests and build | [Node](https://nodejs.org/) 24 |
+| The commit hooks | [pre-commit](https://pre-commit.com/#install) |
+
+## First time install
+
+Create your `.env` in the root of the project; copy `.env.sample` as the base.
+Set `ABANDON_AUTH_DEVELOPER_APP_ID` to a UUID of your own
+([why](#the-sites-application)), and fill in the provider registrations:
+
+- [Discord](./docs/DISCORD-OAUTH2.md)
+- [GitHub](./docs/GITHUB-OAUTH2.md)
+- [Google](./docs/GOOGLE-OAUTH2.md)
+
+Then:
+
+```shell
+docker compose up --build
+```
+
+`API_BUILD_TARGET=development` in the sample selects the API build carrying
+password sign-in, which also needs `DEBUG=true`.
+
+The site is on `WEBSITE_PORT` and the API on `API_PORT`, 3000 and 8000 in the
+sample. Sign in through the site on port 3000: that is the origin the sign-in
+cookies belong to. The API answers directly at <http://localhost:8000/api/me>
+and the documentation at <http://localhost:8000/api/docs>.
+
+Password sign-in (`/api/create_test_user`, `/api/login_test_user`) is served
+only from a loopback listener, so to use it run the API directly with
+`BIND_ADDRESS=127.0.0.1:8000` rather than through compose.
+
+## Checks
+
+```shell
+./scripts/check.sh                # codegen, formatting, lint, static analysis, dead code, build, unit tests
+./scripts/check.sh --quick        # the same, skipping codegen and go mod tidy
+./scripts/check.sh --fix-fmt      # format the source, then check
+./scripts/check.sh --integration  # also the race, database and coverage checks; needs Docker
+./scripts/db.sh down              # remove the test database when you are done
+
+npm --prefix src/website test
+npm --prefix src/website run build
+```
+
+On Windows run them through Git Bash rather than invoking the `.sh` file from
+PowerShell:
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" scripts/check.sh
+```
+
+CI runs the same script. The API check runs revive, Staticcheck on every build
+tag set, and a dead-code analysis of the deployment build that fails on any
+unreachable function. `--integration` holds every package to 80% statement
+coverage. The sqlc and Swagger output is generated on every run, is not
+committed, and is never edited by hand.
 
 ## Migrations
-This project is using [prisma](https://www.prisma.io/) as the ORM
 
-### Pushing migrations to the database
-The migrations can be pushed to the running postgresql container using the
-[schema](./prisma/schema.prisma) and migrations found in `./prisma/migrations`.
+The schema is the [Goose](https://github.com/pressly/goose) SQL migrations under
+[`src/api/migrations/`](./src/api/migrations), applied by the standalone Goose
+CLI and never by the service. Goose is a pinned tool in `src/api/go.mod`, so it
+needs no separate install. The deployment image builds the same version.
 
-```shell
-prisma db push --schema prisma/schema.prisma
-```
-
-### Creating migrations
-Migrations can be created by using this command, while the database is running.
+To add one, from `src/api`:
 
 ```shell
-prisma migrate dev --schema prisma/schema.prisma --name "what this change does"
+go tool goose -env=none -dir migrations create <what_it_does> sql
+go tool goose -env=none -dir migrations validate
 ```
+
+An Up migration must work with the build already serving. One that changes the
+auth epoch, login state, one-time codes, browser sessions, revocations,
+developer credential versions or request budgets first locks the epoch row, as
+`abandonauth database rotate-auth-epoch` does:
+
+```sql
+SELECT epoch FROM auth_epoch WHERE singleton FOR UPDATE;
+```
+
+The tests never build a schema themselves: `./scripts/check.sh --integration`
+migrates a template database with the image's Goose, runs it through up, down,
+`down-to 0` and up again, and every test database is a clone of the result.
+
+Queries live in
+[`src/api/internal/database/queries/`](./src/api/internal/database/queries);
+sqlc regenerates the Go for them on the next `./scripts/check.sh`.
 
 ## Pre-commit
-Install pre-commit to make sure you never fail linting in CI
+
+Install the hooks so you never fail linting in CI:
+
 ```shell
-poetry run pre-commit install
+pre-commit install
 ```

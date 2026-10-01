@@ -15,40 +15,12 @@ repos:
 
   - repo: local
     hooks:
-      - id: poetry
-        name: Api    | Installing Project Dependencies via Poetry
-        entry: poetry -C src/api install --no-root
+      # Reports formatting rather than applying it. Run
+      # `./scripts/check.sh --fix-fmt` to have it corrected.
+      - id: check
+        name: Api    | Codegen, Formatting, Lint and Unit Tests
+        entry: sh scripts/check.sh
         language: system
         require_serial: true
         pass_filenames: false
-        files: '^src/api/'
-
-      - id: ruff
-        name: Api    | Run Ruff via Poetry
-        entry: poetry -C src/api run ruff check --fix --exit-non-zero-on-fix
-        language: system
-        require_serial: true
-        pass_filenames: false
-        files: '^src/api/'
-
-      - id: prisma format
-        name: Api    | Run Prisma Format via Poetry
-        entry: poetry -C src/api run prisma format --schema=src/api/prisma/schema.prisma
-        language: system
-        require_serial: true
-        files: '^src/api/'
-
-      - id: prisma generate
-        name: Api    | Run Prisma Generate via Poetry
-        entry: poetry -C src/api run prisma generate --schema=src/api/prisma/schema.prisma
-        language: system
-        require_serial: true
-        files: '^src/api/'
-
-      - id: pyright
-        name: Api    | Run Pyright via Poetry
-        entry: poetry -C src/api run pyright
-        language: system
-        types: [python]
-        require_serial: true
-        files: '^src/api/'
+        files: '^(src/api/|scripts/)'

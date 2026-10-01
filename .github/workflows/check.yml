@@ -1,0 +1,47 @@
+name: Check
+
+on:
+  workflow_call
+
+jobs:
+  api:
+    name: Run checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: src/api/go.mod
+          cache-dependency-path: src/api/go.sum
+
+      - name: Check
+        run: ./scripts/check.sh --integration
+
+  website:
+    name: Build and test site
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # Matches the version src/website/Dockerfile builds with.
+          node-version: "24.15.0"
+          cache: npm
+          cache-dependency-path: src/website/package-lock.json
+
+      - name: Install dependencies
+        run: npm --prefix src/website ci
+
+      - name: Test
+        run: npm --prefix src/website test
+
+      - name: Build
+        run: npm --prefix src/website run build

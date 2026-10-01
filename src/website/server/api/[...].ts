@@ -1,8 +1,7 @@
-import {joinURL} from "ufo";
-
 export default defineEventHandler(async (event) => {
 		const config = useRuntimeConfig();
 
-		const target = joinURL(config.public.abandonAuthUrl, event.path);
-		return proxyRequest(event, target);
+		const address = apiAddress(config.apiAddress, config.public.abandonAuthUrl);
+		const { target, options } = apiProxyRequest(address, event.path);
+		return proxyRequest(event, target, options);
 });

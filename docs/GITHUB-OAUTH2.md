@@ -17,6 +17,5 @@
 # GitHub Application Details for OAuth2
 GITHUB_CLIENT_ID=<Client ID in step 4>
 GITHUB_CLIENT_SECRET=<Client Secret in step 4>
-ABANDON_AUTH_GITHUB_CALLBACK='http://localhost:8000/ui/github-callback'
-ABANDON_AUTH_GITHUB_REDIRECT="https://github.com/login/oauth/authorize?client_id=$GITHUB_CLIENT_ID&redirect_uri=$ABANDON_AUTH_GITHUB_CALLBACK&scope=user:email"
+ABANDON_AUTH_GITHUB_CALLBACK=http://localhost:3000/api/ui/github-callback
 ```

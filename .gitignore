@@ -10,8 +10,6 @@
 .idea
 .vscode
 
-__pycache__/
-
 **/.claude/settings.local.json
 .opencode/node_modules/
 .opencode/package.json

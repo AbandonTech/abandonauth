@@ -1,19 +1,77 @@
-FROM ghcr.io/owl-corp/python-poetry-base:3.11-slim
+ARG GO_VERSION=1.27
 
-ADD poetry.lock pyproject.toml ./
-RUN poetry install --no-root
+FROM golang:${GO_VERSION} AS source
 
-WORKDIR /app
-ADD ./abandonauth ./abandonauth
-ADD ./prisma ./prisma
-RUN poetry run prisma generate
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+# Persistence code and the API schema are generated from the SQL and the
+# annotations rather than committed, so they are built here instead of copied
+# in, where a stale host copy could ship.
+RUN go tool sqlc generate
+
+RUN go tool swag init \
+        --v3.1 \
+        --generalInfo cmd/abandonauth.go \
+        --dir . \
+        --output docs \
+        --outputTypes go,json \
+        --parseDependency=false \
+        --quiet
+
+
+FROM source AS compile-deployment
+
+# CGO_ENABLED=0 produces a binary with no dynamic dependencies, which is what
+# lets the runtime stage hold nothing but the binary and a certificate bundle.
+RUN CGO_ENABLED=0 go build -trimpath -o /abandonauth ./cmd
+
+
+FROM source AS compile-development
+
+RUN CGO_ENABLED=0 go build -trimpath -tags=devtools -o /abandonauth ./cmd
+
+
+# The pinned Goose CLI with every driver but PostgreSQL excluded, kept a
+# separate executable so the service binary links no migration code.
+FROM source AS compile-migrations
+
+RUN CGO_ENABLED=0 go build -trimpath \
+        -tags='no_clickhouse no_libsql no_mssql no_mysql no_sqlite3 no_vertica no_ydb' \
+        -o /goose github.com/pressly/goose/v3/cmd/goose
+
+
+# The binaries, the migration files, a certificate bundle for the provider APIs,
+# and a non-root account. There is no shell, no package manager and no
+# interpreter.
+FROM gcr.io/distroless/static-debian12:nonroot AS runtime
+
+LABEL org.opencontainers.image.title="AbandonAuth" \
+      org.opencontainers.image.description="Identity provider and OAuth application broker." \
+      org.opencontainers.image.source="https://github.com/AbandonTech/abandonauth" \
+      org.opencontainers.image.licenses="GPL-3.0" \
+      org.opencontainers.image.version="0.0.1"
 
 EXPOSE 8000
 
-# Pull the uvicorn_extra build arg and ave it as an env var.
-# The CMD instruction is ran at execution time, so it also needs to be an env var, so that it is available at that time.
-ARG uvicorn_extras=""
-ENV uvicorn_extras=$uvicorn_extras
+COPY --from=compile-migrations /goose /usr/local/bin/goose
+COPY --from=source /src/migrations /migrations
 
-ENTRYPOINT ["/bin/bash", "-c"]
-CMD ["poetry run uvicorn abandonauth:app --host 0.0.0.0 --port 8000 $uvicorn_extras"]
+# Migration runs only when a deployment names Goose as the entrypoint.
+ENTRYPOINT ["/usr/local/bin/abandonauth"]
+CMD ["serve"]
+
+
+FROM runtime AS development
+
+COPY --from=compile-development /abandonauth /usr/local/bin/abandonauth
+
+
+# Last, so that a build naming no target produces the image a deployment runs.
+FROM runtime AS deployment
+
+COPY --from=compile-deployment /abandonauth /usr/local/bin/abandonauth

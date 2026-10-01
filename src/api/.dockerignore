@@ -1,7 +1,6 @@
-*
+# Generated in the image; copying a host-built copy in would let a stale one ship.
+internal/database/query/
+docs/
 
-# Ignore all and make exceptions
-!abandonauth
-!prisma
-!poetry.lock
-!pyproject.toml
+# Not read by the service.
+*.exe
