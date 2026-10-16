@@ -39,11 +39,10 @@ services:
     profiles: ["migration-gate"]
     build: *api-build
     entrypoint: ["/usr/local/bin/abandonauth"]
-    # scripts/migrationcheck.sh substitutes refused inputs to force a failure.
     command:
       - "provision"
-      - "--application-id=${PROVISIONING_CHECK_APPLICATION_ID:-6f5902ac-237a-4ba0-8a51-1ed0b6c1c0f0}"
-      - "--site-url=${PROVISIONING_CHECK_SITE_URL:-https://auth.example.test/}"
+      - "--application-id=${PROVISIONING_CHECK_APPLICATION_ID-}"
+      - "--site-url=${PROVISIONING_CHECK_SITE_URL-}"
     environment:
       DATABASE_URL: "postgres://abandonauth:placeholder@database:5432/abandonauth_template?sslmode=disable&connect_timeout=5"
       DEBUG: "false"

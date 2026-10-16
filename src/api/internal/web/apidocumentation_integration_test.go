@@ -144,7 +144,7 @@ func addressable(t *testing.T, path string) string {
 		case "{provider}":
 			segments[index] = "discord"
 		case "{application_id}":
-			segments[index] = "6f5902ac-237a-4ba0-8a51-1ed0b6c1c0f0"
+			segments[index] = "00000000-0000-0000-0000-000000000001"
 		default:
 			t.Fatalf("%s carries %s, which no test knows a value for", path, segment)
 		}

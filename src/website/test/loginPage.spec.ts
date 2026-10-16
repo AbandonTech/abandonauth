@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import LoginPage from "../app/pages/login.vue";
 
-const applicationId = "0e9a4c1e-1d0e-4f5e-8a3f-2b6c9d5e7a10";
+const applicationId = "00000000-0000-0000-0000-000000000001";
 const callbackUri = "https://example.test/return";
 
 async function loginPageFor(query: string) {

@@ -14,7 +14,7 @@ import (
 const (
 	// A 64 byte value, the shortest signing secret the service accepts.
 	placeholderSigningSecret = "0000000000000000000000000000000000000000000000000000000000000000"
-	placeholderApplicationID = "cd022be1-35af-4248-8d70-4205ed1c20c6"
+	placeholderApplicationID = "00000000-0000-0000-0000-000000000001"
 )
 
 // productionSettings returns a complete, valid set of production settings.

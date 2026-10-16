@@ -4,9 +4,9 @@ import { providerLoginUrl } from "../app/utils/providerLogin";
 
 describe("providerLoginUrl", () => {
   it("sends the browser to the API to have a sign-in started", () => {
-    expect(providerLoginUrl("discord", "0e9a4c1e-1d0e-4f5e-8a3f-2b6c9d5e7a10", "https://example.test/return")).toBe(
+    expect(providerLoginUrl("discord", "00000000-0000-0000-0000-000000000001", "https://example.test/return")).toBe(
       "/api/ui/discord/authorize" +
-        "?application_id=0e9a4c1e-1d0e-4f5e-8a3f-2b6c9d5e7a10" +
+        "?application_id=00000000-0000-0000-0000-000000000001" +
         "&callback_uri=https%3A%2F%2Fexample.test%2Freturn",
     );
   });

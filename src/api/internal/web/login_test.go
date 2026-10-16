@@ -12,7 +12,7 @@ import (
 
 // collectingApplicationID is a well-formed identifier for the application
 // spending a code. It is a placeholder and names nothing.
-const collectingApplicationID = "6f5902ac-237a-4ba0-8a51-1ed0b6c1c0f0"
+const collectingApplicationID = "00000000-0000-0000-0000-000000000001"
 
 func spendRequest(code, body string) *http.Request {
 	request := httptest.NewRequest(http.MethodPost, APIRoot+"/login", strings.NewReader(body))

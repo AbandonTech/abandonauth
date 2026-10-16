@@ -20,10 +20,11 @@ const (
 )
 
 var (
-	internalApplication = uuid.MustParse("6f5902ac-237a-4ba0-8a51-1ed0b6c1c0f0")
-	otherApplication    = uuid.MustParse("1c9d6b3e-5f2a-4d7c-9b8e-2a4f6c8d0e12")
-	person              = uuid.MustParse("ac7e2f10-9d4b-4a63-8f21-5b6c7d8e9f01")
-	epoch               = uuid.MustParse("3f1c8a2b-6d5e-4f70-9a1b-2c3d4e5f6071")
+	internalApplication = uuid.MustParse("00000000-0000-0000-0000-000000000001")
+	otherApplication    = uuid.MustParse("00000000-0000-0000-0000-000000000002")
+	epoch               = uuid.MustParse("00000000-0000-0000-0000-000000000004")
+	// Ends in a letter so that spelling it in upper case changes it.
+	person = uuid.MustParse("00000000-0000-0000-0000-00000000000a")
 )
 
 // clock lets a test place a token before, inside or after its own validity

@@ -13,7 +13,7 @@ import (
 
 // signingInToApplicationID is a well-formed identifier for the application a
 // person is signing in to. It is a placeholder and names nothing.
-const signingInToApplicationID = "d0c1a2b3-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+const signingInToApplicationID = "00000000-0000-0000-0000-000000000001"
 
 const registeredCallbackURI = "https://relying.example.test/return"
 

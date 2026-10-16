@@ -14,7 +14,7 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/web/response"
 )
 
-const applicationID = "6f5902ac-237a-4ba0-8a51-1ed0b6c1c0f0"
+const applicationID = "00000000-0000-0000-0000-000000000001"
 
 func post(body string) *http.Request {
 	return httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(body))

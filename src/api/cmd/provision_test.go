@@ -132,7 +132,7 @@ func TestBareProvisionIgnoresDeploymentSettings(t *testing.T) {
 	applyEnvironment(t, placeholderEnvironment())
 	t.Setenv("DEBUG", "false")
 
-	const answered = "0b0e5a3c-6a52-4e57-9d5c-6c1bd5ab0a8e"
+	const answered = "00000000-0000-0000-0000-000000000002"
 
 	run := runProvision(t, &recorder{}, answered+"\nhttps://answered.example.test\n")
 	if run.err != nil {

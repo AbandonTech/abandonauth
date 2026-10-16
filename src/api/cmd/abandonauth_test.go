@@ -19,7 +19,7 @@ import (
 const (
 	placeholderDatabaseURL   = "postgres://abandonauth:abandonauth@127.0.0.1:5432/abandonauth"
 	placeholderSigningSecret = "placeholder-signing-secret-placeholder-signing-secret-placeholder"
-	placeholderApplicationID = "6f5902ac-237a-4ba0-8a51-1ed0b6c1c0f0"
+	placeholderApplicationID = "00000000-0000-0000-0000-000000000001"
 )
 
 func placeholderEnvironment() map[string]string {

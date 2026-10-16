@@ -43,7 +43,7 @@ func TestNothingIsServedAboveAPIsRouteRoot(t *testing.T) {
 		"/login",
 		"/burn-token",
 		"/developer_application",
-		"/developer_application/6f5902ac-237a-4ba0-8a51-1ed0b6c1c0f0",
+		"/developer_application/00000000-0000-0000-0000-000000000001",
 		"/google?code=placeholder&state=placeholder",
 		"/ui",
 		"/ui/",

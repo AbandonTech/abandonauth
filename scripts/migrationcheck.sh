@@ -11,9 +11,14 @@ PROJECT=abandonauth-migration-check
 TEMPLATE=abandonauth_template
 ALLOWED_NAMES='GOOSE_DBSTRING GOOSE_DRIVER GOOSE_MIGRATION_DIR PGPASSWORD'
 PROVISIONING_ALLOWED_NAMES='DATABASE_URL DEBUG'
-APPLICATION_ID=6f5902ac-237a-4ba0-8a51-1ed0b6c1c0f0
-SECOND_APPLICATION_ID=0b0e5a3c-6a52-4e57-9d5c-6c1bd5ab0a8e
-SITE_CALLBACK=https://auth.example.test/api/ui
+APPLICATION_ID=00000000-0000-0000-0000-000000000001
+SECOND_APPLICATION_ID=00000000-0000-0000-0000-000000000002
+SITE_ORIGIN=https://auth.example.test
+SITE_CALLBACK="$SITE_ORIGIN/api/ui"
+# The trailing slash lets provisioning_order show an origin without one gives
+# the same callback.
+export PROVISIONING_CHECK_APPLICATION_ID="$APPLICATION_ID"
+export PROVISIONING_CHECK_SITE_URL="$SITE_ORIGIN/"
 # The provisioning container's connection carries the database password as this
 # text; it must reach neither the container's arguments nor its log.
 DATABASE_CREDENTIAL='abandonauth:placeholder@'
@@ -188,11 +193,11 @@ provisioning_gate() {
     refuse_provisioning "loopback HTTP in a deployment build" "must use https" provisioning provision \
         "--application-id=$APPLICATION_ID" --site-url=http://localhost:3000
     refuse_provisioning "the nil UUID" "nil UUID" provisioning provision \
-        --application-id=00000000-0000-0000-0000-000000000000 --site-url=https://auth.example.test
+        --application-id=00000000-0000-0000-0000-000000000000 "--site-url=$SITE_ORIGIN"
     refuse_provisioning "a malformed UUID" "must be a UUID" provisioning provision \
-        --application-id=not-a-uuid --site-url=https://auth.example.test
+        --application-id=not-a-uuid "--site-url=$SITE_ORIGIN"
     refuse_provisioning "DEBUG in a deployment build" "does not support debug mode" -e DEBUG=true \
-        provisioning provision "--application-id=$APPLICATION_ID" --site-url=https://auth.example.test
+        provisioning provision "--application-id=$APPLICATION_ID" "--site-url=$SITE_ORIGIN"
 
     [ "$(provisioned_rows)" = "0 0 0" ] || die "refused provisioning left accounts, applications or callbacks"
 }
@@ -245,7 +250,7 @@ provisioning_order() {
     [ "$(provisioned_rows)" = "1 1 1" ] || die "provisioning again changed the rows it created"
 
     project run --rm --no-deps provisioning provision \
-        "--application-id=$SECOND_APPLICATION_ID" --site-url=https://auth.example.test >/dev/null 2>&1 ||
+        "--application-id=$SECOND_APPLICATION_ID" "--site-url=$SITE_ORIGIN" >/dev/null 2>&1 ||
         die "provisioning an origin without a trailing slash failed"
     same=$(history_query "SELECT count(DISTINCT \"uri\") || ' ' || min(\"uri\") FROM \"CallbackUri\"")
     [ "$same" = "1 $SITE_CALLBACK" ] ||

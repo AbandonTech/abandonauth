@@ -12,7 +12,7 @@ import (
 
 // managedApplicationID is a well-formed identifier for the application a
 // request names. It is a placeholder and names nothing.
-const managedApplicationID = "8b1f4c66-9a2e-4d51-9d5e-2f8b0f1a7c34"
+const managedApplicationID = "00000000-0000-0000-0000-000000000001"
 
 func applicationBodyRequest(path, body string) *http.Request {
 	return httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
