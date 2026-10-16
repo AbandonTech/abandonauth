@@ -13,10 +13,10 @@ import (
 )
 
 // A budget every test here states independently of the limiter: twenty
-// requests a minute for spending a one-time code.
+// developer application changes a minute for one signed-in user.
 const (
-	loginExchangeLimit  = 20
-	loginExchangeWindow = time.Minute
+	mutationLimit  = 20
+	mutationWindow = time.Minute
 )
 
 func newLimiter(t *testing.T, pool *pgxpool.Pool) *ratelimit.Limiter {
@@ -39,13 +39,13 @@ func TestSeparateLimitersShareOneBudget(t *testing.T) {
 	first := newLimiter(t, pool)
 	second := newLimiter(t, pool)
 
-	for attempt := 0; attempt < loginExchangeLimit; attempt++ {
+	for attempt := 0; attempt < mutationLimit; attempt++ {
 		counting := first
 		if attempt%2 == 1 {
 			counting = second
 		}
 
-		decision, err := counting.Count(t.Context(), ratelimit.LoginExchange, "198.51.100.10")
+		decision, err := counting.Count(t.Context(), ratelimit.DeveloperApplicationMutation, "a user")
 		if err != nil {
 			t.Fatalf("counting attempt %d: %v", attempt, err)
 		}
@@ -55,7 +55,7 @@ func TestSeparateLimitersShareOneBudget(t *testing.T) {
 		}
 	}
 
-	decision, err := second.Count(t.Context(), ratelimit.LoginExchange, "198.51.100.10")
+	decision, err := second.Count(t.Context(), ratelimit.DeveloperApplicationMutation, "a user")
 	if err != nil {
 		t.Fatalf("counting the attempt past the budget: %v", err)
 	}
@@ -74,10 +74,10 @@ func TestRefusalWaitsWholePositiveNumberOfSecondsWithinWindow(t *testing.T) {
 
 	var decision ratelimit.Decision
 
-	for attempt := 0; attempt <= loginExchangeLimit; attempt++ {
+	for attempt := 0; attempt <= mutationLimit; attempt++ {
 		var err error
 
-		decision, err = limiter.Count(t.Context(), ratelimit.LoginExchange, "198.51.100.11")
+		decision, err = limiter.Count(t.Context(), ratelimit.DeveloperApplicationMutation, "a user")
 		if err != nil {
 			t.Fatalf("counting attempt %d: %v", attempt, err)
 		}
@@ -91,8 +91,8 @@ func TestRefusalWaitsWholePositiveNumberOfSecondsWithinWindow(t *testing.T) {
 		t.Errorf("RetryAfter = %v, want at least one second", decision.RetryAfter)
 	}
 
-	if decision.RetryAfter > loginExchangeWindow {
-		t.Errorf("RetryAfter = %v, want no longer than the %v window", decision.RetryAfter, loginExchangeWindow)
+	if decision.RetryAfter > mutationWindow {
+		t.Errorf("RetryAfter = %v, want no longer than the %v window", decision.RetryAfter, mutationWindow)
 	}
 
 	if decision.RetryAfter%time.Second != 0 {
@@ -107,21 +107,22 @@ func TestBudgetsAreKeyedByWholeIdentity(t *testing.T) {
 
 	limiter := newLimiter(t, testdatabase.NewMigrated(t))
 
-	for attempt := 0; attempt <= loginExchangeLimit; attempt++ {
-		if _, err := limiter.Count(t.Context(), ratelimit.LoginExchange, "198.51.100.12", "an application"); err != nil {
+	for attempt := 0; attempt <= mutationLimit; attempt++ {
+		_, err := limiter.Count(t.Context(), ratelimit.DeveloperApplicationMutation, "a user", "an application")
+		if err != nil {
 			t.Fatalf("counting attempt %d: %v", attempt, err)
 		}
 	}
 
 	others := map[string][]string{
-		"another address with the same application": {"198.51.100.13", "an application"},
-		"the same address alone":                    {"198.51.100.12"},
-		"the same address for another application":  {"198.51.100.12", "another application"},
-		"the parts joined into one":                 {"198.51.100.12an application"},
+		"another user with the same application": {"another user", "an application"},
+		"the same user alone":                    {"a user"},
+		"the same user for another application":  {"a user", "another application"},
+		"the parts joined into one":              {"a useran application"},
 	}
 
 	for name, parts := range others {
-		decision, err := limiter.Count(t.Context(), ratelimit.LoginExchange, parts...)
+		decision, err := limiter.Count(t.Context(), ratelimit.DeveloperApplicationMutation, parts...)
 		if err != nil {
 			t.Fatalf("counting %s: %v", name, err)
 		}
@@ -140,17 +141,17 @@ func TestCountingNeedsKnownGroupAndIdentity(t *testing.T) {
 
 	limiter := newLimiter(t, testdatabase.NewMigrated(t))
 
-	if _, err := limiter.Count(t.Context(), ratelimit.Group("no-such-group"), "198.51.100.14"); err == nil {
+	if _, err := limiter.Count(t.Context(), ratelimit.Group("no-such-group"), "a user"); err == nil {
 		t.Error("a group with no budget was counted")
 	}
 
-	if _, err := limiter.Count(t.Context(), ratelimit.LoginExchange); err == nil {
+	if _, err := limiter.Count(t.Context(), ratelimit.DeveloperApplicationMutation); err == nil {
 		t.Error("a request was counted against nobody")
 	}
 }
 
 // The limiter cannot be built without a key: the table would otherwise hold
-// client addresses in clear.
+// user identifiers in clear.
 func TestLimiterNeedsKey(t *testing.T) {
 	t.Parallel()
 
@@ -167,7 +168,7 @@ func TestTidyingUpRemovesOnlyWindowsThatHaveEnded(t *testing.T) {
 	pool := testdatabase.NewMigrated(t)
 	limiter := newLimiter(t, pool)
 
-	if _, err := limiter.Count(t.Context(), ratelimit.LoginExchange, "198.51.100.15"); err != nil {
+	if _, err := limiter.Count(t.Context(), ratelimit.DeveloperApplicationMutation, "a user"); err != nil {
 		t.Fatalf("counting a request: %v", err)
 	}
 
@@ -180,8 +181,8 @@ func TestTidyingUpRemovesOnlyWindowsThatHaveEnded(t *testing.T) {
 		t.Fatalf("tidying up removed %d windows that were still open", removed)
 	}
 
-	// The shortest window is a minute, which is too long to wait for, so the
-	// one window that exists is moved to a start whose end has passed.
+	// The window is a minute, which is too long to wait for, so the one window
+	// that exists is moved to a start whose end has passed.
 	testdatabase.Execute(t, pool,
 		`UPDATE rate_limit_bucket
 		 SET window_start = window_start - INTERVAL '1 day',
@@ -198,7 +199,7 @@ func TestTidyingUpRemovesOnlyWindowsThatHaveEnded(t *testing.T) {
 	}
 
 	// The identity is counted afresh: its budget is whole again.
-	decision, err := limiter.Count(t.Context(), ratelimit.LoginExchange, "198.51.100.15")
+	decision, err := limiter.Count(t.Context(), ratelimit.DeveloperApplicationMutation, "a user")
 	if err != nil {
 		t.Fatalf("counting after the window ended: %v", err)
 	}

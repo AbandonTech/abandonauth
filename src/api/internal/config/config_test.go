@@ -105,25 +105,6 @@ func TestLoadAcceptsProductionSettings(t *testing.T) {
 	}
 }
 
-func TestLoadDefaultsTrustedProxiesToLoopback(t *testing.T) {
-	t.Parallel()
-
-	loaded, err := config.Load(productionSettings())
-	if err != nil {
-		t.Fatalf("Load() = %v", err)
-	}
-
-	got := make([]string, 0, len(loaded.TrustedProxies))
-	for _, prefix := range loaded.TrustedProxies {
-		got = append(got, prefix.String())
-	}
-
-	want := []string{"127.0.0.1/32", "::1/128"}
-	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Errorf("TrustedProxies = %v, want %v", got, want)
-	}
-}
-
 func TestLoadRejects(t *testing.T) {
 	t.Parallel()
 
@@ -240,26 +221,6 @@ func TestLoadRejects(t *testing.T) {
 		{"no google client secret", func(s *config.Settings) { s.GoogleClientSecret = "" }, "GOOGLE_CLIENT_SECRET"},
 		{"no google callback", func(s *config.Settings) { s.GoogleCallback = "" }, "GOOGLE_CALLBACK"},
 		{"debug in a production build", func(s *config.Settings) { s.Debug = true }, "DEBUG"},
-		{
-			"trusted proxy is not a prefix",
-			func(s *config.Settings) { s.TrustedProxyCIDRs = "127.0.0.1" },
-			"TRUSTED_PROXY_CIDRS",
-		},
-		{
-			"trusted proxy is a host name",
-			func(s *config.Settings) { s.TrustedProxyCIDRs = "proxy.example.test/32" },
-			"TRUSTED_PROXY_CIDRS",
-		},
-		{
-			"trusted proxy repeated",
-			func(s *config.Settings) { s.TrustedProxyCIDRs = "10.0.0.0/8,10.0.0.0/8" },
-			"TRUSTED_PROXY_CIDRS",
-		},
-		{
-			"trusted proxy has an empty entry",
-			func(s *config.Settings) { s.TrustedProxyCIDRs = "10.0.0.0/8,," },
-			"TRUSTED_PROXY_CIDRS",
-		},
 		{"bind address has no port", func(s *config.Settings) { s.BindAddress = "0.0.0.0" }, "BIND_ADDRESS"},
 		{"bind address port is zero", func(s *config.Settings) { s.BindAddress = "0.0.0.0:0" }, "BIND_ADDRESS"},
 		{
@@ -486,22 +447,6 @@ func TestParseSiteOrigin(t *testing.T) {
 				t.Errorf("origin = %q, want %q", parsed, testCase.want)
 			}
 		})
-	}
-}
-
-func TestTrustedProxiesAreParsed(t *testing.T) {
-	t.Parallel()
-
-	settings := productionSettings()
-	settings.TrustedProxyCIDRs = "10.0.0.0/8, 192.168.0.0/16 ,::1/128"
-
-	loaded, err := config.Load(settings)
-	if err != nil {
-		t.Fatalf("Load() = %v", err)
-	}
-
-	if len(loaded.TrustedProxies) != 3 {
-		t.Fatalf("TrustedProxies = %v, want 3 entries", loaded.TrustedProxies)
 	}
 }
 

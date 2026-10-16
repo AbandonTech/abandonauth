@@ -9,7 +9,6 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/services/accounts"
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
 	"github.com/abandontech/abandonauth/src/api/internal/services/providers"
-	"github.com/abandontech/abandonauth/src/api/internal/services/ratelimit"
 	"github.com/abandontech/abandonauth/src/api/internal/urlpolicy"
 	inputs "github.com/abandontech/abandonauth/src/api/internal/web/request"
 	"github.com/abandontech/abandonauth/src/api/internal/web/response"
@@ -40,7 +39,6 @@ const (
 // @Success     307 "Redirect to the provider's authorization endpoint"
 // @Failure     403 {object} response.Failed "The application or callback is not registered"
 // @Failure     422 {object} response.Invalidated
-// @Failure     429 {object} response.Failed "Too many attempts"
 // @Router      /api/ui/{provider}/authorize [get].
 func (s *Server) providerAuthorize() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -50,10 +48,6 @@ func (s *Server) providerAuthorize() http.Handler {
 		if !given.OK() {
 			response.Invalid(writer, given.Failures())
 
-			return
-		}
-
-		if !s.withinLimit(writer, request, ratelimit.ProviderCallback, s.clientAddress(request)) {
 			return
 		}
 
@@ -137,10 +131,6 @@ func (s *Server) authorizationURL(provider oauth.Provider, started oauth.Start) 
 func (s *Server) resumeLogin(
 	writer http.ResponseWriter, request *http.Request, provider oauth.Provider,
 ) (oauth.Login, string, bool) {
-	if !s.withinLimit(writer, request, ratelimit.ProviderCallback, s.clientAddress(request)) {
-		return oauth.Login{}, "", false
-	}
-
 	state := request.URL.Query().Get("state")
 	binding := cookieValue(request, s.LoginCookieName())
 

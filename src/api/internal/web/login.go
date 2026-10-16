@@ -8,7 +8,6 @@ import (
 
 	"github.com/abandontech/abandonauth/src/api/internal/services/applications"
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
-	"github.com/abandontech/abandonauth/src/api/internal/services/ratelimit"
 	"github.com/abandontech/abandonauth/src/api/internal/web/models"
 	inputs "github.com/abandontech/abandonauth/src/api/internal/web/request"
 	"github.com/abandontech/abandonauth/src/api/internal/web/response"
@@ -49,15 +48,10 @@ const detailNoApplicationCredential = "Either a developer application JWT must b
 // @Failure     401            {object} response.Failed "The code could not be spent, or no application credential was given"
 // @Failure     403            {object} response.Failed "The application was not accepted"
 // @Failure     422            {object} response.Invalidated
-// @Failure     429            {object} response.Failed "Too many attempts"
 // @Security    JWTBearer
 // @Router      /api/login [post].
 func (s *Server) login() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if !s.withinLimit(writer, request, ratelimit.LoginExchange, s.clientAddress(request)) {
-			return
-		}
-
 		given := inputs.New(request)
 		presented := readLoginInputs(given)
 

@@ -149,18 +149,12 @@ stored with the session.
   `database rotate-auth-epoch` replaces in one transaction holding its row lock,
   withdrawing every token, login in progress, one-time code and session at once.
 - `internal/services/ratelimit` counts fixed windows in the database, keyed by a
-  digest of whoever is limited rather than a client address in clear, so budgets
-  hold across workers. The window a request falls in, and how long a refused
-  caller is told to wait, are decided by the database clock, so instances with
-  different clocks count one client in one window. Anyone can name a public
-  application identifier, so a caller counts against its address until
-  something unguessable is proven. Budgets are constants in the binary.
-- Forwarding headers are believed only from a peer inside
-  `TRUSTED_PROXY_CIDRS`, and `X-Forwarded-For` is read from its trusted end
-  across every header line: trusted hops are skipped and the nearest untrusted
-  address is the client, so nothing a client prepended is counted. A chain that
-  cannot be read in full falls back to the peer. The deployment section of
-  `README.md` tells an operator what to set the ranges to.
+  digest of the signed-in user rather than their identifier in clear, so
+  budgets hold across workers. The window a request falls in, and how long a
+  refused caller is told to wait, are decided by the database clock, so
+  instances with different clocks count one user in one window. The one budget
+  covers a signed-in user's changes to developer applications. Budgets are
+  constants in the binary.
 - Every transaction is abandoned through `internal/database/rollback.go`, which
   detaches from the request's cancellation and bounds the cleanup, so a client
   that gives up cannot leave a connection or a row lock held.

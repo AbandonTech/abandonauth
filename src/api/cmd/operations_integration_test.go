@@ -67,7 +67,6 @@ func operationalSettings(t *testing.T, databaseURL, address string) config.Confi
 		GoogleClientID:        "google-client-id",
 		GoogleClientSecret:    "google-client-secret-placeholder",
 		GoogleCallback:        origin + web.APIRoot + "/google",
-		TrustedProxyCIDRs:     config.DefaultTrustedProxyCIDRs,
 	})
 	if err != nil {
 		t.Fatalf("the test configuration is not valid: %v", err)

@@ -141,11 +141,9 @@ func TestLoginOnlyNamesRegisteredCallback(t *testing.T) {
 	}.Encode()).ExpectStatus(http.StatusTemporaryRedirect)
 }
 
-// A callback target spelled a way this service does not serve reaches nothing.
-// It spends neither the login it names nor the budget that protects the
-// exchange with the provider, so the address it is refused at cannot be used to
-// wear either of them down.
-func TestCallbackSpelledAnotherWaySpendsNeitherLoginNorItsBudget(t *testing.T) {
+// A callback target spelled a way this service does not serve reaches nothing
+// and does not spend the login it names.
+func TestCallbackSpelledAnotherWaySpendsNoLogin(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -165,17 +163,14 @@ func TestCallbackSpelledAnotherWaySpendsNeitherLoginNorItsBudget(t *testing.T) {
 		"/api/ui/discord-callback/",
 	}
 
-	for attempt := 0; attempt <= providerCallbackLimit; attempt++ {
-		target := spellings[attempt%len(spellings)]
-
-		service.AtExactTarget(http.MethodGet, target+query, asClient("198.51.100.30")).
+	for _, target := range spellings {
+		service.AtExactTarget(http.MethodGet, target+query).
 			ExpectStatus(http.StatusNotFound)
 	}
 
 	service.FinishLogin(
 		started,
 		service.Providers.Someone(oauth.Discord, "the person who really came back"),
-		asClient("198.51.100.30"),
 	).
 		ExpectStatus(http.StatusTemporaryRedirect).
 		ExpectRedirectTo(service.Site.CallbackURI)

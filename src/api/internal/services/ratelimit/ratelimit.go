@@ -1,18 +1,14 @@
-// Package ratelimit counts requests in fixed windows so that guessing a
-// password, a refresh token or a one-time code is slow, and so that a provider
-// cannot be flooded on this service's behalf.
+// Package ratelimit counts a signed-in user's requests in fixed windows so that
+// one account cannot make unbounded changes to developer applications.
 //
 // Counting happens in the database, and the window a request falls in is
 // decided by the database clock, so a limit holds across every worker whatever
 // each one's own clock says. What is counted is a keyed hash of whoever is
-// being limited, never a client address in clear.
+// being limited, never their identifier in clear.
 //
-// Who is counted matters as much as how often. Anyone can name a public
-// application identifier, so a bucket keyed on one alone would let a stranger
-// lock a real application out. A caller therefore counts against the client
-// address, or the address combined with what was supplied, until something
-// unguessable has been proven; only then may it count against the principal
-// itself.
+// A budget is counted only against a principal the caller has proven. Anyone
+// can name a public identifier, so a bucket keyed on one would let a stranger
+// spend someone else's budget.
 package ratelimit
 
 import (
@@ -30,24 +26,9 @@ import (
 // the database accepts, so a group that is not one of these cannot be counted.
 type Group string
 
-// The groups requests are counted against.
-const (
-	// ProviderCallback covers returning from a provider, which costs an
-	// outbound request to that provider.
-	ProviderCallback Group = "provider_callback"
-	// LoginExchange covers spending a one-time code for an access token.
-	LoginExchange Group = "login_exchange"
-	// DeveloperApplicationLogin covers presenting an application's refresh
-	// token, which costs a bcrypt comparison.
-	DeveloperApplicationLogin Group = "developer_application_login"
-	// PasswordSignIn covers the development-only password endpoints.
-	PasswordSignIn Group = "debug_password_auth"
-	// DeveloperApplicationMutation covers creating an application, resetting its
-	// credential and replacing its callbacks.
-	DeveloperApplicationMutation Group = "developer_application_mutation"
-	// BurnToken covers withdrawing a credential.
-	BurnToken Group = "burn_token"
-)
+// DeveloperApplicationMutation covers a signed-in user creating, changing or
+// deleting a developer application.
+const DeveloperApplicationMutation Group = "developer_application_mutation"
 
 // policy is how many requests a group allows in one window.
 type policy struct {
@@ -59,12 +40,7 @@ type policy struct {
 // raises or removes a limit, because a misconfiguration would then be the way
 // past every one of them at once.
 var policies = map[Group]policy{
-	ProviderCallback:             {limit: 30, window: 10 * time.Minute},
-	LoginExchange:                {limit: 20, window: time.Minute},
-	DeveloperApplicationLogin:    {limit: 10, window: 5 * time.Minute},
-	PasswordSignIn:               {limit: 5, window: 10 * time.Minute},
-	DeveloperApplicationMutation: {limit: 20, window: time.Hour},
-	BurnToken:                    {limit: 60, window: time.Minute},
+	DeveloperApplicationMutation: {limit: 20, window: time.Minute},
 }
 
 // keySeparator ends each part of a bucket's identity so that two different
@@ -94,8 +70,7 @@ type Limiter struct {
 // Options are what the limiter needs.
 type Options struct {
 	// Key turns an identity into the value stored. Without it the table would
-	// hold client addresses, which are personal data this service has no reason
-	// to keep.
+	// hold user identifiers in clear, which it has no reason to keep.
 	Key []byte
 }
 
@@ -116,10 +91,8 @@ func New(database query.DBTX, options Options) (*Limiter, error) {
 
 // Count records one request against a group and reports whether it may proceed.
 //
-// The parts identify who is being counted. A caller passes the client address,
-// and adds whatever else it may safely include: something the caller supplied
-// but did not have to prove only narrows the bucket, while something proven may
-// stand alone.
+// The parts identify who is being counted, and must be something the caller has
+// proven rather than merely named.
 func (l *Limiter) Count(ctx context.Context, group Group, parts ...string) (Decision, error) {
 	budget, known := policies[group]
 	if !known {

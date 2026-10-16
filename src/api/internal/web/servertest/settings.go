@@ -45,7 +45,5 @@ func placeholderSettings() config.Settings {
 		GoogleClientID:     "google-client-id",
 		GoogleClientSecret: "google-client-secret-placeholder",
 		GoogleCallback:     APIOrigin + "/api/google",
-
-		TrustedProxyCIDRs: config.DefaultTrustedProxyCIDRs,
 	}
 }

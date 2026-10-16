@@ -56,7 +56,6 @@ const (
 	flagGitHubCallback        = "github-callback"
 	flagGoogleClientID        = "google-client-id"
 	flagGoogleCallback        = "google-callback"
-	flagTrustedProxyCIDRs     = "trusted-proxy-cidrs"
 )
 
 // Command-line names of the provision command's inputs. Neither reads the
@@ -377,8 +376,6 @@ func configure(cmd *cli.Command) (config.Config, error) {
 		GoogleClientID:     cmd.String(flagGoogleClientID),
 		GoogleClientSecret: os.Getenv(environmentGoogleClientSecret),
 		GoogleCallback:     cmd.String(flagGoogleCallback),
-
-		TrustedProxyCIDRs: cmd.String(flagTrustedProxyCIDRs),
 	})
 }
 
@@ -465,13 +462,6 @@ func settingFlags() []cli.Flag {
 			Name:    flagGoogleCallback,
 			Usage:   "the `URI` registered with Google for this service",
 			Sources: cli.EnvVars("GOOGLE_CALLBACK"),
-		},
-		&cli.StringFlag{
-			Name: flagTrustedProxyCIDRs,
-			Usage: "comma-separated `RANGES` whose forwarding headers name the real client; " +
-				"a header from any other peer is ignored",
-			Value:   config.DefaultTrustedProxyCIDRs,
-			Sources: cli.EnvVars("TRUSTED_PROXY_CIDRS"),
 		},
 	}
 }

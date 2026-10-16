@@ -41,7 +41,6 @@ const (
 	settingGoogleClientSecret    = "GOOGLE_CLIENT_SECRET"
 	settingGoogleCallback        = "GOOGLE_CALLBACK"
 	settingDebug                 = "DEBUG"
-	settingTrustedProxyCIDRs     = "TRUSTED_PROXY_CIDRS"
 	settingBindAddress           = "BIND_ADDRESS"
 )
 
@@ -72,9 +71,6 @@ const (
 	// DefaultBindAddress serves every interface on the port the deployment's
 	// reverse proxy forwards to.
 	DefaultBindAddress = "0.0.0.0:8000"
-	// DefaultTrustedProxyCIDRs trusts forwarding headers only from the local
-	// machine, which is where a sidecar or host-network proxy runs.
-	DefaultTrustedProxyCIDRs = "127.0.0.1/32,::1/128"
 )
 
 // Settings are the raw values collected from the command line and environment.
@@ -114,8 +110,6 @@ type Settings struct {
 	GoogleClientID     string
 	GoogleClientSecret string
 	GoogleCallback     string
-
-	TrustedProxyCIDRs string
 }
 
 // Provider is the registration AbandonAuth holds with one OAuth provider.
@@ -156,8 +150,6 @@ type Config struct {
 	Discord Provider
 	GitHub  Provider
 	Google  Provider
-
-	TrustedProxies []netip.Prefix
 }
 
 // Load validates settings and returns the configuration to run with.
@@ -240,10 +232,6 @@ func Load(settings Settings) (Config, error) {
 		settingGoogleClientSecret, settings.GoogleClientSecret,
 		settingGoogleCallback, settings.GoogleCallback,
 	); err != nil {
-		return Config{}, err
-	}
-
-	if loaded.TrustedProxies, err = trustedProxies(settings.TrustedProxyCIDRs); err != nil {
 		return Config{}, err
 	}
 
@@ -420,39 +408,4 @@ func provider(
 	}
 
 	return Provider{ClientID: id, ClientSecret: NewSecret(secret), Callback: parsed}, nil
-}
-
-func trustedProxies(raw string) ([]netip.Prefix, error) {
-	if strings.TrimSpace(raw) == "" {
-		raw = DefaultTrustedProxyCIDRs
-	}
-
-	entries := strings.Split(raw, ",")
-	prefixes := make([]netip.Prefix, 0, len(entries))
-	seen := make(map[string]bool, len(entries))
-
-	for _, entry := range entries {
-		trimmed := strings.TrimSpace(entry)
-		if trimmed == "" {
-			return nil, settingError(settingTrustedProxyCIDRs, "contains an empty entry")
-		}
-
-		prefix, err := netip.ParsePrefix(trimmed)
-		if err != nil {
-			return nil, settingError(settingTrustedProxyCIDRs, "entries must be CIDR prefixes such as 10.0.0.0/8")
-		}
-
-		// Masked so that 10.0.0.5/8 and 10.0.0.0/8 are recognised as the same
-		// range and cannot both be listed.
-		prefix = prefix.Masked()
-		if seen[prefix.String()] {
-			return nil, settingError(settingTrustedProxyCIDRs, "lists the same range twice")
-		}
-
-		seen[prefix.String()] = true
-
-		prefixes = append(prefixes, prefix)
-	}
-
-	return prefixes, nil
 }

@@ -3,7 +3,6 @@ package web
 import (
 	"net/http"
 
-	"github.com/abandontech/abandonauth/src/api/internal/services/ratelimit"
 	inputs "github.com/abandontech/abandonauth/src/api/internal/web/request"
 	"github.com/abandontech/abandonauth/src/api/internal/web/response"
 )
@@ -32,14 +31,9 @@ func readWithdrawnCredential(given *inputs.Inputs) string {
 // @Param       token body models.JwtDto true "The credential to withdraw"
 // @Success     200 "The credential is no longer accepted"
 // @Failure     422 {object} response.Invalidated
-// @Failure     429 {object} response.Failed "Too many attempts"
 // @Router      /api/burn-token [post].
 func (s *Server) burnToken() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if !s.withinLimit(writer, request, ratelimit.BurnToken, s.clientAddress(request)) {
-			return
-		}
-
 		given := inputs.New(request)
 		presented := readWithdrawnCredential(given)
 

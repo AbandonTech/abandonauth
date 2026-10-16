@@ -93,8 +93,8 @@ endpoints that stop accepting credentials in
 - `internal/services/sessions/` — browser sessions and their CSRF tokens
 - `internal/services/authority/` — the auth epoch every check is measured
   against
-- `internal/services/ratelimit/` — fixed-window budgets in windows the database
-  clock decides, keyed so a public identifier cannot lock anyone out
+- `internal/services/ratelimit/` — fixed-window budgets per signed-in user, in
+  windows the database clock decides
 - `internal/services/housekeeping/` — expiry sweeps on a ticker `serve` owns:
   logins, codes, sessions, withdrawals, budget windows
 - `internal/services/providers/` — Discord, GitHub and Google clients against
@@ -111,8 +111,6 @@ endpoints that stop accepting credentials in
 - `internal/web/requesttarget.go` — the one spelling of a target that is
   served, and the route-derived `net/http` router that says which paths the
   table declares
-- `internal/web/clientaddress.go` — the address a request is counted against:
-  the forwarded chain read from its trusted end, or the peer
 - `internal/web/index.go` — `GET /api`, `GET /api/`
 - `internal/web/currentuser.go` — `GET /api/me`
 - `internal/web/userapplications.go` — `GET /api/user/applications`

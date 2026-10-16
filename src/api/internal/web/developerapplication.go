@@ -133,7 +133,6 @@ func (s *Server) createApplication() http.Handler {
 // @Success     200        {object} models.JwtDto
 // @Failure     401        {object} response.Failed "The credentials were not accepted"
 // @Failure     422        {object} response.Invalidated
-// @Failure     429        {object} response.Failed "Too many attempts"
 // @Router      /api/developer_application/login [post].
 func (s *Server) applicationLogin() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -143,16 +142,6 @@ func (s *Server) applicationLogin() http.Handler {
 		if !given.OK() {
 			response.Invalid(writer, given.Failures())
 
-			return
-		}
-
-		// Counted against the caller and the application together. The
-		// identifier is public, so counting against it alone would let anyone
-		// lock a real application out of its own sign-in.
-		if !s.withinLimit(
-			writer, request, ratelimit.DeveloperApplicationLogin,
-			s.clientAddress(request), presented.applicationID.String(),
-		) {
 			return
 		}
 

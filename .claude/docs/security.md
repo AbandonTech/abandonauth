@@ -69,9 +69,8 @@ agent-accessible worktree.
   permission with a substring check.
 - Prevent identifier probing through consistent authorization and not-found
   behaviour where appropriate.
-- Rate-limit login, callback, token exchange, credential reset, account creation
-  and linking, and recovery, accounting for distributed attacks and avoiding
-  account enumeration.
+- Rate-limit only by an authenticated principal, never by an identifier a
+  caller merely names, and without enabling account enumeration.
 - Debug authentication routes, wildcard CORS, and verbose errors stay
   unreachable in production even when configuration is mistaken.
 
@@ -98,9 +97,8 @@ the work was about.
 | The site's application provisioned only where its configured identifier is absent: an owner holding no provider or password account, the application, and the callback derived from the validated site origin and the route table's `SiteEntryPath`, in one transaction whose identifier insert yields to a concurrent winner; an identifier already held is a no-op that changes nothing, whoever owns it; the generated credential stored at `HashCost` and discarded | `internal/services/siteapplication`, `cmd/abandonauth.go` |
 | One `provisioning` service per Compose project, on the internal database network alone, receiving only `DATABASE_URL` and `DEBUG`, with non-secret identifier and origin as arguments, judging the origin with the parser `serve` uses, and printing only the identifier assignment | `compose.yml`, `internal/config`, `cmd/abandonauth.go` |
 | Server-side sessions stored only as digests, absolute expiry, logout as a delete, double-submit CSRF with an exact `Origin` | `internal/services/sessions`, `internal/web/browsersession.go`, `cookies.go` |
-| Budgets keyed so a public identifier cannot lock anyone out, counted in the database in windows the database clock decides, so every instance counts one client in one window, with no setting that raises or removes one | `internal/services/ratelimit`, `internal/database/queries/rate_limits.sql`, `internal/web/requestlimit.go` |
+| Budgets keyed by an authenticated user, counted in the database in windows the database clock decides, so every instance counts one user in one window, with no setting that raises or removes one | `internal/services/ratelimit`, `internal/database/queries/rate_limits.sql`, `internal/web/requestlimit.go` |
 | One spelling of every address: a raw path carrying an escape, a repeated slash, a backslash or a dot segment is refused before CORS and before the router can decode or clean it into one that is served, and without a redirect to it; whether an address is declared is answered by the router that serves it | `internal/web/requesttarget.go`, `server.go` |
-| Forwarding headers believed only from a configured proxy, which is who a request came from and not what it asked for; the forwarded chain is read from its trusted end across every header line, so a value the client prepended is never the address it is counted as, and a chain that cannot be read in full falls back to the peer rather than to `X-Real-IP` | `internal/web/clientaddress.go` |
 | An application's callback set replaced under its row lock, so two replacements arriving together leave one submitted set and never a mixture, and one arriving after the application is gone finds nothing | `internal/services/applications`, `internal/web/developerapplication.go` |
 | A password sign-in that writes no cookie until the authority, the token and the session have all succeeded | `internal/web/passwordaccounts_devtools.go` |
 | A recovered panic logged as the fact of a failure and the request it belonged to, never the recovered value, and never answered once a response has been committed or the connection taken | `internal/web/middleware.go` |
@@ -125,9 +123,8 @@ A change to a control above extends these rather than replacing them:
 - `internal/web/providerlogin_integration_test.go`,
   `providercallback_integration_test.go` — state missing, altered, replayed,
   from another browser, for another provider or another application; the site's
-  application accepting only its exact registered callback; and more refused
-  target spellings than a budget allows, spending neither the login or one-time
-  code they carry nor the budget.
+  application accepting only its exact registered callback; and refused target
+  spellings spending neither the login nor the one-time code they carry.
 - `internal/web/unavailable_integration_test.go` — every endpoint refusing when
   the database cannot be reached, a genuine token refused rather than
   accepted on its signature alone, and genuine sessions, tokens, codes, logins
@@ -162,16 +159,11 @@ A change to a control above extends these rather than replacing them:
 - `scripts/containercheck.sh` — the migration lifecycle on the template: a
   no-op second up, one down removing exactly the auth-state layer, `down-to 0`
   removing the baseline, and up rebuilding the schema every test is cloned from.
-- `internal/web/requestlimit_integration_test.go` — budgets stated as the
-  numbers the service promises, proof that spending one against a public
-  application identifier does not lock it out, that a forwarding header is
-  believed only from the proxy, and that a client prepending to the forwarded
-  chain, on the same line or its own, still has the one budget the proxy's
-  appended address gives it.
-- `internal/web/clientaddress_test.go` — the forwarded chain read from its
-  trusted end: untrusted peers, one and several trusted hops, all-trusted
-  chains, IPv4-mapped addresses, and every unreadable chain falling back to the
-  peer and never to `X-Real-IP`.
+- `internal/web/requestlimit_integration_test.go` — the developer application
+  budget stated as the number the service promises and shared across every
+  change, one user's spent budget leaving another served, a forwarding header
+  varied per request neither renewing a user's budget nor spending a
+  bystander's, and no user identifier stored in clear.
 - `internal/services/ratelimit/ratelimit_integration_test.go` — two limiters
   sharing one database window, a refusal's wait as whole positive seconds
   within the window, identities kept apart, unknown groups refused, and the
@@ -196,7 +188,7 @@ A change to a control above extends these rather than replacing them:
   serving neither account-seeding address.
 - `internal/web/passwordsignintest/` — the development build's counterpart:
   the journeys through reachability, session and CSRF behaviour, a refusal that
-  says nothing about the account, the password at rest at `HashCost`, budgets,
+  says nothing about the account, the password at rest at `HashCost`,
   CORS and log redaction. The route, handler and schema declarations that build
   carries are proved by the build-neutral tests in `internal/web` run under
   `-tags=devtools`.

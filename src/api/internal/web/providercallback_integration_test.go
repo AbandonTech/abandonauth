@@ -327,11 +327,10 @@ func TestOneOneTimeCodeIsSpentAtMostOnce(t *testing.T) {
 	}
 }
 
-// A target spelled a way this service does not serve reaches nothing. It spends
-// neither the one-time code it carries nor the budget that protects spending
-// one, so the address it is refused at cannot be used to wear either of them
-// down before the application that owns the code arrives.
-func TestExchangeSpelledAnotherWaySpendsNeitherCodeNorItsBudget(t *testing.T) {
+// A target spelled a way this service does not serve reaches nothing and does
+// not spend the one-time code it carries before the application that owns the
+// code arrives.
+func TestExchangeSpelledAnotherWaySpendsNoCode(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -349,19 +348,15 @@ func TestExchangeSpelledAnotherWaySpendsNeitherCodeNorItsBudget(t *testing.T) {
 		"/api/ui/../login",
 	}
 
-	for attempt := 0; attempt <= loginExchangeLimit; attempt++ {
-		target := spellings[attempt%len(spellings)]
-
-		service.AtExactTarget(http.MethodPost, target,
-			servertest.Header("exchange-token", code),
-			asClient("198.51.100.40"),
-		).ExpectStatus(http.StatusNotFound)
+	for _, target := range spellings {
+		service.AtExactTarget(http.MethodPost, target, servertest.Header("exchange-token", code)).
+			ExpectStatus(http.StatusNotFound)
 	}
 
 	service.POSTJSON("/login", map[string]string{
 		"id":            application.ID.String(),
 		"refresh_token": application.RefreshToken,
-	}, servertest.Header("exchange-token", code), asClient("198.51.100.40")).
+	}, servertest.Header("exchange-token", code)).
 		ExpectStatus(http.StatusOK)
 }
 

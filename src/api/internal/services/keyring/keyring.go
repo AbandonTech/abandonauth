@@ -96,8 +96,8 @@ func (k Keyring) VerifierEncryption() []byte {
 	return slices.Clone(k.verifierEncryption)
 }
 
-// RateLimitPseudonym returns the key that turns a client address into the
-// counted identifier, so no address is stored.
+// RateLimitPseudonym returns the key that turns a caller's identity into the
+// counted identifier, so no identity is stored in clear.
 func (k Keyring) RateLimitPseudonym() []byte {
 	return slices.Clone(k.rateLimitPseudonym)
 }

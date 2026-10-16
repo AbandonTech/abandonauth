@@ -19,7 +19,6 @@ import (
 // @Param       state query string true  "The value this service put in the authorization request"
 // @Success     307 "Redirect to the application's registered callback"
 // @Failure     403 {object} response.Failed "The login could not be matched or completed"
-// @Failure     429 {object} response.Failed "Too many attempts"
 // @Router      /api/ui/discord-callback [get].
 func (s *Server) discordCallback() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -56,7 +55,6 @@ func (s *Server) discordCallback() http.Handler {
 // @Param       state query string true  "The value this service put in the authorization request"
 // @Success     307 "Redirect to the application's registered callback"
 // @Failure     403 {object} response.Failed "The login could not be matched or completed"
-// @Failure     429 {object} response.Failed "Too many attempts"
 // @Router      /api/ui/github-callback [get].
 func (s *Server) githubCallback() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -98,7 +96,6 @@ func (s *Server) githubCallback() http.Handler {
 // @Param       state query string true "The value this service put in the authorization request"
 // @Success     307 "Redirect to the application's registered callback"
 // @Failure     403 {object} response.Failed "The login could not be matched or completed"
-// @Failure     429 {object} response.Failed "Too many attempts"
 // @Router      /api/google [get].
 func (s *Server) googleCallback() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

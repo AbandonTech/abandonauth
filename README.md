@@ -73,7 +73,6 @@ setting that is missing or unusable stops the process with a message naming it.
 | `ABANDON_AUTH_SITE_URL` | | yes | the site's origin. The only origin allowed to call the API from a browser |
 | `ABANDON_AUTH_DEVELOPER_APP_ID` | | yes | the UUID of the developer application that stands for this service's own site. Choose it once and keep it. **See below** |
 | `BIND_ADDRESS` | `0.0.0.0:8000` | no | `host:port` to listen on |
-| `TRUSTED_PROXY_CIDRS` | `127.0.0.1/32,::1/128` | no | whose forwarding headers are believed. **See below** |
 | `ABANDON_AUTH_API_ADDRESS` | `ABANDON_AUTH_URL` | no | where the site's own server dials the API; `http://abandonauth:8000` on the compose network |
 | `API_PORT`, `WEBSITE_PORT` | `8000`, `3000` | no | the host ports `compose.yml` publishes the two services on |
 | `API_BUILD_TARGET` | `deployment` | no | which of the two API builds `compose.yml` builds |
@@ -104,25 +103,10 @@ abandonauth database rotate-auth-epoch
 That withdraws every access token, login in progress, one-time code and browser
 session. Run it during a maintenance window; everyone signs in again afterwards.
 
-## Behind a reverse proxy
+## Request limits
 
-Request budgets are counted per client address. `X-Forwarded-For` and
-`X-Real-IP` are read only on connections from an address in
-`TRUSTED_PROXY_CIDRS`. The default, `127.0.0.1/32,::1/128`, covers no proxy and
-a loopback sidecar; for anything else list the ranges the proxy connects from:
-
-```dotenv
-TRUSTED_PROXY_CIDRS=10.0.0.0/8,172.16.0.0/12
-```
-
-`X-Forwarded-For` is walked right to left and the first address outside a
-trusted range is the client (the leftmost, if there is none). A header holding
-anything that is not an IP address is discarded and the request is counted
-against the peer. `X-Real-IP` is used only when `X-Forwarded-For` is absent.
-
-List every hop and nothing a client can connect from: an unlisted hop is taken
-for the client, and a listed range a client can reach from lets it choose the
-address it is counted as.
+Authenticated users are limited to 20 developer application changes (create,
+delete, credential reset, callback replacement) per minute.
 
 ## The published image
 

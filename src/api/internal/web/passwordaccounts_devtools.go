@@ -12,7 +12,6 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/database"
 	"github.com/abandontech/abandonauth/src/api/internal/database/query"
 	"github.com/abandontech/abandonauth/src/api/internal/services/credentials"
-	"github.com/abandontech/abandonauth/src/api/internal/services/ratelimit"
 	"github.com/abandontech/abandonauth/src/api/internal/web/models"
 	inputs "github.com/abandontech/abandonauth/src/api/internal/web/request"
 	"github.com/abandontech/abandonauth/src/api/internal/web/response"
@@ -38,7 +37,6 @@ const detailPasswordRejected = "Invalid username or password"
 // @Param       user_data body     models.PasswordAccountSchema true "The account to create"
 // @Success     200       {object} models.UserDto
 // @Failure     422       {object} response.Invalidated
-// @Failure     429       {object} response.Failed "Too many attempts"
 // @Router      /api/create_test_user [post].
 func (s *Server) createPasswordAccount() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -54,10 +52,6 @@ func (s *Server) createPasswordAccount() http.Handler {
 		if !given.OK() {
 			response.Invalid(writer, given.Failures())
 
-			return
-		}
-
-		if !s.withinLimit(writer, request, ratelimit.PasswordSignIn, s.clientAddress(request)) {
 			return
 		}
 
@@ -126,7 +120,6 @@ func (s *Server) createPasswordAccount() http.Handler {
 // @Success     200       {object} models.JwtDto
 // @Failure     401       {object} response.Failed "The credentials were not accepted"
 // @Failure     422       {object} response.Invalidated
-// @Failure     429       {object} response.Failed "Too many attempts"
 // @Router      /api/login_test_user [post].
 func (s *Server) signInWithPassword() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -142,12 +135,6 @@ func (s *Server) signInWithPassword() http.Handler {
 		if !given.OK() {
 			response.Invalid(writer, given.Failures())
 
-			return
-		}
-
-		if !s.withinLimit(
-			writer, request, ratelimit.PasswordSignIn, s.clientAddress(request), userID.String(),
-		) {
 			return
 		}
 

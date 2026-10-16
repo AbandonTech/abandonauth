@@ -6,7 +6,6 @@ package passwordsignintest
 
 import (
 	"net/http"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -23,10 +22,6 @@ import (
 // reach.
 const developerPassword = "placeholder-password"
 
-// passwordSignInLimit is the budget these routes promise: five attempts in ten
-// minutes, stated here rather than read back from the service.
-const passwordSignInLimit = 5
-
 // developmentService runs the service the way a developer runs it: this build,
 // debug mode on, and a listener only the local machine can reach. All three are
 // required before the password routes answer at all.
@@ -40,12 +35,6 @@ func developmentService(t *testing.T, choices ...servertest.Option) *servertest.
 	})
 
 	return servertest.New(t, append([]servertest.Option{development}, choices...)...)
-}
-
-// fromForwardedClient makes requests look as though they came from one client
-// behind the reverse proxy, which is how the deployment sees them.
-func fromForwardedClient(address string) func(*http.Request) {
-	return servertest.Header("X-Forwarded-For", address)
 }
 
 // seedAccount creates an account that signs in with a password and returns who
@@ -368,37 +357,6 @@ func TestSeedingAccountRefusesIncompleteRequests(t *testing.T) {
 		"user_id":  "not-a-uuid",
 		"password": developerPassword,
 	}).ExpectRejectedInput("body", "user_id")
-}
-
-// Guessing is budgeted here as it is everywhere else, so a machine left
-// listening is not a way to try passwords without limit.
-func TestGuessingSeededPasswordRunsOut(t *testing.T) {
-	t.Parallel()
-
-	service := developmentService(t)
-	userID := seedAccount(t, service, "a developer")
-
-	guess := map[string]string{"user_id": userID, "password": "not-the-password"}
-
-	for attempt := 0; attempt < passwordSignInLimit; attempt++ {
-		service.POSTJSON("/login_test_user", guess, fromForwardedClient("198.51.100.20")).
-			ExpectStatus(http.StatusUnauthorized)
-	}
-
-	refused := service.POSTJSON("/login_test_user", guess, fromForwardedClient("198.51.100.20")).
-		ExpectStatus(http.StatusTooManyRequests).
-		ExpectDetail("Too many requests. Try again later.")
-
-	seconds, err := strconv.Atoi(refused.Header.Get("Retry-After"))
-	if err != nil || seconds < 1 {
-		t.Errorf("Retry-After = %q, want whole seconds to wait", refused.Header.Get("Retry-After"))
-	}
-
-	// The budget is spent, so the correct password is refused too.
-	service.POSTJSON("/login_test_user", map[string]string{
-		"user_id":  userID,
-		"password": developerPassword,
-	}, fromForwardedClient("198.51.100.20")).ExpectStatus(http.StatusTooManyRequests)
 }
 
 // Debug mode relaxes what the service will talk over. It does not relax who may
