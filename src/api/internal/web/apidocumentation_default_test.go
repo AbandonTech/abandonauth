@@ -3,27 +3,69 @@
 package web
 
 import (
-	"slices"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
-// Password sign-in is annotated in a file only the development build compiles,
-// and swag reads the annotations without honouring that. Narrowing the document
-// to what is served is the only thing that keeps a deployment from publishing
-// an address it answers 404 at.
-func TestDeploymentPublishesNoPasswordSignIn(t *testing.T) {
+// A deployment documents the password operations so a reader of either build
+// sees one contract, labelled so nobody mistakes them for something it serves.
+// What keeps them unreachable is that this build neither declares nor binds them.
+func TestDeploymentPublishesDevelopmentOperationsWithoutServingThem(t *testing.T) {
 	t.Parallel()
 
-	published := documentedOperations(publishedSchema(t))
-	generated := documentedOperations(generatedSchema(t))
+	published := publishedRepresentations(t)
 
-	for _, operation := range passwordOperations {
-		if !slices.Contains(generated, operation) {
-			t.Errorf("the annotations no longer describe %s, so this proves nothing", operation)
+	for name, document := range map[string]map[string]any{
+		"YAML": decodeYAMLValue(t, published.YAML),
+		"JSON": decodeJSONValue(t, published.JSON),
+	} {
+		paths, _ := document["paths"].(map[string]any)
+
+		for _, key := range developmentOperations {
+			method, path, _ := strings.Cut(key, " ")
+
+			methods, _ := paths[path].(map[string]any)
+
+			operation, found := methods[strings.ToLower(method)].(map[string]any)
+			if !found {
+				t.Errorf("%s: the deployment document does not describe %s", name, key)
+
+				continue
+			}
+
+			if label := operation["x-abandonauth-build"]; label != developmentBuildLabel {
+				t.Errorf("%s: %s is labelled %v, want %q", name, key, label, developmentBuildLabel)
+			}
+
+			responses, _ := operation["responses"].(map[string]any)
+			if _, documented := responses["404"]; !documented {
+				t.Errorf("%s: %s does not document the 404 a deployment answers", name, key)
+			}
+		}
+	}
+
+	declared := make(map[string]bool)
+	for _, route := range Routes() {
+		declared[fmt.Sprintf("%s %s", route.Method, route.Path())] = true
+	}
+
+	handler := composed().Handler()
+
+	for _, key := range developmentOperations {
+		if declared[key] {
+			t.Errorf("a deployment declares %s", key)
 		}
 
-		if slices.Contains(published, operation) {
-			t.Errorf("the published schema names %s, which a deployment answers 404 at", operation)
+		method, path, _ := strings.Cut(key, " ")
+
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(method, path, nil))
+
+		if recorder.Code != http.StatusNotFound {
+			t.Errorf("%s answered %d in a deployment, want 404", key, recorder.Code)
 		}
 	}
 }

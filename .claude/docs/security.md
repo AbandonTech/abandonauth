@@ -88,7 +88,7 @@ the work was about.
 | The auth epoch every check is measured against, replaced transactionally to withdraw everything at once, after its row is locked `FOR UPDATE`; a migration changing authority-bound state takes the same row lock first | `internal/services/authority`, `internal/database/authorityrotation.go`, `internal/database/queries/credentials.sql`, `src/api/migrations/` |
 | Login state that is opaque, single-use, browser-bound, application-bound, callback-exact and expiring, consumed by one `DELETE ... RETURNING` | `internal/services/oauth` |
 | PKCE on every provider, with the verifier encrypted at rest | `internal/services/oauth` |
-| Google's issuer, audience and `azp`, RS256 only, signature, nonce, `at_hash` and clock claims, against compiled-in endpoints a discovery document cannot move | `internal/services/providers/google.go` |
+| Google's exact issuer, an audience containing the client identifier, RS256 only, signature, nonce, and mandatory `exp` and `iat` within the clock skew; a non-empty `azp` equal to the client identifier when there are several audiences, and any other non-empty `azp` equal to it; a non-empty `at_hash` bound to the provider access token; `nbf` enforced whenever present; all against compiled-in endpoints a discovery document cannot move | `internal/services/providers/google.go` |
 | Callback URI policy: absolute, HTTPS except on loopback where a port is required, no userinfo, no fragment, no control characters, reserved response keys refused at registration | `internal/urlpolicy` |
 | A browser returned to the exact registered spelling, one encoded response parameter appended and no existing byte rewritten | `internal/urlpolicy`, `internal/web/providerlogin.go`, `providercallback.go` |
 | Schema changed only by the pinned standalone Goose CLI, never by the service binary, which imports no Goose | `src/api/Dockerfile`, `scripts/check.sh` |
@@ -105,7 +105,7 @@ the work was about.
 | Every transaction abandoned through one detached, bounded rollback, so a cancelled request cannot hold a connection or a lock | `internal/database/rollback.go` |
 | Exactly one permitted origin, never a credentialed wildcard, with permission headers and preflight answers only for an address the route table names | `internal/web/cors.go` |
 | Password sign-in compiled only into the development build and served only in debug mode on a loopback-only bind; a deployment refuses `DEBUG` outright | `internal/buildmode`, `internal/config`, the `_devtools.go` files |
-| A published schema narrowed to the addresses the running build serves, because the annotations it is generated from carry no build constraints | `internal/web/apidocumentation.go` |
+| One hand-maintained schema, served as YAML and JSON only after it proves to be one complete mapping with no `example`, `examples` or `default` anywhere, refusals carrying fixed words that never quote the source; password operations documented in every build only when labelled `x-abandonauth-build: development`, while their routes and handlers are compiled out of a deployment, which answers both 404 | `internal/web/openapi.yaml`, `internal/web/apidocumentation.go`, `routes_devtools.go` |
 | A log line that never carries a query string, header or cookie | `internal/logging` |
 
 ## Where the negative tests are
@@ -193,11 +193,17 @@ A change to a control above extends these rather than replacing them:
   carries are proved by the build-neutral tests in `internal/web` run under
   `-tags=devtools`.
 - `internal/web/passwordroutes_default_test.go`,
-  `apidocumentation_default_test.go` — a deployment declaring no password route
-  and publishing none.
-- `internal/web/apidocumentation_test.go` — the published schema agreeing with
-  the reference for the build that produced it, and refusing to publish a
-  document it cannot narrow.
+  `apidocumentation_default_test.go`, `apidocumentation_integration_test.go` — a
+  deployment declaring no password route, documenting both password operations
+  only with the development label and their 404, and answering both 404.
+- `internal/web/apischema_test.go` — the schema agreeing with the route table
+  in both directions, user and application token schemes never swapped, Origin
+  and CSRF never unconditionally required where a token is accepted, the
+  sign-in, session and Google wording, references resolving, and no credential,
+  example or default in either representation.
+- `internal/web/apidocumentation_test.go` — malformed, multi-document,
+  incomplete and example-bearing sources refused for both representations, with
+  a sentinel in neither the response, the error nor the log.
 - `internal/web/developerapplication_integration_test.go` — an unknown
   application refused in the same words as a wrong credential, for a valid
   credential, the published comparison input, an empty and an overlength one,

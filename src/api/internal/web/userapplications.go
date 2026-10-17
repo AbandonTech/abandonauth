@@ -13,14 +13,6 @@ import (
 // Only a credential for the AbandonAuth site itself is accepted. A token an
 // application was given to identify its user must not also be able to read what
 // else that person has registered.
-//
-// @Summary     List all developer applications owned by the current user.
-// @Description List all developer applications owned by the authenticated user.
-// @Produce     json
-// @Success     200 {array}  models.DeveloperApplicationDto
-// @Failure     403 {object} response.Failed "The credential was missing, refused or expired"
-// @Security    JWTBearer
-// @Router      /api/user/applications [get].
 func (s *Server) userApplications() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		caller, allowed := s.requireUser(writer, request, tokens.ScopeAbandonauth, audienceInternal)

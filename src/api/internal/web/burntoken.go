@@ -22,16 +22,6 @@ func readWithdrawnCredential(given *inputs.Inputs) string {
 // rest of its life. The answer is the same whether the value was withdrawn,
 // was already gone, or never existed, so the endpoint cannot be used to
 // discover which credentials are outstanding.
-//
-// @Summary     Withdraw a credential
-// @Description Withdraw a one-time code or an access token before it would have expired.
-// @Description
-// @Description A one-time code is removed and can no longer be spent. An access token is recorded as withdrawn and is refused for the rest of its lifetime. The answer is 200 whether the value was withdrawn, was already gone, or was never issued.
-// @Accept      json
-// @Param       token body models.JwtDto true "The credential to withdraw"
-// @Success     200 "The credential is no longer accepted"
-// @Failure     422 {object} response.Invalidated
-// @Router      /api/burn-token [post].
 func (s *Server) burnToken() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		given := inputs.New(request)

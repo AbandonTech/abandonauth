@@ -66,21 +66,6 @@ func describeApplication(application applications.Application) models.DeveloperA
 
 // createApplication registers an application owned by the caller and returns
 // its refresh token, which cannot be read again.
-//
-// @Summary     Register a developer application and receive its refresh token
-// @Description Register a developer application owned by the signed-in person.
-// @Description
-// @Description The answer carries the application's refresh token, which is shown only here: it is stored as a hash and cannot be read back. It stays valid until it is replaced through the reset_token endpoint.
-// @Tags        Developer Applications
-// @Accept      json
-// @Produce     json
-// @Param       application body     models.DeveloperApplicationName true "The name of the application"
-// @Success     200         {object} models.CreateDeveloperApplicationDto
-// @Failure     403         {object} response.Failed "The credential was missing, refused or expired"
-// @Failure     422         {object} response.Invalidated
-// @Failure     429         {object} response.Failed "Too many attempts"
-// @Security    JWTBearer
-// @Router      /api/developer_application [post].
 func (s *Server) createApplication() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		caller, allowed := s.requireUser(writer, request, tokens.ScopeAbandonauth, audienceInternal)
@@ -121,19 +106,6 @@ func (s *Server) createApplication() http.Handler {
 
 // applicationLogin exchanges an application's refresh token for its own access
 // token.
-//
-// @Summary     Exchange a developer application's refresh token for a short-lived access token
-// @Description Authenticate a developer application with its refresh token.
-// @Description
-// @Description The answer is an access token that speaks for the application itself and expires after fifteen minutes. A refresh token that is not the application's, or an application that does not exist, is refused with the same 401.
-// @Tags        Developer Applications
-// @Accept      json
-// @Produce     json
-// @Param       login_data body     models.LoginDeveloperApplicationDto true "The application's credentials"
-// @Success     200        {object} models.JwtDto
-// @Failure     401        {object} response.Failed "The credentials were not accepted"
-// @Failure     422        {object} response.Invalidated
-// @Router      /api/developer_application/login [post].
 func (s *Server) applicationLogin() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		given := inputs.New(request)
@@ -181,15 +153,6 @@ func (s *Server) applicationLogin() http.Handler {
 }
 
 // currentApplication tells an application what this service knows about it.
-//
-// @Summary     Identify the developer application behind an access token
-// @Description Describe the developer application an access token speaks for.
-// @Tags        Developer Applications
-// @Produce     json
-// @Success     200 {object} models.DeveloperApplicationDto
-// @Failure     403 {object} response.Failed "The credential was missing, refused or expired"
-// @Security    JWTBearer
-// @Router      /api/developer_application/me [get].
 func (s *Server) currentApplication() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		application, allowed := s.requireApplication(writer, request)
@@ -203,18 +166,6 @@ func (s *Server) currentApplication() http.Handler {
 
 // getApplication returns one of the caller's applications and the URIs it may
 // be returned to.
-//
-// @Summary     Describe one of the signed-in person's developer applications
-// @Description Describe a developer application and the callback URIs it may be returned to, if the signed-in person owns it. An application somebody else owns is answered as one that does not exist.
-// @Tags        Developer Applications
-// @Produce     json
-// @Param       application_id path     string true "The application's identifier" format(uuid)
-// @Success     200            {object} models.DeveloperApplicationWithCallbackURIDto
-// @Failure     403            {object} response.Failed "The credential was missing, refused or expired"
-// @Failure     404            {object} response.Failed "No such application"
-// @Failure     422            {object} response.Invalidated
-// @Security    JWTBearer
-// @Router      /api/developer_application/{application_id} [get].
 func (s *Server) getApplication() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		application, _, ok := s.callerApplication(writer, request)
@@ -240,19 +191,6 @@ func (s *Server) getApplication() http.Handler {
 
 // deleteApplication removes one of the caller's applications, and with it every
 // callback, login in progress and one-time code that referred to it.
-//
-// @Summary     Delete one of the signed-in person's developer applications
-// @Description Delete a developer application the signed-in person owns, with its callback URIs, its logins in progress and its unspent one-time codes. An application somebody else owns is answered as one that does not exist.
-// @Tags        Developer Applications
-// @Produce     json
-// @Param       application_id path     string true "The application's identifier" format(uuid)
-// @Success     200            {object} models.DeveloperApplicationDto
-// @Failure     403            {object} response.Failed "The credential was missing, refused or expired"
-// @Failure     404            {object} response.Failed "No such application"
-// @Failure     422            {object} response.Invalidated
-// @Failure     429            {object} response.Failed "Too many attempts"
-// @Security    JWTBearer
-// @Router      /api/developer_application/{application_id} [delete].
 func (s *Server) deleteApplication() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		application, caller, ok := s.callerApplication(writer, request)
@@ -285,21 +223,6 @@ func (s *Server) deleteApplication() http.Handler {
 
 // resetApplicationCredential issues a new refresh token and refuses every
 // access token issued against the one it replaces.
-//
-// @Summary     Replace a developer application's refresh token
-// @Description Issue a new refresh token for a developer application the signed-in person owns.
-// @Description
-// @Description The replaced refresh token stops authenticating the application at once, and every access token issued against it is refused from then on. The new token is shown only in this answer.
-// @Tags        Developer Applications
-// @Produce     json
-// @Param       application_id path     string true "The application's identifier" format(uuid)
-// @Success     200            {object} models.CreateDeveloperApplicationDto
-// @Failure     403            {object} response.Failed "The credential was missing, refused or expired"
-// @Failure     404            {object} response.Failed "No such application"
-// @Failure     422            {object} response.Invalidated
-// @Failure     429            {object} response.Failed "Too many attempts"
-// @Security    JWTBearer
-// @Router      /api/developer_application/{application_id}/reset_token [patch].
 func (s *Server) resetApplicationCredential() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		application, caller, ok := s.callerApplication(writer, request)
@@ -337,24 +260,6 @@ func (s *Server) resetApplicationCredential() http.Handler {
 
 // replaceCallbackURIs makes the set of URIs an application may be returned to
 // exactly the one submitted.
-//
-// @Summary     Replace a developer application's callback URIs
-// @Description Make the set of callback URIs a developer application may be returned to exactly the set submitted.
-// @Description
-// @Description URIs not yet registered are added, URIs registered but not submitted are removed, and URIs in both are kept as they are. A URI is matched by its exact spelling. The set is replaced whole or not at all: one URI this service would not return a browser to leaves the application with the set it had. Replacements of one application's set run one after the other.
-// @Tags        Developer Applications
-// @Accept      json
-// @Produce     json
-// @Param       application_id path     string   true "The application's identifier" format(uuid)
-// @Param       callback_uris  body     []string true "The complete set of callback URIs"
-// @Success     200            {object} models.DeveloperApplicationDto
-// @Failure     400            {object} response.Failed "One of the URIs is not acceptable"
-// @Failure     403            {object} response.Failed "The credential was missing, refused or expired"
-// @Failure     404            {object} response.Failed "No such application"
-// @Failure     422            {object} response.Invalidated
-// @Failure     429            {object} response.Failed "Too many attempts"
-// @Security    JWTBearer
-// @Router      /api/developer_application/{application_id}/callback_uris [patch].
 func (s *Server) replaceCallbackURIs() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		application, caller, ok := s.callerApplication(writer, request)

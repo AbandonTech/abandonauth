@@ -2,8 +2,8 @@
 # The validate pipeline. CI runs this same script, so local and CI cannot drift.
 #
 #   scripts/check.sh                 codegen + fmt + tidy + build + lint + unit tests
-#   scripts/check.sh --quick         skip codegen and tidy (no SQL or annotation change)
-#   scripts/check.sh --gen-only      only sqlc + swag + tidy, then stop
+#   scripts/check.sh --quick         skip sqlc generation and tidy (no SQL or dependency change)
+#   scripts/check.sh --gen-only      only sqlc generation + tidy, then stop
 #   scripts/check.sh --fix-fmt       format the source, then run the default checks
 #   scripts/check.sh --integration   run the tests in a container instead: integration, race, database, coverage
 #   scripts/check.sh --verbose       stream each stage's output instead of capturing it
@@ -80,16 +80,8 @@ tidy_left_it_alone() {
 
 if [ "$quick" -eq 0 ]; then
     # Tool versions come from the tool directives in go.mod, so `go tool` runs
-    # the same sqlc and swag here, in CI and in the container.
+    # the same sqlc here, in CI and in the container.
     run_stage "sqlc generate" go tool sqlc generate
-    run_stage "swag init" go tool swag init \
-        --v3.1 \
-        --generalInfo cmd/abandonauth.go \
-        --dir . \
-        --output docs \
-        --outputTypes go,json \
-        --parseDependency=false \
-        --quiet
     recorded_modules=$(mktemp)
     recorded_sums=$(mktemp)
     cp "$API_DIR/go.mod" "$recorded_modules"

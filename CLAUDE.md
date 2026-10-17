@@ -58,9 +58,10 @@ request is not a substitute.
   `src/website/package-lock.json` is tracked; do not add or update another
   package-manager lockfile unless the user first chooses a package manager.
 - Generated code is not committed and is never edited: sqlc output under
-  `src/api/internal/database/query/` and Swagger output under `src/api/docs/`.
-  Change the SQL in `internal/database/queries/` or the handler annotations, and
-  regenerate.
+  `src/api/internal/database/query/`. Change the SQL in
+  `internal/database/queries/` and regenerate. The OpenAPI schema,
+  `src/api/internal/web/openapi.yaml`, is hand-maintained source: edit it with
+  any change to an endpoint's contract.
 - The schema is the Goose SQL migrations under `src/api/migrations/`; do not
   add a second description of it. Change a schema only by migration, and apply
   it in either direction only with the pinned standalone Goose CLI, never from

@@ -25,10 +25,10 @@ not name, and everything it names is under `/api`, the route root. Paths below
 are relative to `src/api/`.
 
 - `go.mod` — module, pinned dependencies, `tool` directives fixing the sqlc,
-  swag, revive, goose, staticcheck and deadcode versions
+  revive, goose, staticcheck and deadcode versions
 - `sqlc.yaml` — how `queries/` becomes the generated `query` package
 - `revive.toml` — lint rules
-- `cmd/abandonauth.go` — commands, flags, environment binding, Swagger metadata;
+- `cmd/abandonauth.go` — commands, flags, environment binding, the version;
   secrets are environment-only and have no flag; `provision`'s two input modes,
   its origin check and the callback it derives
 - `cmd/operations.go` — `serve`, `maintenance`, `database rotate-auth-epoch`,
@@ -128,9 +128,18 @@ endpoints that stop accepting credentials in
   never answers a committed response, request identifiers, request log
 - `internal/web/requestlimit.go` — applies the budgets
 - `internal/web/maintenance.go` — the static 503 a failed deployment serves
-- `internal/web/apidocumentation.go` — `/api/docs`, `/api/docs/`,
-  `/api/docs/oauth2-redirect`, `/api/openapi.json`, and the narrowing to what
-  this build serves
+- `internal/web/openapi.yaml` — the API contract, hand-maintained: the one
+  OpenAPI document, with no `servers` and whole `/api` paths
+- `internal/web/apidocumentation.go` — embeds `openapi.yaml`, refuses a source
+  that is not one complete mapping or carries an example or default, and serves
+  it at `/api/openapi.yaml` and as derived JSON at `/api/openapi.json`; the
+  Swagger UI at `/api/docs`, `/api/docs/`, `/api/docs/oauth2-redirect`, reading
+  `../openapi.yaml`. Every build documents the password operations, labelled
+  `x-abandonauth-build: development`; only a `devtools` build declares or binds
+  them
+- `internal/web/apischema_test.go`, `apidocumentation_test.go` — the contract
+  against the route table, authentication boundaries, wording and references,
+  and both representations, read from the canonical source
 - `internal/web/models/` — request and response bodies
 - `internal/web/request/`, `internal/web/response/` — input reading, answer
   shapes
@@ -139,7 +148,6 @@ endpoints that stop accepting credentials in
   full; `credentialhasher.go` is the `testHasher` the harness injects
 - `internal/web/passwordsignintest/` — the password sign-in journeys, under
   `integration && devtools`
-- `internal/web/testdata/` — the API schema the service must publish
 
 Files ending `_devtools.go` compile only with `-tags=devtools`: password
 sign-in, absent from a deployment. Files ending `_default_test.go` carry
@@ -201,7 +209,7 @@ rewrite live data for no functional gain and is deliberately out of scope.
 
 ## Validation
 
-- `./scripts/check.sh` — codegen, formatting, tidiness, `goose validate`, proof
+- `./scripts/check.sh` — sqlc generation, formatting, tidiness, `goose validate`, proof
   the service binary imports no Goose, both builds, revive, vet and staticcheck
   on every tag set, dead-code analysis of the deployment integration graph, then
   `go test ./...` and `go test -tags=devtools ./...`
@@ -241,7 +249,8 @@ When to run which, and what to report, is in `.claude/docs/testing.md`.
 The published deployment image carries no password sign-in, refuses
 `DEBUG=true`, runs as an account that is not root, and holds the service binary,
 the PostgreSQL-only Goose CLI, the migration files and a certificate bundle; the
-service binary carries the documentation and OpenAPI schema every build serves.
+service binary embeds the documentation and the OpenAPI schema every build
+serves, as YAML and as JSON.
 `compose.yml` builds it unless `API_BUILD_TARGET` in `.env` names the
 `development` target, the variant the password routes compile into, and runs its
 `migrations` service, the same image with Goose as the entrypoint, then its
@@ -267,12 +276,13 @@ Each subject has one owner; everything else links to it.
 - `.opencode/agent/abandonauth-planner.md` — planner permissions and bootstrap
 - `.opencode/agent/abandonauth-security-reviewer.md` — reviewer permissions,
   bootstrap, output contract
-- `.claude/agents/abandonauth-implementer.md` — implementer tools and refusal
-  gates
+- `.claude/agents/abandonauth-implementer.md` — implementer tools, refusal
+  gates, and keeping `openapi.yaml` current with every endpoint change
 - `.claude/skills/implement-plan/SKILL.md` — user-only invocation, plan-path
   validation
 - `README.md` — integrating an application, running the service, local
   development
-- `src/api/README.md` — the API's commands, codegen, migrations, builds
+- `src/api/README.md` — the API's commands, codegen, API documentation,
+  migrations, builds
 - `docs/DISCORD-OAUTH2.md`, `GITHUB-OAUTH2.md`, `GOOGLE-OAUTH2.md` — registering
   with each provider

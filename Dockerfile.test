@@ -20,14 +20,6 @@ COPY scripts/ /repo/scripts/
 COPY .env.sample /repo/.env.sample
 
 # Tool versions come from the tool directives in go.mod.
-RUN go tool sqlc generate && \
-    go tool swag init \
-        --v3.1 \
-        --generalInfo cmd/abandonauth.go \
-        --dir . \
-        --output docs \
-        --outputTypes go,json \
-        --parseDependency=false \
-        --quiet
+RUN go tool sqlc generate
 
 CMD ["sh", "/repo/scripts/containercheck.sh"]

@@ -21,6 +21,13 @@ const APIRoot = "/api"
 // site's origin.
 const SiteEntryPath = APIRoot + "/ui"
 
+// OpenAPIYAMLPath is where the API's OpenAPI document is served in the YAML it
+// is written in, which the documentation page reads.
+const OpenAPIYAMLPath = APIRoot + "/openapi.yaml"
+
+// OpenAPIJSONPath is where the same OpenAPI document is served as JSON.
+const OpenAPIJSONPath = APIRoot + "/openapi.json"
+
 // RouteName identifies a route independently of its URL, so a handler can be
 // attached to it and a test can name it without repeating the pattern.
 type RouteName string
@@ -50,7 +57,8 @@ const (
 	RouteSwaggerUI           RouteName = "swagger-ui"
 	RouteSwaggerUIIndex      RouteName = "swagger-ui-index"
 	RouteSwaggerOAuth2       RouteName = "swagger-oauth2-redirect"
-	RouteAPISchema           RouteName = "api-schema"
+	RouteOpenAPIYAML         RouteName = "openapi-yaml"
+	RouteOpenAPIJSON         RouteName = "openapi-json"
 )
 
 // Route is one endpoint of the service.
@@ -132,7 +140,8 @@ var baseRoutes = []Route{
 	{Name: RouteSwaggerUI, Method: "GET", Pattern: APIRoot + "/docs"},
 	{Name: RouteSwaggerUIIndex, Method: "GET", Pattern: APIRoot + "/docs/"},
 	{Name: RouteSwaggerOAuth2, Method: "GET", Pattern: APIRoot + "/docs/oauth2-redirect"},
-	{Name: RouteAPISchema, Method: "GET", Pattern: APISchemaPath},
+	{Name: RouteOpenAPIYAML, Method: "GET", Pattern: OpenAPIYAMLPath},
+	{Name: RouteOpenAPIJSON, Method: "GET", Pattern: OpenAPIJSONPath},
 }
 
 // Routes returns every route this build serves.

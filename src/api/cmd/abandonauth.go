@@ -1,11 +1,4 @@
 // AbandonAuth is an identity provider and OAuth application broker.
-//
-// @title                      AbandonAuth
-// @version                    0.0.1
-// @description                Identity provider and OAuth application broker.
-// @securityDefinitions.apikey JWTBearer
-// @in                         header
-// @name                       Authorization
 package main
 
 import (
@@ -29,8 +22,8 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/web"
 )
 
-// version identifies the build in the API schema, in log lines and in image
-// labels.
+// version identifies the build in the command's version output, in log lines
+// and in image labels.
 const version = "0.0.1"
 
 // buildServesDevelopmentRoutes reports whether this binary was compiled with the

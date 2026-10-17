@@ -34,17 +34,6 @@ func (s *Server) siteEntry() http.Handler {
 // The row is deleted before the cookies are cleared, so a copy of the cookie
 // taken beforehand is refused by every worker from that moment; clearing the
 // cookies first would leave a working session in the hands of whoever kept one.
-//
-// @Summary     Log out of the browser session
-// @Description End the browser session.
-// @Description
-// @Description Deletes the session on the server before clearing the session and CSRF cookies, so a copy of the cookie taken before logout is not usable afterwards. The request must carry the value of the CSRF cookie in the X-CSRF-Token header and originate from the AbandonAuth site.
-// @Produce     json
-// @Param       X-CSRF-Token header string true "The value of the CSRF cookie"
-// @Success     200 "The session was ended and the cookies were cleared"
-// @Failure     403 {object} response.Failed "Missing or invalid session, origin, or CSRF token"
-// @Failure     422 {object} response.Invalidated
-// @Router      /api/ui/logout [post].
 func (s *Server) logout() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		given := inputs.New(request)

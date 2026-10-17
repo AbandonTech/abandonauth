@@ -116,7 +116,10 @@ is not root. It holds the service binary, the pinned PostgreSQL-only
 [Goose](https://github.com/pressly/goose) CLI at `/usr/local/bin/goose`, the SQL
 migrations at `/migrations`, and a certificate bundle. Its entrypoint is the
 service; the service itself never migrates. The API documentation is served at
-`/api/docs` and its OpenAPI schema at `/api/openapi.json`.
+`/api/docs`, which reads the OpenAPI schema from `/api/openapi.yaml`; the same
+schema is served as JSON at `/api/openapi.json`. Both describe the two
+development-only password operations, labelled as such, which this image
+answers with 404.
 
 `compose.yml` builds that target unless `API_BUILD_TARGET` names the other one.
 Deploy with:
@@ -305,8 +308,10 @@ PowerShell:
 CI runs the same script. The API check runs revive, Staticcheck on every build
 tag set, and a dead-code analysis of the deployment build that fails on any
 unreachable function. `--integration` holds every package to 80% statement
-coverage. The sqlc and Swagger output is generated on every run, is not
-committed, and is never edited by hand.
+coverage. The sqlc output is the only generated code: it is generated on every
+run, is not committed, and is never edited by hand. The OpenAPI schema,
+`src/api/internal/web/openapi.yaml`, is maintained in the repository and edited
+with any change to an endpoint's contract.
 
 ## Migrations
 

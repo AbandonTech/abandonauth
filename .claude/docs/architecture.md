@@ -86,8 +86,12 @@ one browser, on whichever worker sees it. The provider's authorization code is
 then exchanged with the verifier and the identity resolved to a user, one
 created atomically the first time that provider identifier is seen; identities
 are never linked by username or email. Google's identity token is verified in
-full: issuer, audience and `azp`, RS256 only, signature against the published
-keys, nonce, `at_hash`, clock claims within thirty seconds.
+full: RS256 only, signature against the published keys, exact issuer, an
+audience containing the client identifier, nonce, and mandatory `exp` and `iat`
+within thirty seconds. Multiple audiences require a non-empty `azp` equal to the
+client identifier, and any other non-empty `azp` must equal it too; a non-empty
+`at_hash` must match the provider access token; `nbf` is enforced whenever
+present. An empty or null `azp` or `at_hash` decodes as absent.
 
 | The login was for | The browser gets |
 | --- | --- |
@@ -218,12 +222,18 @@ loopback-only bind.
 Both carry the documentation and its OpenAPI schema, which this public API
 serves whatever the build and configuration, the Goose CLI and migration files
 the `migrations` service runs, and the `provision` command the `provisioning`
-service runs. Swag's annotations carry no build
-constraints, so its document names password sign-in in either build;
-`internal/web/apidocumentation.go` narrows it to the addresses the running build
-serves before publishing. The document declares no server and every path is a
-whole `/api` address, so a reader combines it with the origin it came from; the
-page reads the schema through a relative reference for the same reason.
+service runs. The schema is one hand-maintained source,
+`internal/web/openapi.yaml`, embedded in the binary and checked once:
+`apidocumentation.go` refuses to serve either representation unless the source
+is exactly one mapping with `openapi`, `info`, `paths` and `components` and
+carries no `example`, `examples` or `default` anywhere. It is served as written
+at `/api/openapi.yaml` and as JSON derived in memory at `/api/openapi.json`.
+Both builds publish the same operations: the two password operations carry
+`x-abandonauth-build: development` and say when they answer, while a deployment
+neither declares nor compiles their routes or handlers and answers both 404.
+The document declares no server and every path is a whole `/api` address, so a
+reader combines it with the origin it came from; the page reads
+`../openapi.yaml` through a relative reference for the same reason.
 
 ## The site boundary
 

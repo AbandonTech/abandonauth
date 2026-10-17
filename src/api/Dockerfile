@@ -9,19 +9,11 @@ RUN go mod download
 
 COPY . .
 
-# Persistence code and the API schema are generated from the SQL and the
-# annotations rather than committed, so they are built here instead of copied
-# in, where a stale host copy could ship.
+# Persistence code is generated from the SQL rather than committed, so it is
+# built here instead of copied in, where a stale host copy could ship. The
+# OpenAPI document is committed source, compiled in by go:embed from the tree
+# copied above.
 RUN go tool sqlc generate
-
-RUN go tool swag init \
-        --v3.1 \
-        --generalInfo cmd/abandonauth.go \
-        --dir . \
-        --output docs \
-        --outputTypes go,json \
-        --parseDependency=false \
-        --quiet
 
 
 FROM source AS compile-deployment

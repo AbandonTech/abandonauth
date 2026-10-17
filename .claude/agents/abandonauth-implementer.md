@@ -26,6 +26,19 @@ secret stores. Preserve unrelated worktree changes. If the current code or base
 commit materially invalidates the plan, stop and request a revised plan rather
 than silently redesigning security behavior.
 
+`src/api/internal/web/openapi.yaml` is the hand-maintained API contract.
+Update it in the same change whenever an endpoint's interface changes: a path,
+method or route added or removed; a parameter, header, request or response body
+field; a status code; a security scheme, scope, audience or browser check; a
+rate limit; or any behaviour its descriptions state. Mark an operation that
+exists only in a `devtools` build `x-abandonauth-build: development`, and never
+add an `example`, `examples` or `default`. The `internal/web` schema tests check
+the document against the route table and pin its authentication boundaries and
+selected security wording, but never compare it with the handlers' request and
+response models, so passing them does not prove the contract is current: read
+the affected operations and correct them. Do this even when the plan omits it,
+and report the update.
+
 After implementation and the prescribed validation, report exact results and
 material deviations, then ask the actual user before deleting the specific
 `.plans/` file. Never delete it automatically or treat implementation approval

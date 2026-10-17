@@ -87,7 +87,7 @@ Run what a change could have broken, from the repository root, and report
 exactly what was run:
 
 ```text
-./scripts/check.sh                 codegen, formatting, lint, static analysis, dead code, both builds, unit tests
+./scripts/check.sh                 sqlc generation, formatting, lint, static analysis, dead code, both builds, unit tests
 ./scripts/check.sh --integration   the tests in a container instead: integration, race, database, coverage
 ./scripts/db.sh down               remove the test database afterwards
 
@@ -171,7 +171,12 @@ and `credentials.Hash` takes no factor at all.
 
 `./scripts/check.sh` reports formatting rather than correcting it, so a check
 never rewrites the worktree unannounced; `--fix-fmt` corrects it. Generated sqlc
-and Swagger output is regenerated every run and is never edited.
+output is regenerated every run and is never edited.
+
+The OpenAPI schema is source, not output. The unit tests in `internal/web` read
+the embedded `openapi.yaml`, check it against the route table for the running
+build, and check the YAML and JSON representations the service serves describe
+the same document; the integration tests fetch both through the front door.
 
 A test that spends a request budget states the budget's number itself, as the
 contract the service promises, rather than reading it back from the service.

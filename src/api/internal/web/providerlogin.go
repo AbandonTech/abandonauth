@@ -27,19 +27,6 @@ const (
 // The application and the exact callback are checked here, before anything is
 // stored, and are then held by this service until the provider returns. What
 // travels through the browser is an opaque value that means nothing on its own.
-//
-// @Summary     Start a login with an OAuth provider
-// @Description Start an OAuth login with the named provider.
-// @Description
-// @Description Checks that the callback URI is registered to the developer application, binds the attempt to the calling browser, and redirects to the provider's authorization endpoint. The browser must return to the matching provider callback for the login to complete.
-// @Produce     json
-// @Param       provider       path string true "The provider to sign in with" Enums(discord, github, google)
-// @Param       application_id query string true "The application the person is signing in to" format(uuid)
-// @Param       callback_uri   query string true "Exactly one of the URIs the application registered"
-// @Success     307 "Redirect to the provider's authorization endpoint"
-// @Failure     403 {object} response.Failed "The application or callback is not registered"
-// @Failure     422 {object} response.Invalidated
-// @Router      /api/ui/{provider}/authorize [get].
 func (s *Server) providerAuthorize() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		given := inputs.New(request)

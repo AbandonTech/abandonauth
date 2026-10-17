@@ -25,19 +25,29 @@ describes what it creates.
 
 ## Generated code
 
-Neither of these is committed, and neither is edited by hand:
+This is not committed, and is never edited by hand:
 
 | Output | Generated from |
 | --- | --- |
 | `internal/database/query/` | the SQL in `internal/database/queries/`, by sqlc |
-| `docs/` | the handler annotations, by swag |
 
-`./scripts/check.sh` regenerates both. Tool versions are the `tool` directives
-in `go.mod`, so `go tool sqlc` and `go tool swag` run the same versions locally,
-in CI and in the container. The same directives pin revive, Staticcheck
+`./scripts/check.sh` regenerates it. Tool versions are the `tool` directives
+in `go.mod`, so `go tool sqlc` runs the same version locally, in CI and in the
+container. The same directives pin revive, Staticcheck
 (`honnef.co/go/tools/cmd/staticcheck`) and the dead-code analysis
 (`golang.org/x/tools/cmd/deadcode`); the check script runs all three, so none
 needs a separate install.
+
+## API documentation
+
+`internal/web/openapi.yaml` is the API's contract, written by hand and compiled
+into the binary. Every build serves it as YAML at `/api/openapi.yaml`, which
+the page at `/api/docs` reads, and as JSON derived from it at
+`/api/openapi.json`. It declares no `servers`: every path is the whole `/api/...`
+address, combined with the origin the document was fetched from. A change to an
+endpoint's contract updates this file and the route and schema tests in
+`internal/web` (`apischema_test.go`, `apidocumentation_test.go`) in the same
+change.
 
 ## Migrations
 

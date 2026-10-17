@@ -1,43 +1,130 @@
 package web
 
 import (
+	"bytes"
+	_ "embed"
 	"encoding/json"
-	"fmt"
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
 
 	httpSwagger "github.com/swaggo/http-swagger/v2"
+	"go.yaml.in/yaml/v3"
 
-	"github.com/abandontech/abandonauth/src/api/docs"
 	"github.com/abandontech/abandonauth/src/api/internal/web/response"
 )
-
-// APISchemaPath is where the published schema is served.
-const APISchemaPath = APIRoot + "/openapi.json"
 
 // schemaFromDocumentation is how the documentation page names the schema. The
 // page is loaded in a browser, and a relative reference resolves against the
 // address that browser actually asked for, so no host, port or origin has to be
 // guessed for it.
-const schemaFromDocumentation = "../openapi.json"
+const schemaFromDocumentation = "../openapi.yaml"
 
-// generatedAPISchema renders the annotations into a document.
-//
-// The annotations are read from the source, which carries no build constraints,
-// so the result describes every annotated endpoint rather than the ones this
-// build serves. publishedAPISchema is what a reader gets.
-//
-// Rendering writes back to the package-level value it renders from, so two
-// callers at once race on it. The result is the same every time, so it is
-// produced once.
-var generatedAPISchema = sync.OnceValue(docs.SwaggerInfo.ReadDoc)
+const contentTypeYAML = "application/yaml; charset=utf-8"
 
-// publishedAPISchema is the generated document with every address this build
-// does not serve removed, so it cannot advertise an endpoint that answers 404.
-var publishedAPISchema = sync.OnceValues(func() (string, error) {
-	return schemaLimitedTo(generatedAPISchema(), documentedPaths())
+//go:embed openapi.yaml
+var embeddedOpenAPISchema []byte
+
+// Why a schema source is refused. Each is fixed text: the YAML library's own
+// errors can quote the offending source, so they are never wrapped or logged.
+var (
+	errOpenAPIUnreadable   = errors.New("the OpenAPI source is not exactly one YAML mapping")
+	errOpenAPIIncomplete   = errors.New("the OpenAPI source lacks a required top-level member")
+	errOpenAPIExample      = errors.New("the OpenAPI source carries an example or default value")
+	errOpenAPIUnrenderable = errors.New("the OpenAPI source cannot be represented as JSON")
+)
+
+// forbiddenOpenAPIMembers can carry a literal value anywhere in a document, and
+// a value pasted there for convenience could be a credential.
+var forbiddenOpenAPIMembers = []string{"example", "examples", "default"}
+
+// openAPIRepresentations are the two forms one schema source is served in.
+type openAPIRepresentations struct {
+	YAML []byte
+	JSON []byte
+}
+
+// publishedOpenAPI is the embedded source, checked and rendered once.
+var publishedOpenAPI = sync.OnceValues(func() (openAPIRepresentations, error) {
+	return renderOpenAPIRepresentations(embeddedOpenAPISchema)
 })
+
+// renderOpenAPIRepresentations checks a schema source and derives its JSON form.
+// A source that fails any check yields neither form, so nothing unchecked is
+// ever served.
+func renderOpenAPIRepresentations(source []byte) (openAPIRepresentations, error) {
+	decoder := yaml.NewDecoder(bytes.NewReader(source))
+
+	var document map[string]any
+	if err := decoder.Decode(&document); err != nil || document == nil {
+		return openAPIRepresentations{}, errOpenAPIUnreadable
+	}
+
+	var another any
+	if err := decoder.Decode(&another); !errors.Is(err, io.EOF) {
+		return openAPIRepresentations{}, errOpenAPIUnreadable
+	}
+
+	if !hasRequiredOpenAPIMembers(document) {
+		return openAPIRepresentations{}, errOpenAPIIncomplete
+	}
+
+	if carriesForbiddenOpenAPIMember(document) {
+		return openAPIRepresentations{}, errOpenAPIExample
+	}
+
+	rendered, err := json.Marshal(document)
+	if err != nil {
+		return openAPIRepresentations{}, errOpenAPIUnrenderable
+	}
+
+	return openAPIRepresentations{YAML: bytes.Clone(source), JSON: rendered}, nil
+}
+
+func hasRequiredOpenAPIMembers(document map[string]any) bool {
+	if _, ok := document["openapi"].(string); !ok {
+		return false
+	}
+
+	for _, member := range []string{"info", "paths", "components"} {
+		if _, ok := document[member].(map[string]any); !ok {
+			return false
+		}
+	}
+
+	return true
+}
+
+func carriesForbiddenOpenAPIMember(value any) bool {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, member := range typed {
+			if isForbiddenOpenAPIMember(key) || carriesForbiddenOpenAPIMember(member) {
+				return true
+			}
+		}
+	case []any:
+		for _, element := range typed {
+			if carriesForbiddenOpenAPIMember(element) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func isForbiddenOpenAPIMember(key string) bool {
+	for _, forbidden := range forbiddenOpenAPIMembers {
+		if key == forbidden {
+			return true
+		}
+	}
+
+	return false
+}
 
 // documentationHandlers publish this API's documentation. It describes only
 // endpoints a caller could discover by trying them, so every build serves it.
@@ -46,7 +133,8 @@ func (s *Server) documentationHandlers() map[RouteName]http.Handler {
 		RouteSwaggerUI:      s.documentationEntry(),
 		RouteSwaggerUIIndex: s.documentation(),
 		RouteSwaggerOAuth2:  s.documentationRedirectPage(),
-		RouteAPISchema:      s.apiSchema(),
+		RouteOpenAPIYAML:    s.openAPIYAML(),
+		RouteOpenAPIJSON:    s.openAPIJSON(),
 	}
 }
 
@@ -103,67 +191,35 @@ func addressedTo(request *http.Request, path string) *http.Request {
 	return rewritten
 }
 
-// apiSchema serves the schema this build publishes.
-func (s *Server) apiSchema() http.Handler {
+// openAPIYAML serves the schema in the form it is written in.
+func (s *Server) openAPIYAML() http.Handler {
+	return s.serveOpenAPI(contentTypeYAML, func() ([]byte, error) {
+		published, err := publishedOpenAPI()
+
+		return published.YAML, err
+	})
+}
+
+// openAPIJSON serves the same schema as JSON.
+func (s *Server) openAPIJSON() http.Handler {
+	return s.serveOpenAPI(response.ContentTypeJSON, func() ([]byte, error) {
+		published, err := publishedOpenAPI()
+
+		return published.JSON, err
+	})
+}
+
+// serveOpenAPI writes what load returns, or refuses when it returns an error.
+func (s *Server) serveOpenAPI(contentType string, load func() ([]byte, error)) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		document, err := publishedAPISchema()
+		document, err := load()
 		if err != nil {
 			s.refuseUnavailable(writer, request, err)
 
 			return
 		}
 
-		writer.Header().Set("Content-Type", response.ContentTypeJSON)
-		_, _ = writer.Write([]byte(document))
+		writer.Header().Set("Content-Type", contentType)
+		_, _ = writer.Write(document)
 	})
-}
-
-// documentedPaths are the addresses this build serves and publishes.
-func documentedPaths() map[string]bool {
-	published := make(map[string]bool)
-
-	for _, route := range Routes() {
-		if route.Documented {
-			published[route.Path()] = true
-		}
-	}
-
-	return published
-}
-
-// schemaLimitedTo removes from a document every path the given set does not
-// name. A document it cannot read is an error rather than a document served
-// unfiltered, because the filtering is what keeps the two builds apart.
-func schemaLimitedTo(document string, published map[string]bool) (string, error) {
-	var rendered map[string]json.RawMessage
-
-	if err := json.Unmarshal([]byte(document), &rendered); err != nil {
-		return "", fmt.Errorf("the API schema is not a JSON document: %w", err)
-	}
-
-	var paths map[string]json.RawMessage
-
-	if err := json.Unmarshal(rendered["paths"], &paths); err != nil {
-		return "", fmt.Errorf("the API schema declares no paths: %w", err)
-	}
-
-	for path := range paths {
-		if !published[path] {
-			delete(paths, path)
-		}
-	}
-
-	limited, err := json.Marshal(paths)
-	if err != nil {
-		return "", fmt.Errorf("the remaining paths could not be written: %w", err)
-	}
-
-	rendered["paths"] = limited
-
-	complete, err := json.Marshal(rendered)
-	if err != nil {
-		return "", fmt.Errorf("the API schema could not be written: %w", err)
-	}
-
-	return string(complete), nil
 }

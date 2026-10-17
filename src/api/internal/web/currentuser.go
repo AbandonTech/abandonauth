@@ -12,16 +12,6 @@ import (
 //
 // Any application's token is accepted, as long as the application still exists:
 // identifying the person is the whole purpose of the token it was given.
-//
-// @Summary     Current user information
-// @Description Identify the person an access token speaks for.
-// @Description
-// @Description Any application's user access token is accepted, as long as the application still exists.
-// @Produce     json
-// @Success     200 {object} models.UserDto
-// @Failure     403 {object} response.Failed "The credential was missing, refused or expired"
-// @Security    JWTBearer
-// @Router      /api/me [get].
 func (s *Server) currentUser() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		caller, allowed := s.requireUser(writer, request, tokens.ScopeIdentify, audienceRegisteredApplication)
