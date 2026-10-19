@@ -24,8 +24,9 @@ queries over pgx. Nothing is served that `src/api/internal/web/routes.go` does
 not name, and everything it names is under `/api`, the route root. Paths below
 are relative to `src/api/`.
 
-- `go.mod` — module, pinned dependencies, `tool` directives fixing the sqlc,
-  revive, goose, staticcheck and deadcode versions
+- `go.mod` — module, the exact `go M.m.p` toolchain, pinned dependencies,
+  `tool` directives fixing the sqlc, revive, goose, staticcheck and deadcode
+  versions
 - `sqlc.yaml` — how `queries/` becomes the generated `query` package
 - `revive.toml` — lint rules
 - `cmd/abandonauth.go` — commands, flags, environment binding, the version;
@@ -235,8 +236,8 @@ When to run which, and what to report, is in `.claude/docs/testing.md`.
 ## Tooling and CI
 
 - `src/api/Dockerfile` — one build, two runtime targets: `deployment` (default)
-  and `development`
-- `Dockerfile.test` — the image the container checks run in
+  and `development`, built on the exact Go patch tag `go.mod` declares
+- `Dockerfile.test` — the image the container checks run in, on the same tag
 - `.pre-commit-config.yaml` — whitespace checks and `scripts/check.sh`
 - `.github/workflows/check.yml` — the check pipeline, and the site's tests and
   build
@@ -266,7 +267,9 @@ Each subject has one owner; everything else links to it.
 - `CLAUDE.md` — entry point: required reading, repository constraints, naming
   and comment rules
 - `.agents/abandonauth-agent-workflow.md` — authorization, roles, plan contract,
-  security classification and review, plan lifecycle
+  security classification and review, plan lifecycle; the plan names its
+  mandatory validation and cleanup commands, which the implementer runs after
+  its final edit and reports exactly, an unrun one leaving the work incomplete
 - `.claude/docs/repo-map.md` — this inventory
 - `.claude/docs/architecture.md` — how the parts fit and how a sign-in travels
   through them
@@ -277,7 +280,8 @@ Each subject has one owner; everything else links to it.
 - `.opencode/agent/abandonauth-security-reviewer.md` — reviewer permissions,
   bootstrap, output contract
 - `.claude/agents/abandonauth-implementer.md` — implementer tools, refusal
-  gates, and keeping `openapi.yaml` current with every endpoint change
+  gates, keeping `openapi.yaml` current with every endpoint change, and the
+  validation gate after the final edit
 - `.claude/skills/implement-plan/SKILL.md` — user-only invocation, plan-path
   validation
 - `README.md` — integrating an application, running the service, local

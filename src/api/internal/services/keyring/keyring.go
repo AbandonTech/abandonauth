@@ -50,24 +50,15 @@ func New(rootSecret string) (Keyring, error) {
 
 	root := []byte(rootSecret)
 
-	userAccess, err := derive(root, labelUserAccessSigning, signingKeyBytes)
-	if err != nil {
-		return Keyring{}, err
-	}
+	userAccess, userAccessErr := derive(root, labelUserAccessSigning, signingKeyBytes)
+	developerAccess, developerAccessErr := derive(root, labelDeveloperAccessSigning, signingKeyBytes)
+	verifier, verifierErr := derive(root, labelVerifierEncryption, encryptionKeyBytes)
+	pseudonym, pseudonymErr := derive(root, labelRateLimitPseudonym, pseudonymKeyBytes)
 
-	developerAccess, err := derive(root, labelDeveloperAccessSigning, signingKeyBytes)
-	if err != nil {
-		return Keyring{}, err
-	}
-
-	verifier, err := derive(root, labelVerifierEncryption, encryptionKeyBytes)
-	if err != nil {
-		return Keyring{}, err
-	}
-
-	pseudonym, err := derive(root, labelRateLimitPseudonym, pseudonymKeyBytes)
-	if err != nil {
-		return Keyring{}, err
+	// Constant labels and lengths keep this out of any input's reach, but a key
+	// of the wrong length must never be used, so no partial keyring is returned.
+	if err := errors.Join(userAccessErr, developerAccessErr, verifierErr, pseudonymErr); err != nil {
+		return Keyring{}, fmt.Errorf("deriving a key: %w", err)
 	}
 
 	return Keyring{
@@ -103,13 +94,5 @@ func (k Keyring) RateLimitPseudonym() []byte {
 }
 
 func derive(root []byte, label string, length int) ([]byte, error) {
-	key, err := hkdf.Key(sha512.New, root, nil, label, length)
-	if err != nil {
-		// The label and length are constants, so this cannot depend on request
-		// input; it is reported rather than ignored because a key of the wrong
-		// length must never be used.
-		return nil, fmt.Errorf("deriving a key: %w", err)
-	}
-
-	return key, nil
+	return hkdf.Key(sha512.New, root, nil, label, length)
 }

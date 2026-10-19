@@ -1,5 +1,5 @@
 # `go test -race` links ThreadSanitizer, a C library, and requires a compiler to link it with.
-FROM golang:1.27
+FROM golang:1.27.2
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends postgresql-client && \

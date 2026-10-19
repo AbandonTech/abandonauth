@@ -8,6 +8,12 @@ held to 80% statement coverage, measured from a real profile; the gate fails the
 run, and it currently passes. Integration tests are build-constrained, and a
 selected one fails without PostgreSQL rather than skipping.
 
+Statement counts come from the Go cover tool, and a patch release can change
+how it counts: a package's percentage can move with no behaviour losing a test.
+`src/api/go.mod` and both Dockerfiles therefore pin the exact Go patch, and a
+Go patch update is reviewed for coverage like any other change, never met by
+lowering the gate or testing a failure no input can cause.
+
 The site has Vitest tests and a production build. There is still **no frontend
 lint or typecheck command**. Do not claim one passed.
 
@@ -99,11 +105,16 @@ On Windows, invoke them with
 `& "C:\Program Files\Git\bin\bash.exe" scripts/check.sh ...`; never execute a
 `.sh` file directly through PowerShell, which opens the OS application chooser.
 
+Run the required commands after the final relevant edit, rerun one after fixing
+its failure, and run `./scripts/db.sh down` even when a check failed. A default
+run never stands in for a required `--integration` run.
+
 `--integration` is authoritative for coverage, and is required after a change to
 an integration test, to `internal/database/testdatabase`, to
-`internal/web/servertest`, to a migration, to either Compose file, or to the
-container or migration check scripts. Both images are built on every pull
-request by `.github/workflows/`, which is what covers a Dockerfile change.
+`internal/web/servertest`, to a migration, to either Compose file, to either
+Dockerfile, to the Go version, or to the container or migration check scripts.
+Both images are built on every pull request by `.github/workflows/`, which is
+the final proof that the `development` target builds.
 
 The default run validates the migration files with `goose validate` and fails
 if the service binary imports Goose under either build. `--integration` then

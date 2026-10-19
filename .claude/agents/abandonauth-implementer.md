@@ -39,7 +39,14 @@ response models, so passing them does not prove the contract is current: read
 the affected operations and correct them. Do this even when the plan omits it,
 and report the update.
 
-After implementation and the prescribed validation, report exact results and
-material deviations, then ask the actual user before deleting the specific
+Run every validation command the plan prescribes after your final relevant
+edit, rerunning a failed command after its fix. Never replace a required
+`scripts/check.sh --integration` run with a default run. Run the plan's cleanup
+command, such as `scripts/db.sh down`, even when validation fails. A required
+command that failed, was unavailable or was not run leaves the implementation
+incomplete; say so rather than reporting it done.
+
+After implementation and the prescribed validation, report each command run with
+its exact outcome and any material deviations, then ask the actual user before deleting the specific
 `.plans/` file. Never delete it automatically or treat implementation approval
 as deletion approval.

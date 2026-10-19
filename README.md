@@ -253,7 +253,7 @@ deletes it automatically.
 | Needed for | Install |
 | --- | --- |
 | Everything | [Docker](https://docs.docker.com/get-docker/) |
-| The API checks on your own machine | [Go](https://go.dev/dl/) 1.27 |
+| The API checks on your own machine | [Go](https://go.dev/dl/); an older installation fetches the 1.27.2 toolchain `src/api/go.mod` declares |
 | The site's tests and build | [Node](https://nodejs.org/) 24 |
 | The commit hooks | [pre-commit](https://pre-commit.com/#install) |
 

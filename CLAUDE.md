@@ -44,7 +44,9 @@ credential behaviour as explicit decisions rather than provider defaults.
 ## Validation
 
 Run what a change could have broken and report exactly what was run, never
-claiming an unrun check passed. The commands, the Windows invocation, the
+claiming an unrun check passed. Required commands run after the final relevant
+edit; a default run never stands in for a required `--integration` run. The
+commands, the Windows invocation, the
 coverage gate and the frontend gap are in `.claude/docs/testing.md` →
 "Available checks"; what a test must cover is in "Security coverage" and "What a
 test is allowed to assert". New behaviour requires automated tests; a manual
@@ -53,7 +55,10 @@ request is not a substitute.
 ## Repository constraints
 
 - The API is Go, with the toolchain, dependency and tool versions pinned in
-  `src/api/go.mod`. Lint rules are in `src/api/revive.toml`.
+  `src/api/go.mod`. Lint rules are in `src/api/revive.toml`. A Go patch update
+  changes the `go` directive and the exact `golang` tags in
+  `src/api/Dockerfile` and `Dockerfile.test` together, with the analysis tools
+  the new compiler needs.
 - The frontend is Nuxt 4, Vue 3, TypeScript, Tailwind, and DaisyUI.
   `src/website/package-lock.json` is tracked; do not add or update another
   package-manager lockfile unless the user first chooses a package manager.

@@ -70,7 +70,10 @@ Every plan contains:
    repository-relative path with the symbols or sections in it named.
 7. Ordered implementation steps, each naming the file path it acts on.
 8. Tests, including negative and abuse cases where relevant.
-9. Validation commands and known validation gaps.
+9. Validation commands and known validation gaps: the exact authoritative
+   commands the implementer runs after its final relevant edit, which of them
+   are mandatory (`--integration` included where the change reaches it), and
+   any cleanup command that runs even when validation fails.
 10. Migration, rollout and rollback considerations.
 11. Documentation and repo-map updates.
 12. Security review result: a sensitive plan lists the reviewer's findings and
@@ -109,12 +112,19 @@ Every plan contains:
   preserve unrelated changes and explore drift in a targeted way.
 - Implement only the approved scope, surfacing blockers and material deviations
   instead of silently broadening the change.
-- Follow `.claude/docs/security.md` and `.claude/docs/testing.md`; add tests for
-  changed behavior and run the prescribed validation.
+- Follow `.claude/docs/security.md` and `.claude/docs/testing.md`, and add tests
+  for changed behavior.
 - Update directly related documentation, and `.claude/docs/repo-map.md` when its
   inventory or data flows change.
-- Report changed behavior, security-relevant decisions, deviations and exact
-  validation results; never claim an unrun check passed.
+- Run every validation command the plan prescribes after the final relevant
+  edit, and rerun a failed command after its fix. A default
+  `scripts/check.sh` run never substitutes for a required `--integration` run.
+  Run the plan's cleanup command, such as `scripts/db.sh down`, even when
+  validation fails.
+- A required command that failed, was unavailable or was not run leaves the
+  implementation incomplete; report it that way rather than as done.
+- Report changed behavior, security-relevant decisions, deviations, and each
+  command run with its exact outcome; never claim an unrun check passed.
 - After validation, ask the actual user whether the specific plan file may be
   deleted. Never delete it automatically or treat implementation approval as
   deletion approval.
