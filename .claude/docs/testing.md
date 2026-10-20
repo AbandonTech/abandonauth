@@ -128,7 +128,9 @@ deployment image must each fail for that reason, start no API, write no row and
 repeat neither the refused value nor the database password; a successful run
 must finish before the API starts, write exactly the owner, application and
 callback, give an origin with and without a trailing slash the same callback,
-change nothing when run again, and receive only `DATABASE_URL` and `DEBUG`.
+change nothing when run again, and receive only `DATABASE_URL` and `DEBUG`. The
+API it gates must then be exactly `/usr/local/bin/abandonauth serve`, log its
+ordinary `serving` event, and publish no host port.
 That runs in the check's own Compose project; the template the tests clone is
 migrated and never provisioned, so each integration test owns its rows. Inside
 the container, `scripts/containercheck.sh` takes the template through a no-op

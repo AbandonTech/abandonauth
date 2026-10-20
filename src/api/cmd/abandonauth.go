@@ -79,7 +79,6 @@ const (
 // exercised without opening a listener or a database connection.
 type operations interface {
 	Serve(ctx context.Context, configuration config.Config) error
-	Maintenance(ctx context.Context, address string) error
 	RotateAuthority(ctx context.Context, configuration config.Config) error
 	Provision(
 		ctx context.Context, databaseURL config.Secret, applicationID uuid.UUID, callback string,
@@ -107,7 +106,6 @@ func newCommand(perform operations) *cli.Command {
 		EnableShellCompletion: true,
 		Commands: []*cli.Command{
 			serveCommand(perform),
-			maintenanceCommand(perform),
 			databaseCommand(perform),
 			provisionCommand(perform),
 		},
@@ -138,24 +136,6 @@ func serveCommand(perform operations) *cli.Command {
 	}
 }
 
-func maintenanceCommand(perform operations) *cli.Command {
-	return &cli.Command{
-		Name: "maintenance",
-		Usage: "answer every request with a temporary failure, " +
-			"for a deployment that must not serve",
-		Description: "Nothing is read from the database and no credential is accepted, so this command " +
-			"starts even when the settings a serving deployment needs are absent or wrong.",
-		Action: func(ctx context.Context, cmd *cli.Command) error {
-			address := cmd.String(flagBindAddress)
-			if address == "" {
-				address = config.DefaultBindAddress
-			}
-
-			return perform.Maintenance(ctx, address)
-		},
-	}
-}
-
 func databaseCommand(perform operations) *cli.Command {
 	return &cli.Command{
 		Name:  "database",
@@ -165,8 +145,8 @@ func databaseCommand(perform operations) *cli.Command {
 				Name:  "rotate-auth-epoch",
 				Usage: "withdraw every issued credential and install a new authority",
 				Description: "Every access token, login in progress, one-time code and browser session " +
-					"stops being accepted. Run it during a maintenance window, and after every change " +
-					"of the signing secret.",
+					"stops being accepted, so every browser must sign in again and every login in progress " +
+					"must start over. Run it after every change of the signing secret.",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					configuration, err := configure(cmd)
 					if err != nil {

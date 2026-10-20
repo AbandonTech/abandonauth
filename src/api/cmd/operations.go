@@ -84,28 +84,6 @@ func (service) Serve(ctx context.Context, configuration config.Config) error {
 	return err
 }
 
-// Maintenance answers every request with a temporary failure.
-//
-// It opens no database connection and reads no setting beyond the address, so a
-// deployment whose configuration is the reason it cannot serve can still put
-// this in front of its traffic.
-func (service) Maintenance(ctx context.Context, address string) error {
-	logger := logging.New(logging.Options{})
-
-	listener, err := listen(address)
-	if err != nil {
-		return err
-	}
-
-	logger.Info().
-		Str("build", buildmode.Name).
-		Str("version", version).
-		Str("address", listener.Addr().String()).
-		Msg("serving maintenance responses only")
-
-	return serveUntilStopped(ctx, logger, listener, web.MaintenanceHandler())
-}
-
 // RotateAuthority withdraws every credential the service has issued.
 func (service) RotateAuthority(ctx context.Context, configuration config.Config) error {
 	logger := loggerFor(configuration)

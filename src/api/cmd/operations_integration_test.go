@@ -229,49 +229,6 @@ func TestServingRefusesDatabaseItCannotOpen(t *testing.T) {
 	}
 }
 
-// Maintenance is what a failed deployment is switched to. It opens no database
-// connection, so it answers even when the reason for the failure is the
-// database itself.
-func TestMaintenanceAnswersEveryRequestWithoutDatabase(t *testing.T) {
-	t.Parallel()
-
-	address := freeAddress(t)
-
-	ctx, stop := context.WithCancel(t.Context())
-
-	stopped := make(chan error, 1)
-
-	go func() { stopped <- service{}.Maintenance(ctx, address) }()
-
-	waitUntilAccepting(t, address)
-
-	response, err := http.Get("http://" + address + "/developer_application")
-	if err != nil {
-		t.Fatalf("asking the maintenance listener: %v", err)
-	}
-
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusServiceUnavailable {
-		t.Errorf("maintenance answered %d, want %d", response.StatusCode, http.StatusServiceUnavailable)
-	}
-
-	if response.Header.Get("Retry-After") == "" {
-		t.Error("maintenance did not say when to come back")
-	}
-
-	stop()
-
-	select {
-	case err := <-stopped:
-		if err != nil {
-			t.Errorf("maintenance ended with %v, want a clean stop", err)
-		}
-	case <-time.After(settleTimeout):
-		t.Fatal("maintenance did not stop when its context was cancelled")
-	}
-}
-
 // Rotating the authority is how every credential this service has issued is
 // withdrawn at once.
 func TestRotatingAuthoritySucceedsOnMigratedDatabase(t *testing.T) {

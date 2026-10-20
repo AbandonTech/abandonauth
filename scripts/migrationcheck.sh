@@ -219,6 +219,22 @@ provisioning_order() {
     [ "$(printf '%s\n%s\n' "$finished" "$started" | sort | head -n 1)" = "$finished" ] ||
         die "the API started before provisioning finished"
 
+    [ "$(docker inspect -f '{{.Path}} {{join .Args " "}}' "$api")" = "/usr/local/bin/abandonauth serve" ] ||
+        die "the gated API is not the service binary's serve command"
+
+    published=$(docker inspect -f '{{len .HostConfig.PortBindings}} {{.HostConfig.PublishAllPorts}}{{range $port, $bindings := .NetworkSettings.Ports}}{{if $bindings}} {{$port}}{{end}}{{end}}' "$api")
+    [ "$published" = "0 false" ] || die "the gated API publishes a port on the host"
+
+    # The event is logged once the database is open and the address is bound.
+    attempts=0
+    until project logs --no-color migration-gate-api 2>&1 | grep -q '"message":"serving"'; do
+        attempts=$((attempts + 1))
+        [ "$attempts" -lt 30 ] || die "the gated API never reported that it is serving"
+        [ "$(docker inspect -f '{{.State.Running}}' "$api")" = true ] ||
+            die "the gated API stopped before it reported that it is serving"
+        sleep 1
+    done
+
     [ "$(provisioned_rows)" = "1 1 1" ] || die "provisioning did not leave exactly one owner, application and callback"
 
     created=$(history_query "SELECT u.\"username\" || ' ' || a.\"name\" || ' ' || c.\"uri\"

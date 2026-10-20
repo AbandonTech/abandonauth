@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -57,10 +58,8 @@ func applyEnvironment(t *testing.T, environment map[string]string) {
 // opening a listener or a database connection.
 type recorder struct {
 	served              bool
-	maintained          bool
 	rotated             bool
 	provisioned         bool
-	maintenanceAddress  string
 	configuration       config.Config
 	databaseURL         config.Secret
 	applicationID       uuid.UUID
@@ -72,13 +71,6 @@ type recorder struct {
 func (r *recorder) Serve(_ context.Context, configuration config.Config) error {
 	r.served = true
 	r.configuration = configuration
-
-	return r.errorToReturnOnCall
-}
-
-func (r *recorder) Maintenance(_ context.Context, address string) error {
-	r.maintained = true
-	r.maintenanceAddress = address
 
 	return r.errorToReturnOnCall
 }
@@ -232,21 +224,6 @@ func TestInvalidSettingValueIsNotRepeatedInError(t *testing.T) {
 	}
 }
 
-func TestMaintenanceNeedsOnlyAddress(t *testing.T) {
-	perform, err := runCommand(t, "maintenance")
-	if err != nil {
-		t.Fatalf("maintenance failed with no settings configured: %v", err)
-	}
-
-	if !perform.maintained {
-		t.Fatal("maintenance did not run")
-	}
-
-	if perform.maintenanceAddress != config.DefaultBindAddress {
-		t.Errorf("maintenance address = %q, want %q", perform.maintenanceAddress, config.DefaultBindAddress)
-	}
-}
-
 func TestDatabaseCommands(t *testing.T) {
 	applyEnvironment(t, placeholderEnvironment())
 
@@ -268,8 +245,23 @@ func TestUnknownCommandIsRefused(t *testing.T) {
 		t.Fatal("an unknown command was accepted")
 	}
 
-	if perform.served || perform.rotated || perform.maintained {
+	if perform.served || perform.rotated || perform.provisioned {
 		t.Error("an unknown command ran one of the real commands")
+	}
+}
+
+// Every top-level command is one this service supports; anything else that
+// opened a listener would bypass the checks serving applies.
+func TestOnlySupportedCommandsAreRegistered(t *testing.T) {
+	want := []string{"serve", "database", "provision"}
+
+	var registered []string
+	for _, command := range newCommand(&recorder{}).Commands {
+		registered = append(registered, command.Name)
+	}
+
+	if !slices.Equal(registered, want) {
+		t.Errorf("registered commands = %v, want exactly %v", registered, want)
 	}
 }
 

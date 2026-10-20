@@ -101,7 +101,8 @@ abandonauth database rotate-auth-epoch
 ```
 
 That withdraws every access token, login in progress, one-time code and browser
-session. Run it during a maintenance window; everyone signs in again afterwards.
+session: every browser must sign in again, and every login in progress must
+start over.
 
 ## Request limits
 
@@ -130,11 +131,6 @@ docker compose up --build -d
 
 It reads `.env` from the repository root. The database publishes no host port
 and is on a network the site does not join.
-
-The same image started with `abandonauth maintenance` answers every request
-with a 503 and `Retry-After`. It opens no database connection and reads no
-setting but the address, so it starts when the configuration itself is the
-problem.
 
 ## The database
 
@@ -194,10 +190,6 @@ backup. What each Down removes, with its data:
 `reset` remove both. `redo` removes and reapplies the newest migration, so it
 empties that migration's tables. Applying the auth-state migration again creates
 a new auth epoch, so no credential issued before its Down is accepted afterwards.
-
-To recover from a backup: serve `abandonauth maintenance`, restore a backup of
-this deployment's database, run `docker compose up --build -d`, and run
-`abandonauth database rotate-auth-epoch` if the signing secret changed.
 
 ## The site's application
 

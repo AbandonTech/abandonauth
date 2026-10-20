@@ -28,8 +28,8 @@ type AuthorityRotation struct {
 // earlier is accepted. On rollback, everything issued earlier still works. There
 // is no state where a token validates but the login that produced it is gone.
 //
-// It runs during a maintenance window: every signed-in browser has to sign in
-// again, and every login in progress has to be restarted.
+// Every signed-in browser has to sign in again, and every login in progress has
+// to be restarted.
 func RotateAuthority(ctx context.Context, pool *pgxpool.Pool) (AuthorityRotation, error) {
 	transaction, err := pool.Begin(ctx)
 	if err != nil {

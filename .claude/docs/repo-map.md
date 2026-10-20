@@ -32,9 +32,8 @@ are relative to `src/api/`.
 - `cmd/abandonauth.go` — commands, flags, environment binding, the version;
   secrets are environment-only and have no flag; `provision`'s two input modes,
   its origin check and the callback it derives
-- `cmd/operations.go` — `serve`, `maintenance`, `database rotate-auth-epoch`,
-  `provision`; the listener is opened before housekeeping starts, and both stop
-  together
+- `cmd/operations.go` — `serve`, `database rotate-auth-epoch`, `provision`; the
+  listener is opened before housekeeping starts, and both stop together
 - `internal/config/` — validated immutable configuration, the default and
   maximum lifetimes; `PasswordSignInEnabled`; `ParseDatabaseURL` and
   `ParseSiteOrigin` for a command needing only those
@@ -128,7 +127,6 @@ endpoints that stop accepting credentials in
 - `internal/web/middleware.go` — panic recovery that never logs the value and
   never answers a committed response, request identifiers, request log
 - `internal/web/requestlimit.go` — applies the budgets
-- `internal/web/maintenance.go` — the static 503 a failed deployment serves
 - `internal/web/openapi.yaml` — the API contract, hand-maintained: the one
   OpenAPI document, with no `servers` and whole `/api` paths
 - `internal/web/apidocumentation.go` — embeds `openapi.yaml`, refuses a source
@@ -221,7 +219,9 @@ rewrite live data for no functional gain and is deliberately out of scope.
   `up` requests converging on one migration, a failed migration starting neither
   provisioning nor API, the password in neither Goose's arguments nor its log;
   refused provisioning starting no API and writing nothing, and provisioning
-  running once, before the API, with only its allowlisted settings
+  running once, before the API, with only its allowlisted settings; the gated
+  API is the service binary's `serve`, reports that it is serving, and publishes
+  no host port
 - `./scripts/containercheck.sh` — what runs inside the container: the Goose
   lifecycle on the template (no-op up, down, `down-to 0`, up), the tests, and
   the coverage gate

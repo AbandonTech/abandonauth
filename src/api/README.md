@@ -11,7 +11,6 @@ Settings, provider registration, deployment and the check commands are in the
 
 ```text
 abandonauth serve                          answer API requests
-abandonauth maintenance                    answer every request 503, opening no database connection
 abandonauth database rotate-auth-epoch     withdraw every issued credential
 abandonauth provision                      create the site's application, asking for its UUID and the site origin
 abandonauth provision --application-id <UUID> --site-url <ORIGIN>
