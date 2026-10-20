@@ -238,6 +238,9 @@ When to run which, and what to report, is in `.claude/docs/testing.md`.
 - `src/api/Dockerfile` — one build, two runtime targets: `deployment` (default)
   and `development`, built on the exact Go patch tag `go.mod` declares
 - `Dockerfile.test` — the image the container checks run in, on the same tag
+- `.gitattributes` — every text file is checked out with LF endings on every
+  platform, because the container checks copy the working tree into a Linux
+  image whose `sh` rejects CRLF
 - `.pre-commit-config.yaml` — whitespace checks and `scripts/check.sh`
 - `.github/workflows/check.yml` — the check pipeline, and the site's tests and
   build
