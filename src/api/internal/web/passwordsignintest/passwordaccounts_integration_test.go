@@ -193,11 +193,42 @@ func TestRefusedPasswordSaysNothingAboutAccount(t *testing.T) {
 		"password": developerPassword,
 	}).ExpectStatus(http.StatusUnauthorized)
 
-	wrongPassword.ExpectDetail("Invalid username or password")
-	noSuchAccount.ExpectDetail("Invalid username or password")
+	wrongPassword.ExpectDetail("Invalid user credentials")
+	noSuchAccount.ExpectDetail("Invalid user credentials")
+
+	if string(wrongPassword.Body) != string(noSuchAccount.Body) {
+		t.Errorf("a wrong password answers %s and an unknown account answers %s", wrongPassword.Body, noSuchAccount.Body)
+	}
+
+	if len(wrongPassword.Cookies) != 0 || len(noSuchAccount.Cookies) != 0 {
+		t.Error("a refused sign-in set a cookie")
+	}
 
 	if service.CookieValue(service.SessionCookieName()) != "" {
 		t.Error("a refused sign-in left the browser holding a session")
+	}
+}
+
+// A password no account can be created with is refused as a password, which is
+// a different answer from refusing a sign-in.
+func TestAccountCannotBeCreatedWithUnusablePassword(t *testing.T) {
+	t.Parallel()
+
+	service := developmentService(t)
+
+	unusable := map[string]string{
+		"empty":    "",
+		"too long": strings.Repeat("x", credentials.MaxSecretBytes+1),
+	}
+
+	for name, password := range unusable {
+		t.Run(name, func(t *testing.T) {
+			service.POSTJSON("/create_test_user", map[string]string{
+				"username": "a developer",
+				"password": password,
+			}).ExpectStatus(http.StatusBadRequest).
+				ExpectDetail("Invalid password")
+		})
 	}
 }
 

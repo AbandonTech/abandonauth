@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -54,11 +55,13 @@ type GoogleEndpoints struct {
 	JWKS      string
 }
 
-// Google signs a person in with their Google account, through OpenID Connect.
+// Google authenticates a user with their Google account, through OpenID
+// Connect.
 //
-// The identity token is the whole of the answer: this service reads who the
-// person is from claims it has verified the signature of, and never spends the
-// access token on a second request whose answer it could not check.
+// The identity token is the only identity source: this service reads the
+// subject and name from claims whose signature it has verified, and never
+// spends the access token on a second request whose response it could not
+// verify.
 type Google struct {
 	clientID     string
 	clientSecret config.Secret
@@ -107,8 +110,8 @@ func (g *Google) AuthorizationURL(state, challenge, nonce string) string {
 	})
 }
 
-// Identify exchanges an authorization code for the person it stands for, and
-// proves the identity token was issued by Google for this login.
+// Identify exchanges an authorization code for the authenticated identity, and
+// verifies the identity token was issued by Google for this login.
 func (g *Google) Identify(
 	ctx context.Context, code, verifier string, nonceDigest []byte,
 ) (accounts.Identity, error) {
@@ -168,6 +171,10 @@ type identityClaims struct {
 // string or a list of them.
 type audience []string
 
+// errInvalidAudienceClaimType replaces the JSON library's error, which can
+// quote the claim.
+var errInvalidAudienceClaimType = errors.New("invalid audience claim type")
+
 func (a *audience) UnmarshalJSON(raw []byte) error {
 	var single string
 	if err := json.Unmarshal(raw, &single); err == nil {
@@ -178,7 +185,7 @@ func (a *audience) UnmarshalJSON(raw []byte) error {
 
 	var many []string
 	if err := json.Unmarshal(raw, &many); err != nil {
-		return fmt.Errorf("the audience is neither a string nor a list: %w", err)
+		return errInvalidAudienceClaimType
 	}
 
 	*a = many
@@ -195,16 +202,20 @@ func (g *Google) verifyIdentityToken(
 
 	payload, err := keys.VerifySignature(ctx, identityToken)
 	if err != nil {
-		return identityClaims{}, fmt.Errorf("%w: the identity token is not signed by it", ErrProviderRefused)
+		return identityClaims{}, refused("identity token signature validation failed")
 	}
 
 	var claims identityClaims
 	if err := json.Unmarshal(payload, &claims); err != nil {
-		return identityClaims{}, fmt.Errorf("%w: the identity token is not the expected shape", ErrProviderRefused)
+		if errors.Is(err, errInvalidAudienceClaimType) {
+			return identityClaims{}, refused("invalid audience claim type")
+		}
+
+		return identityClaims{}, refused("invalid identity token claims")
 	}
 
 	if claims.Issuer != g.expected.Issuer {
-		return identityClaims{}, fmt.Errorf("%w: the identity token names another issuer", ErrProviderRefused)
+		return identityClaims{}, refused("identity token issuer mismatch")
 	}
 
 	if err := g.verifyAudience(claims); err != nil {
@@ -217,7 +228,7 @@ func (g *Google) verifyIdentityToken(
 
 	if claims.Nonce == "" ||
 		!credentials.Equal(nonceDigest, credentials.Digest(credentials.DomainIdentityNonce, claims.Nonce)) {
-		return identityClaims{}, fmt.Errorf("%w: the identity token belongs to another login", ErrProviderRefused)
+		return identityClaims{}, refused("identity token nonce mismatch")
 	}
 
 	if claims.Subject == "" || claims.Name == "" {
@@ -231,11 +242,11 @@ func (g *Google) verifyIdentityToken(
 	return claims, nil
 }
 
-// verifyAudience refuses a token that was not issued for this service.
+// verifyAudience refuses a token whose aud claim does not contain this
+// service's client ID.
 //
-// A token issued for several audiences must say which one it was authorised
-// for, and that has to be this service; a token that names an authorised party
-// at all must not name a different one.
+// A token with several audiences must carry an azp claim, and any non-empty azp
+// claim must equal this service's client ID.
 func (g *Google) verifyAudience(claims identityClaims) error {
 	intended := false
 
@@ -246,15 +257,15 @@ func (g *Google) verifyAudience(claims identityClaims) error {
 	}
 
 	if !intended {
-		return fmt.Errorf("%w: the identity token was issued for another application", ErrProviderRefused)
+		return refused("identity token audience mismatch")
 	}
 
 	if len(claims.Audience) > 1 && claims.AuthorizedTo == "" {
-		return fmt.Errorf("%w: the identity token does not say who it was authorised for", ErrProviderRefused)
+		return refused("identity token missing authorized party claim")
 	}
 
 	if claims.AuthorizedTo != "" && claims.AuthorizedTo != g.clientID {
-		return fmt.Errorf("%w: the identity token was authorised for another application", ErrProviderRefused)
+		return refused("identity token authorized party mismatch")
 	}
 
 	return nil
@@ -262,22 +273,22 @@ func (g *Google) verifyAudience(claims identityClaims) error {
 
 func (g *Google) verifyValidity(claims identityClaims) error {
 	if claims.ExpiresAt == nil || claims.IssuedAt == nil {
-		return fmt.Errorf("%w: the identity token does not say when it is valid", ErrProviderRefused)
+		return refused("identity token missing exp or iat claim")
 	}
 
 	now := g.now().UTC()
 
 	if now.After(time.Unix(*claims.ExpiresAt, 0).UTC().Add(maxIdentityClockSkew)) {
-		return fmt.Errorf("%w: the identity token has expired", ErrProviderRefused)
+		return refused("identity token expired")
 	}
 
 	if now.Before(time.Unix(*claims.IssuedAt, 0).UTC().Add(-maxIdentityClockSkew)) {
-		return fmt.Errorf("%w: the identity token was issued in the future", ErrProviderRefused)
+		return refused("identity token iat claim is in the future")
 	}
 
 	if claims.NotBefore != nil &&
 		now.Before(time.Unix(*claims.NotBefore, 0).UTC().Add(-maxIdentityClockSkew)) {
-		return fmt.Errorf("%w: the identity token is not valid yet", ErrProviderRefused)
+		return refused("identity token is not active")
 	}
 
 	return nil
@@ -288,12 +299,12 @@ func (g *Google) verifyValidity(claims identityClaims) error {
 func requireIdentityTokenAlgorithm(identityToken string) error {
 	parts := strings.Split(identityToken, ".")
 	if len(parts) != 3 {
-		return fmt.Errorf("%w: the identity token is not a signed token", ErrProviderRefused)
+		return refused("malformed identity token")
 	}
 
 	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return fmt.Errorf("%w: the identity token's header cannot be read", ErrProviderRefused)
+		return refused("invalid identity token header")
 	}
 
 	var header struct {
@@ -302,24 +313,22 @@ func requireIdentityTokenAlgorithm(identityToken string) error {
 	}
 
 	if err := json.Unmarshal(raw, &header); err != nil {
-		return fmt.Errorf("%w: the identity token's header cannot be read", ErrProviderRefused)
+		return refused("invalid identity token header")
 	}
 
 	if header.Algorithm != identityTokenAlgorithm {
-		return fmt.Errorf("%w: the identity token is signed with an algorithm this service does not accept",
-			ErrProviderRefused)
+		return refused("unsupported identity token signing algorithm")
 	}
 
 	if len(header.Critical) > 0 {
-		return fmt.Errorf("%w: the identity token requires an extension this service does not implement",
-			ErrProviderRefused)
+		return refused("unsupported critical identity token header")
 	}
 
 	return nil
 }
 
-// verifyAccessTokenSum checks the identity token's claim about the access token
-// it came with. When the claim is absent the access token is simply not used
+// verifyAccessTokenSum checks the identity token's at_hash claim against the
+// access token returned with it. Without the claim the access token is not used
 // for anything, so there is nothing to bind.
 func verifyAccessTokenSum(claimed, accessToken string) error {
 	if claimed == "" {
@@ -327,23 +336,27 @@ func verifyAccessTokenSum(claimed, accessToken string) error {
 	}
 
 	if accessToken == "" {
-		return fmt.Errorf("%w: the identity token describes an access token that did not arrive",
-			ErrProviderRefused)
+		return refused("identity token at_hash has no access token")
 	}
 
 	digest := sha256.Sum256([]byte(accessToken))
 	expected := base64.RawURLEncoding.EncodeToString(digest[:len(digest)/2])
 
 	if !credentials.Equal([]byte(claimed), []byte(expected)) {
-		return fmt.Errorf("%w: the identity token does not match the access token it came with",
-			ErrProviderRefused)
+		return refused("identity token at_hash mismatch")
 	}
 
 	return nil
 }
 
-// keySet fetches the discovery document once and checks that it still describes
-// the Google this service was built against.
+// refused wraps ErrProviderRefused with one package-owned reason. No token,
+// claim value or provider response is ever appended.
+func refused(reason string) error {
+	return fmt.Errorf("%w: %s", ErrProviderRefused, reason)
+}
+
+// keySet fetches the discovery document once and checks that its issuer and
+// endpoints equal the compiled-in ones.
 func (g *Google) keySet(ctx context.Context) (*oidc.RemoteKeySet, error) {
 	g.discovery.Lock()
 	defer g.discovery.Unlock()
@@ -380,8 +393,7 @@ func (g *Google) keySet(ctx context.Context) (*oidc.RemoteKeySet, error) {
 		found.Authorize != g.expected.Authorize ||
 		found.Token != g.expected.Token ||
 		found.JWKS != g.expected.JWKS {
-		return nil, fmt.Errorf("%w: its published configuration is not the one this service was built for",
-			ErrProviderRefused)
+		return nil, refused("provider discovery configuration mismatch")
 	}
 
 	// The key set outlives the request that first needed it, because it caches

@@ -46,6 +46,17 @@ const (
 	typeTooLong     = "too_long"
 )
 
+// What a client is told about a refused input. None of them carries the value.
+const (
+	messageMissing     = "Field is required"
+	messageObjectType  = "Input must be a JSON object"
+	messageListType    = "Input must be a JSON array"
+	messageStringType  = "Input must be a string"
+	messageUUIDParsing = "Input must be a UUID"
+	messageJSONInvalid = "Invalid JSON"
+	messageTooLong     = "Request body exceeds 64 KiB limit"
+)
+
 // Inputs collects the values one handler reads and the refusals it accumulated.
 type Inputs struct {
 	request *http.Request
@@ -96,7 +107,7 @@ func (i *Inputs) DecodeObjectBody() {
 	}
 
 	if len(raw) == 0 {
-		i.record([]any{locationBody}, "Field required", typeMissing)
+		i.record([]any{locationBody}, messageMissing, typeMissing)
 
 		return
 	}
@@ -104,7 +115,7 @@ func (i *Inputs) DecodeObjectBody() {
 	var members map[string]json.RawMessage
 
 	if err := decodeExactlyOneValue(raw, &members); err != nil {
-		i.refuseDecodeError(err, typeObjectType, "Input should be a valid dictionary or object")
+		i.refuseDecodeError(err, typeObjectType, messageObjectType)
 
 		return
 	}
@@ -131,7 +142,7 @@ func (i *Inputs) DecodeOptionalObjectBody() bool {
 	var members map[string]json.RawMessage
 
 	if err := decodeExactlyOneValue(raw, &members); err != nil {
-		i.refuseDecodeError(err, typeObjectType, "Input should be a valid dictionary or object")
+		i.refuseDecodeError(err, typeObjectType, messageObjectType)
 
 		return false
 	}
@@ -154,7 +165,7 @@ func (i *Inputs) DecodeStringArrayBody() []string {
 	}
 
 	if len(raw) == 0 {
-		i.record([]any{locationBody}, "Field required", typeMissing)
+		i.record([]any{locationBody}, messageMissing, typeMissing)
 
 		return nil
 	}
@@ -162,7 +173,7 @@ func (i *Inputs) DecodeStringArrayBody() []string {
 	var elements []json.RawMessage
 
 	if err := decodeExactlyOneValue(raw, &elements); err != nil {
-		i.refuseDecodeError(err, typeListType, "Input should be a valid list")
+		i.refuseDecodeError(err, typeListType, messageListType)
 
 		return nil
 	}
@@ -173,7 +184,7 @@ func (i *Inputs) DecodeStringArrayBody() []string {
 		var value string
 
 		if err := json.Unmarshal(element, &value); err != nil {
-			i.record([]any{locationBody, index}, "Input should be a valid string", typeStringType)
+			i.record([]any{locationBody, index}, messageStringType, typeStringType)
 
 			continue
 		}
@@ -194,7 +205,7 @@ func (i *Inputs) BodyString(name string) string {
 	var value string
 
 	if err := json.Unmarshal(raw, &value); err != nil {
-		i.record([]any{locationBody, name}, "Input should be a valid string", typeStringType)
+		i.record([]any{locationBody, name}, messageStringType, typeStringType)
 
 		return ""
 	}
@@ -212,14 +223,14 @@ func (i *Inputs) BodyUUID(name string) uuid.UUID {
 	var value string
 
 	if err := json.Unmarshal(raw, &value); err != nil {
-		i.record([]any{locationBody, name}, "Input should be a valid string", typeStringType)
+		i.record([]any{locationBody, name}, messageStringType, typeStringType)
 
 		return uuid.Nil
 	}
 
 	parsed, err := uuid.Parse(value)
 	if err != nil {
-		i.record([]any{locationBody, name}, "Input should be a valid UUID", typeUUIDParsing)
+		i.record([]any{locationBody, name}, messageUUIDParsing, typeUUIDParsing)
 
 		return uuid.Nil
 	}
@@ -233,7 +244,7 @@ func (i *Inputs) PathUUID(name string) uuid.UUID {
 
 	parsed, err := uuid.Parse(value)
 	if err != nil {
-		i.record([]any{locationPath, name}, "Input should be a valid UUID", typeUUIDParsing)
+		i.record([]any{locationPath, name}, messageUUIDParsing, typeUUIDParsing)
 
 		return uuid.Nil
 	}
@@ -250,7 +261,7 @@ func (i *Inputs) PathString(name string) string {
 func (i *Inputs) Header(name string) string {
 	value := i.request.Header.Get(name)
 	if value == "" {
-		i.record([]any{locationHeader, strings.ToLower(name)}, "Field required", typeMissing)
+		i.record([]any{locationHeader, strings.ToLower(name)}, messageMissing, typeMissing)
 
 		return ""
 	}
@@ -262,7 +273,7 @@ func (i *Inputs) Header(name string) string {
 func (i *Inputs) Query(name string) string {
 	values, present := i.request.URL.Query()[name]
 	if !present || len(values) == 0 {
-		i.record([]any{locationQuery, name}, "Field required", typeMissing)
+		i.record([]any{locationQuery, name}, messageMissing, typeMissing)
 
 		return ""
 	}
@@ -279,7 +290,7 @@ func (i *Inputs) QueryUUID(name string) uuid.UUID {
 
 	parsed, err := uuid.Parse(value)
 	if err != nil {
-		i.record([]any{locationQuery, name}, "Input should be a valid UUID", typeUUIDParsing)
+		i.record([]any{locationQuery, name}, messageUUIDParsing, typeUUIDParsing)
 
 		return uuid.Nil
 	}
@@ -296,7 +307,7 @@ func (i *Inputs) bodyMember(name string) (json.RawMessage, bool) {
 
 	raw, present := i.body[name]
 	if !present || string(raw) == "null" {
-		i.record([]any{locationBody, name}, "Field required", typeMissing)
+		i.record([]any{locationBody, name}, messageMissing, typeMissing)
 
 		return nil, false
 	}
@@ -315,12 +326,12 @@ func (i *Inputs) readBody() ([]byte, bool) {
 	if err != nil {
 		var toolarge *http.MaxBytesError
 		if errors.As(err, &toolarge) {
-			i.record([]any{locationBody}, "Request body is too large", typeTooLong)
+			i.record([]any{locationBody}, messageTooLong, typeTooLong)
 
 			return nil, false
 		}
 
-		i.record([]any{locationBody}, "JSON decode error", typeJSONInvalid)
+		i.record([]any{locationBody}, messageJSONInvalid, typeJSONInvalid)
 
 		return nil, false
 	}
@@ -338,7 +349,7 @@ func (i *Inputs) refuseDecodeError(err error, wrongShapeType, wrongShapeMessage 
 		return
 	}
 
-	i.record([]any{locationBody}, "JSON decode error", typeJSONInvalid)
+	i.record([]any{locationBody}, messageJSONInvalid, typeJSONInvalid)
 }
 
 // decodeExactlyOneValue rejects trailing content after the value, which would

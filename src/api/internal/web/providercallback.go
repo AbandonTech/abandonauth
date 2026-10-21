@@ -93,7 +93,7 @@ func (s *Server) googleCallback() http.Handler {
 func (s *Server) abandonLogin(writer http.ResponseWriter, login oauth.Login) {
 	callback, err := urlpolicy.ParseCallbackURI(login.CallbackURI)
 	if err != nil {
-		response.Error(writer, http.StatusForbidden, detailUnknownApplicationOrCallback)
+		response.Error(writer, http.StatusForbidden, detailSignInValidationFailed)
 
 		return
 	}

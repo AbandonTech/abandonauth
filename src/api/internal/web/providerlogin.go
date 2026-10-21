@@ -14,13 +14,20 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/web/response"
 )
 
-// What a caller is told when a login cannot be started or finished. Every way
-// of getting it wrong receives the same words, so a caller cannot use the
-// difference to find out which application, callback or login exists.
+// What a caller is told when a login cannot be started or finished. At start,
+// an unknown application and an unregistered callback share one detail. Once a
+// callback begins consuming login state, every failure shares the other:
+// unknown, expired, replayed, browser-mismatched or provider-mismatched state,
+// a provider refusal, an incomplete identity and a stored callback that no
+// longer passes policy are indistinguishable.
 const (
-	detailUnknownApplicationOrCallback = "Invalid application ID or callback_uri"
-	detailNoSuchLogin                  = "This login could not be matched to one that was started here"
+	detailUnknownApplicationOrCallback = "Invalid application ID or callback URI"
+	detailSignInValidationFailed       = "Sign-in validation failed"
 )
+
+// messageUnknownProvider is the input refusal message for a provider path
+// value this service does not offer.
+const messageUnknownProvider = "Input must be discord, github, or google"
 
 // providerAuthorize starts a login with a provider.
 //
@@ -83,7 +90,7 @@ func readProviderLoginInputs(given *inputs.Inputs) providerLoginInputs {
 	if !known {
 		given.Refuse(response.Failure{
 			Location: []any{"path", "provider"},
-			Message:  "Input should be 'discord', 'github' or 'google'",
+			Message:  messageUnknownProvider,
 			Type:     "enum",
 		})
 	}
@@ -111,9 +118,9 @@ func (s *Server) authorizationURL(provider oauth.Provider, started oauth.Start) 
 // resumeLogin reads the state and the browser's cookie and spends the login
 // they name.
 //
-// It answers the request itself on every failure, always with the same words:
+// It answers the request itself on every failure, always with the same detail:
 // a state that was never issued, that has expired, that has already been used,
-// that belongs to another browser and that was started with another provider
+// that is bound to another browser and that was started with another provider
 // are indistinguishable from outside.
 func (s *Server) resumeLogin(
 	writer http.ResponseWriter, request *http.Request, provider oauth.Provider,
@@ -123,7 +130,7 @@ func (s *Server) resumeLogin(
 
 	login, err := s.logins.Consume(request.Context(), provider, state, binding)
 	if errors.Is(err, oauth.ErrNoSuchLogin) {
-		response.Error(writer, http.StatusForbidden, detailNoSuchLogin)
+		response.Error(writer, http.StatusForbidden, detailSignInValidationFailed)
 
 		return oauth.Login{}, "", false
 	}
@@ -154,14 +161,14 @@ func (s *Server) completeLogin(
 	if err != nil {
 		// The URI was accepted when it was registered. If it is no longer one
 		// this service will return a browser to, the login ends here.
-		response.Error(writer, http.StatusForbidden, detailUnknownApplicationOrCallback)
+		response.Error(writer, http.StatusForbidden, detailSignInValidationFailed)
 
 		return
 	}
 
 	person, err := s.accounts.Resolve(request.Context(), identity)
 	if errors.Is(err, accounts.ErrUnusableIdentity) {
-		response.Error(writer, http.StatusForbidden, detailUnknownApplicationOrCallback)
+		response.Error(writer, http.StatusForbidden, detailSignInValidationFailed)
 
 		return
 	}
@@ -205,14 +212,15 @@ func (s *Server) signInBrowser(
 	response.Redirect(writer, http.StatusTemporaryRedirect, destination)
 }
 
-// refuseProvider answers a login the provider did not complete. The provider's
-// own words are not repeated: they can quote the code that was sent.
+// refuseProvider answers a login the provider did not authenticate. Neither
+// the provider's response nor the internal reason is repeated or logged: either
+// can quote the code that was sent or a token claim.
 func (s *Server) refuseProvider(writer http.ResponseWriter, request *http.Request, err error) {
 	if errors.Is(err, providers.ErrProviderRefused) || errors.Is(err, providers.ErrUnusableIdentity) {
 		s.logger.Warn().
 			Str("request_id", requestIDOf(request)).
 			Msg("a provider did not complete a sign-in")
-		response.Error(writer, http.StatusForbidden, detailNoSuchLogin)
+		response.Error(writer, http.StatusForbidden, detailSignInValidationFailed)
 
 		return
 	}

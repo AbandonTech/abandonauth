@@ -16,16 +16,16 @@ import (
 // What a client is told when a one-time code cannot be spent. It is the same
 // whether the code never existed, has expired, has already been spent, or was
 // issued to a different application.
-const detailUnusableCode = "Token is not valid."
+const detailUnusableCode = "Invalid exchange code"
 
-// detailApplicationRejected is the answer to an application whose own
-// credentials were not accepted.
-const detailApplicationRejected = "Invalid username or refresh token"
+// detailApplicationRejected is the answer to developer application credentials
+// that were not accepted. It is the same for an unknown application ID and a
+// wrong refresh token.
+const detailApplicationRejected = "Invalid application credentials"
 
-// detailNoApplicationCredential is the answer to a request that did not say
-// which application is collecting the token.
-const detailNoApplicationCredential = "Either a developer application JWT must be given in headers " +
-	"or the developer application credentials must be passed in the request body"
+// detailNoApplicationCredential is the answer to a request that carries neither
+// a developer application access token nor developer application credentials.
+const detailNoApplicationCredential = "Application authentication required"
 
 // login spends a one-time code for an access token that identifies the person
 // who signed in.

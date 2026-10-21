@@ -1,10 +1,9 @@
 // Package tokens issues and verifies the access tokens this service signs.
 //
-// A token proves who is calling for the next fifteen minutes and nothing more.
-// It says which class it belongs to, which key signed it, who it was issued
-// for, which application may present it, and under which authority epoch it was
-// made; every one of those is checked on the way back in, and none of them is
-// taken from the token's own choice of algorithm or key.
+// An access token authenticates its principal for fifteen minutes and
+// authorizes nothing beyond its scope. Its header and claims state its class,
+// signing key ID, subject, audience and auth epoch; verification checks every
+// one of them, and neither the algorithm nor the key is selected by the token.
 //
 // Each class has exactly one shape: one key, one key identifier, one scope
 // string for a given audience, one rule for its audience and one for its
@@ -28,16 +27,17 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/services/keyring"
 )
 
-// Class says what kind of principal a token speaks for. A token of one class is
-// never accepted where the other is expected, because the two are signed with
-// different keys and name their class explicitly.
+// Class is the principal type an access token authenticates. A token of one
+// class is never accepted where the other is expected, because the two are
+// signed with different keys and carry their class in the token_type claim.
 type Class string
 
 // The classes of token this service issues.
 const (
-	// UserAccess speaks for a person, to the application named in its audience.
+	// UserAccess authenticates a user to the application in its audience claim.
 	UserAccess Class = "user_access"
-	// DeveloperApplicationAccess speaks for a developer application itself.
+	// DeveloperApplicationAccess authenticates a developer application as the
+	// principal.
 	DeveloperApplicationAccess Class = "developer_application_access"
 )
 
@@ -59,7 +59,7 @@ const MaxClockSkew = 30 * time.Second
 
 // Scopes a token can carry.
 const (
-	// ScopeIdentify permits reading who the token speaks for.
+	// ScopeIdentify authorizes reading the authenticated principal's identity.
 	ScopeIdentify = "identify"
 	// ScopeAbandonauth permits managing the caller's developer applications.
 	ScopeAbandonauth = "abandonauth"
@@ -69,27 +69,25 @@ const (
 // select how it is verified.
 var signingMethod = jwt.SigningMethodHS512
 
-// lifespan is the only accepted value of the lifespan claim. Values handed to a
-// client for a single exchange are opaque and are not tokens, so a token that
-// claims to be one of those is refused.
+// lifespan is the only accepted value of the lifespan claim. One-time exchange
+// codes are opaque values rather than JWTs, so any other lifespan is refused.
 const lifespan = "long"
 
-// Reasons a token is not accepted. Verify wraps one of them, and a caller that
-// answers a request maps both to the same refusal unless it means to tell a
-// client that its token has simply aged out.
+// Reasons a token is not accepted. Verify returns ErrExpired alone or wraps
+// ErrInvalid with one package-owned reason; a caller answering a request maps
+// both to the same refusal unless it reports expiry separately.
 var (
-	ErrInvalid = errors.New("the token is not valid")
-	ErrExpired = errors.New("the token has expired")
+	ErrInvalid = errors.New("invalid token")
+	ErrExpired = errors.New("expired token")
 )
 
-// Token is what a verified token says.
+// Token holds the verified claims of an access token.
 type Token struct {
 	Class    Class
 	Subject  uuid.UUID
 	Audience uuid.UUID
 
-	// Scopes are the exact words the token carries, in the order it carries
-	// them.
+	// Scopes are the exact entries of the scope claim, in claim order.
 	Scopes []string
 
 	// AuthEpoch is the authority the token was issued under. A caller compares
@@ -148,8 +146,8 @@ type Signer struct {
 	now                   func() time.Time
 }
 
-// classPolicy is the one shape a class of token has: what signs it, and what
-// its claims must say.
+// classPolicy is the one shape a class of token has: its signing key, and the
+// claim values it requires.
 type classPolicy struct {
 	keyID string
 	key   []byte
@@ -165,18 +163,18 @@ type classPolicy struct {
 // NewSigner builds the signer from the keys and identity of the service.
 func NewSigner(options Options) (*Signer, error) {
 	if options.Issuer == "" {
-		return nil, errors.New("tokens need an issuer")
+		return nil, errors.New("missing issuer")
 	}
 
 	if options.InternalApplicationID == uuid.Nil {
-		return nil, errors.New("tokens need the internal application to be identified")
+		return nil, errors.New("missing internal application ID")
 	}
 
 	userKey := options.Keys.UserAccessSigning()
 	developerKey := options.Keys.DeveloperAccessSigning()
 
 	if len(userKey) == 0 || len(developerKey) == 0 {
-		return nil, errors.New("tokens need signing keys")
+		return nil, errors.New("missing signing key")
 	}
 
 	now := options.Now
@@ -205,7 +203,7 @@ func NewSigner(options Options) (*Signer, error) {
 func (s *Signer) policyFor(class Class) (classPolicy, error) {
 	policy, known := s.classes[class]
 	if !known {
-		return classPolicy{}, errors.New("there is no such class of token")
+		return classPolicy{}, errors.New("unknown token class")
 	}
 
 	return policy, nil
@@ -223,9 +221,10 @@ func (s *Signer) classForKeyID(keyID string) (Class, bool) {
 	return "", false
 }
 
-// scopesFor is the one scope list a class carries for an audience. The site
-// itself needs to manage applications; an application acting for a person only
-// needs to identify them; an application acting for itself gets both.
+// scopesFor is the one scope list a class carries for an audience. A user token
+// for the site authorizes application management; a user token for any other
+// audience authorizes identification only; a developer application token
+// authorizes both.
 func (s *Signer) scopesFor(class Class, audience uuid.UUID) []string {
 	if class == DeveloperApplicationAccess || audience == s.internalApplicationID {
 		return []string{ScopeAbandonauth, ScopeIdentify}

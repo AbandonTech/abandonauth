@@ -30,7 +30,7 @@ func failureSummaries(failures []response.Failure) []string {
 			location = append(location, fmt.Sprintf("%v", part))
 		}
 
-		summaries = append(summaries, strings.Join(location, ".")+" "+failure.Type)
+		summaries = append(summaries, strings.Join(location, ".")+" "+failure.Type+": "+failure.Message)
 	}
 
 	return summaries
@@ -85,7 +85,7 @@ func TestEveryRefusedInputIsReported(t *testing.T) {
 	inputs.BodyString("refresh_token")
 
 	got := failureSummaries(inputs.Failures())
-	want := []string{"body.id missing", "body.refresh_token string_type"}
+	want := []string{"body.id missing: Field is required", "body.refresh_token string_type: Input must be a string"}
 
 	if !slices.Equal(got, want) {
 		t.Errorf("failures = %v, want %v", got, want)
@@ -100,12 +100,12 @@ func TestBodyFailures(t *testing.T) {
 		body string
 		want []string
 	}{
-		{name: "no body at all", body: "", want: []string{"body missing"}},
-		{name: "not JSON", body: "not json", want: []string{"body json_invalid"}},
-		{name: "truncated JSON", body: `{"id":`, want: []string{"body json_invalid"}},
-		{name: "a second document after the first", body: `{"id":"a"} {"id":"b"}`, want: []string{"body json_invalid"}},
-		{name: "an array where an object is expected", body: `["a"]`, want: []string{"body model_attributes_type"}},
-		{name: "a number where an object is expected", body: `7`, want: []string{"body model_attributes_type"}},
+		{name: "no body at all", body: "", want: []string{"body missing: Field is required"}},
+		{name: "not JSON", body: "not json", want: []string{"body json_invalid: Invalid JSON"}},
+		{name: "truncated JSON", body: `{"id":`, want: []string{"body json_invalid: Invalid JSON"}},
+		{name: "a second document after the first", body: `{"id":"a"} {"id":"b"}`, want: []string{"body json_invalid: Invalid JSON"}},
+		{name: "an array where an object is expected", body: `["a"]`, want: []string{"body model_attributes_type: Input must be a JSON object"}},
+		{name: "a number where an object is expected", body: `7`, want: []string{"body model_attributes_type: Input must be a JSON object"}},
 	}
 
 	for _, test := range tests {
@@ -131,7 +131,7 @@ func TestNullMemberIsTreatedAsAbsent(t *testing.T) {
 	inputs.DecodeObjectBody()
 	inputs.BodyString("name")
 
-	if got := failureSummaries(inputs.Failures()); !slices.Equal(got, []string{"body.name missing"}) {
+	if got := failureSummaries(inputs.Failures()); !slices.Equal(got, []string{"body.name missing: Field is required"}) {
 		t.Errorf("failures = %v", got)
 	}
 }
@@ -146,7 +146,7 @@ func TestMissingBodyIsRefusedOnlyOnce(t *testing.T) {
 	inputs.BodyUUID("id")
 	inputs.BodyString("refresh_token")
 
-	if got := failureSummaries(inputs.Failures()); !slices.Equal(got, []string{"body missing"}) {
+	if got := failureSummaries(inputs.Failures()); !slices.Equal(got, []string{"body missing: Field is required"}) {
 		t.Errorf("failures = %v", got)
 	}
 }
@@ -193,8 +193,46 @@ func TestOptionalBodyThatIsPresentIsStillChecked(t *testing.T) {
 		t.Error("a malformed optional body was reported as present")
 	}
 
-	if inputs.OK() {
-		t.Error("a malformed optional body was accepted")
+	if got := failureSummaries(inputs.Failures()); !slices.Equal(got, []string{"body json_invalid: Invalid JSON"}) {
+		t.Errorf("failures = %v", got)
+	}
+
+	wrongShape := request.New(post(`["placeholder"]`))
+
+	if wrongShape.DecodeOptionalObjectBody() {
+		t.Error("an optional body that is not an object was reported as present")
+	}
+
+	want := []string{"body model_attributes_type: Input must be a JSON object"}
+	if got := failureSummaries(wrongShape.Failures()); !slices.Equal(got, want) {
+		t.Errorf("failures = %v, want %v", got, want)
+	}
+}
+
+func TestUUIDMembersAndQueryParametersMustBeUUIDs(t *testing.T) {
+	t.Parallel()
+
+	body := request.New(post(`{"id":"placeholder"}`))
+	body.DecodeObjectBody()
+
+	if got := body.BodyUUID("id"); got != uuid.Nil {
+		t.Errorf("a refused member still produced %v", got)
+	}
+
+	want := []string{"body.id uuid_parsing: Input must be a UUID"}
+	if got := failureSummaries(body.Failures()); !slices.Equal(got, want) {
+		t.Errorf("failures = %v, want %v", got, want)
+	}
+
+	query := request.New(httptest.NewRequest(http.MethodGet, "/api/ui/discord/authorize?application_id=placeholder", nil))
+
+	if got := query.QueryUUID("application_id"); got != uuid.Nil {
+		t.Errorf("a refused query parameter still produced %v", got)
+	}
+
+	want = []string{"query.application_id uuid_parsing: Input must be a UUID"}
+	if got := failureSummaries(query.Failures()); !slices.Equal(got, want) {
+		t.Errorf("failures = %v, want %v", got, want)
 	}
 }
 
@@ -213,9 +251,9 @@ func TestStringArrayBody(t *testing.T) {
 			want: []string{"https://one.example.test/cb", "https://two.example.test/cb"},
 		},
 		{name: "an empty list", body: `[]`, want: []string{}},
-		{name: "no body", body: ``, fails: []string{"body missing"}},
-		{name: "an object", body: `{"uris":[]}`, fails: []string{"body list_type"}},
-		{name: "an element of the wrong type", body: `["https://one.example.test/cb",7]`, fails: []string{"body.1 string_type"}},
+		{name: "no body", body: ``, fails: []string{"body missing: Field is required"}},
+		{name: "an object", body: `{"uris":[]}`, fails: []string{"body list_type: Input must be a JSON array"}},
+		{name: "an element of the wrong type", body: `["https://one.example.test/cb",7]`, fails: []string{"body.1 string_type: Input must be a string"}},
 	}
 
 	for _, test := range tests {
@@ -247,12 +285,17 @@ func TestStringArrayBody(t *testing.T) {
 func TestBodyLargerThanLimitIsRefusedWithoutBeingBuffered(t *testing.T) {
 	t.Parallel()
 
+	// The refusal message states the limit in words, so the two must agree.
+	if request.MaxBodyBytes != 64<<10 {
+		t.Fatalf("MaxBodyBytes = %d, but the refusal message states 64 KiB", request.MaxBodyBytes)
+	}
+
 	oversized := `{"name":"` + strings.Repeat("a", int(request.MaxBodyBytes)+1) + `"}`
 
 	inputs := request.New(post(oversized))
 	inputs.DecodeObjectBody()
 
-	if got := failureSummaries(inputs.Failures()); !slices.Equal(got, []string{"body too_long"}) {
+	if got := failureSummaries(inputs.Failures()); !slices.Equal(got, []string{"body too_long: Request body exceeds 64 KiB limit"}) {
 		t.Errorf("failures = %v", got)
 	}
 }
@@ -283,7 +326,7 @@ func TestPathUUID(t *testing.T) {
 			got := inputs.PathUUID("application_id")
 
 			if test.refused {
-				if summaries := failureSummaries(inputs.Failures()); !slices.Equal(summaries, []string{"path.application_id uuid_parsing"}) {
+				if summaries := failureSummaries(inputs.Failures()); !slices.Equal(summaries, []string{"path.application_id uuid_parsing: Input must be a UUID"}) {
 					t.Errorf("failures = %v", summaries)
 				}
 
@@ -324,7 +367,7 @@ func TestRequiredHeader(t *testing.T) {
 	missing := request.New(post(""))
 	missing.Header("exchange-token")
 
-	if got := failureSummaries(missing.Failures()); !slices.Equal(got, []string{"header.exchange-token missing"}) {
+	if got := failureSummaries(missing.Failures()); !slices.Equal(got, []string{"header.exchange-token missing: Field is required"}) {
 		t.Errorf("failures = %v", got)
 	}
 }
@@ -345,7 +388,7 @@ func TestRequiredQueryParameter(t *testing.T) {
 	missing := request.New(httptest.NewRequest(http.MethodGet, "/api/google", nil))
 	missing.Query("code")
 
-	if got := failureSummaries(missing.Failures()); !slices.Equal(got, []string{"query.code missing"}) {
+	if got := failureSummaries(missing.Failures()); !slices.Equal(got, []string{"query.code missing: Field is required"}) {
 		t.Errorf("failures = %v", got)
 	}
 }

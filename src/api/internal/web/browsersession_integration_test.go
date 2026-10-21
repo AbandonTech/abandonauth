@@ -87,7 +87,7 @@ func TestChangingSomethingNeedsSitesOwnConfirmation(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			service.POSTJSON("/developer_application", map[string]string{"name": "unconfirmed"}, prepare).
 				ExpectStatus(http.StatusForbidden).
-				ExpectDetail("This request could not be confirmed as coming from the AbandonAuth site")
+				ExpectDetail("CSRF validation failed")
 		})
 	}
 
@@ -132,7 +132,7 @@ func TestLoggingOutEndsSessionForCopiedCookieToo(t *testing.T) {
 
 	service.GET("/me", servertest.Header("Cookie", service.SessionCookieName()+"="+copied)).
 		ExpectStatus(http.StatusForbidden).
-		ExpectDetail("Not authenticated")
+		ExpectDetail("Authentication required")
 
 	service.GET("/me").ExpectStatus(http.StatusForbidden)
 }
@@ -147,7 +147,8 @@ func TestLoggingOutNeedsSitesOwnConfirmation(t *testing.T) {
 
 	service.POSTJSON("/ui/logout", nil, func(request *http.Request) {
 		request.Header.Set("X-CSRF-Token", service.CookieValue(service.CSRFCookieName()))
-	}).ExpectStatus(http.StatusForbidden)
+	}).ExpectStatus(http.StatusForbidden).
+		ExpectDetail("CSRF validation failed")
 
 	service.GET("/me").ExpectStatus(http.StatusOK)
 }
@@ -162,7 +163,8 @@ func TestLoggingOutWithoutSessionIsRefused(t *testing.T) {
 	service.POSTJSON("/ui/logout", nil, func(request *http.Request) {
 		request.Header.Set("Origin", servertest.SiteOrigin)
 		request.Header.Set("X-CSRF-Token", "not-a-token")
-	}).ExpectStatus(http.StatusForbidden)
+	}).ExpectStatus(http.StatusForbidden).
+		ExpectDetail("Authentication required")
 
 	service.POSTJSON("/ui/logout", nil).ExpectRejectedInput("header", "x-csrf-token")
 }

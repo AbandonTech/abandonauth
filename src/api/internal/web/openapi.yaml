@@ -5,7 +5,7 @@ info:
   description: Identity provider and OAuth application broker.
 tags:
   - name: Users
-    description: The person a credential speaks for, and what that person owns.
+    description: The authenticated user, and the developer applications that user owns.
   - name: Authentication
     description: >-
       Starting provider sign-ins, spending one-time codes, withdrawing
@@ -27,18 +27,18 @@ paths:
   /api/me:
     get:
       tags: [Users]
-      summary: Identify the person behind a credential
+      summary: Describe the authenticated user
       description: >-
-        Describe the person a user access token or browser session speaks for.
+        Describe the user a user access token or browser session authenticates.
 
 
         With `UserAccessToken`, the token must carry the `identify` scope and
         its audience must be a developer application that is still registered;
-        a token issued to an application that has since been deleted is
-        refused. A developer application access token is refused here.
+        a token whose audience application has since been deleted is refused.
+        A developer application access token is refused here.
 
 
-        With `BrowserSession`, the session cookie alone identifies the person.
+        With `BrowserSession`, the session cookie alone authenticates the user.
         A request that sends an `Authorization` header is authenticated by that
         header and never by the cookie.
       security:
@@ -46,7 +46,7 @@ paths:
         - BrowserSession: []
       responses:
         "200":
-          description: The person the credential speaks for.
+          description: The authenticated user.
           content:
             application/json:
               schema:
@@ -71,7 +71,7 @@ paths:
         refused here.
 
 
-        With `BrowserSession`, the session cookie alone identifies the person.
+        With `BrowserSession`, the session cookie alone authenticates the user.
         A request that sends an `Authorization` header is authenticated by that
         header and never by the cookie.
       security:
@@ -97,23 +97,25 @@ paths:
       summary: Spend a one-time code for a user access token
       description: >-
         Spend the one-time code a provider callback returned the browser with,
-        for a user access token that identifies the person who signed in to the
-        collecting application. The token expires fifteen minutes after it is
-        issued.
+        for a user access token whose subject is the user who signed in and
+        whose audience is the collecting application. The token expires fifteen
+        minutes after it is issued.
 
 
-        Application proof is mandatory. The collecting application proves who
-        it is either with its own `DeveloperApplicationAccessToken` in the
-        `Authorization` header, or, when no `Authorization` header is sent,
+        Application proof is mandatory. The collecting application
+        authenticates either with its own `DeveloperApplicationAccessToken` in
+        the `Authorization` header, or, when no `Authorization` header is sent,
         with its `DeveloperApplicationCredentials` in the body. A present
         `Authorization` header takes precedence: if it is malformed or refused,
         the request is refused and never falls back to the body credentials.
         With no `Authorization` header and no body, or a body of JSON `null`,
         the request is refused with 401. A body that is present must carry both
-        `id` and `refresh_token`.
+        `id` and `refresh_token`; body credentials that are not accepted are
+        refused with the same 403 for an unknown application and a wrong
+        refresh token.
 
 
-        The code must have been issued to the application that proved itself.
+        The code must have been issued to the authenticated application.
         Spending it is one atomic delete, so a code is spent at most once: a
         replayed code, an expired code, a code issued to another application
         and a code never issued are all refused with the same 401, whether the
@@ -235,8 +237,8 @@ paths:
       summary: Exchange an application's refresh token for its access token
       description: >-
         Authenticate a developer application with its identifier and refresh
-        token. The answer is a developer application access token that speaks
-        for the application itself, is bound to the application's current
+        token. The answer is a developer application access token whose subject
+        is the application itself, is bound to the application's current
         credential version, and expires fifteen minutes after it is issued.
 
 
@@ -267,17 +269,17 @@ paths:
   /api/developer_application/me:
     get:
       tags: [Developer Applications]
-      summary: Identify the developer application behind its access token
+      summary: Describe the developer application its access token authenticates
       description: >-
         Describe the developer application a developer application access token
-        speaks for. Only `DeveloperApplicationAccessToken` is accepted: a user
+        authenticates. Only `DeveloperApplicationAccessToken` is accepted: a user
         access token and a browser session are refused. A token issued before
         the application's refresh token was last reset is refused.
       security:
         - DeveloperApplicationAccessToken: []
       responses:
         "200":
-          description: The application the token speaks for.
+          description: The authenticated developer application.
           content:
             application/json:
               schema:
@@ -437,7 +439,9 @@ paths:
 
         The set is replaced atomically, whole or not at all: one URI this
         service would not return a browser to is answered 400 and leaves the
-        application with the set it had. Replacements of one application's set
+        application with the set it had. The 400 names only the zero-based
+        index of the first refused URI in the submitted list, never the URI or
+        the rule it broke. Replacements of one application's set
         run one after the other under the application's row lock, so two
         arriving together leave one submitted set and never a mixture. An
         application somebody else owns, or one deleted before its set could be
@@ -511,7 +515,7 @@ paths:
 
         The `callback_uri` must exactly match one of the URIs the application
         registered, compared by its exact spelling; anything else is refused
-        with 403 before anything is stored, in the same words whether the
+        with 403 before anything is stored, with the same response whether the
         application or the callback is unknown.
 
 
@@ -560,6 +564,14 @@ paths:
         verifier held for that sign-in.
 
 
+        Every failure after the state is consumed is refused with that same
+        403 response: a provider that does not authenticate the user, a
+        provider identity that is incomplete or cannot be stored, and a stored
+        callback that no longer passes the callback URI policy, whether or not
+        the browser returned with an authorization code. Such a refusal
+        carries no redirect and issues no session or one-time code.
+
+
         The browser is returned to the exact registered callback spelling,
         with no existing byte rewritten. A sign-in for any developer
         application other than the AbandonAuth site appends only one
@@ -600,6 +612,14 @@ paths:
         another browser or was started with another provider is refused with
         the same 403. The authorization code is exchanged with the PKCE `S256`
         verifier held for that sign-in.
+
+
+        Every failure after the state is consumed is refused with that same
+        403 response: a provider that does not authenticate the user, a
+        provider identity that is incomplete or cannot be stored, and a stored
+        callback that no longer passes the callback URI policy, whether or not
+        the browser returned with an authorization code. Such a refusal
+        carries no redirect and issues no session or one-time code.
 
 
         The browser is returned to the exact registered callback spelling,
@@ -644,7 +664,15 @@ paths:
         verifier held for that sign-in.
 
 
-        Google's identity token is verified before anyone is signed in. Its
+        Every failure after the state is consumed is refused with that same
+        403 response: a provider that does not authenticate the user, a
+        provider identity that is incomplete or cannot be stored, and a stored
+        callback that no longer passes the callback URI policy, whether or not
+        the browser returned with an authorization code. Such a refusal
+        carries no redirect and issues no session or one-time code.
+
+
+        Google's identity token is verified before any user is authenticated. Its
         algorithm must be RS256 and nothing else, and its signature must verify
         against Google's published keys. Its issuer must be exactly
         `https://accounts.google.com`. Its audience must contain this service's
@@ -719,7 +747,8 @@ paths:
       summary: Create a password account for local development
       description: >-
         Development-only. Create an account that signs in with a password, for
-        local development without a provider.
+        local development without a provider. A password that cannot be stored,
+        because it is empty or longer than 72 bytes, is answered 400.
 
 
         This operation exists only in a development build compiled with the
@@ -799,10 +828,10 @@ components:
       bearerFormat: JWT
       description: >-
         A `user_access` token, sent in the `Authorization` header with the
-        `Bearer` scheme. It speaks for a person to the one developer
-        application named as its audience, is obtained at `POST /api/login`,
-        and expires fifteen minutes after it is issued. It can be withdrawn
-        early at `POST /api/burn-token`, and every token is withdrawn when the
+        `Bearer` scheme. Its subject is the authenticated user and its audience
+        is one developer application. It is obtained at `POST /api/login` and
+        expires fifteen minutes after it is issued. It can be withdrawn early
+        at `POST /api/burn-token`, and every token is withdrawn when the
         service's authority is rotated.
 
 
@@ -817,9 +846,10 @@ components:
       bearerFormat: JWT
       description: >-
         A `developer_application_access` token, sent in the `Authorization`
-        header with the `Bearer` scheme. It speaks for a developer application
-        itself: its subject is the application, its audience is the AbandonAuth
-        site, and it carries exactly the `abandonauth` and `identify` scopes. It
+        header with the `Bearer` scheme. It authenticates a developer
+        application as the principal: its subject is the application, its
+        audience is the AbandonAuth site, and it carries exactly the
+        `abandonauth` and `identify` scopes. It
         is obtained at `POST /api/developer_application/login`, expires fifteen
         minutes after it is issued, and is bound to the application's
         credential version, so resetting the refresh token refuses every token
@@ -835,9 +865,9 @@ components:
       in: cookie
       name: __Host-abandonauth_session
       description: >-
-        The browser session cookie set when a person signs in to the AbandonAuth
+        The browser session cookie set when a user signs in to the AbandonAuth
         site. The cookie holds a random value; the server stores only its
-        digest, with the person and a CSRF token digest. Expiry is absolute and
+        digest, with the user ID and a CSRF token digest. Expiry is absolute and
         is not extended by use. Logout deletes the session on the server.
 
 
@@ -1079,14 +1109,21 @@ components:
           type: string
     Failure:
       type: object
-      description: A refusal, with one explanation written by this service.
+      description: >-
+        A refusal, with one human-readable detail written by this service. The
+        detail never repeats a request value. It is not a stable
+        machine-readable code and may change; classify a refusal by its HTTP
+        status.
       required: [detail]
       properties:
         detail:
           type: string
     InputFailure:
       type: object
-      description: One input a request was refused for.
+      description: >-
+        One input a request was refused for. `loc` and `type` identify the
+        refusal; `msg` is human-readable, is not a stable machine-readable code
+        and may change.
       required: [loc, msg, type]
       properties:
         loc:
@@ -1100,8 +1137,12 @@ components:
               - type: integer
         msg:
           type: string
+          description: >-
+            A human-readable description of the refusal that never repeats the
+            refused value.
         type:
           type: string
+          description: The category of refusal, such as `missing` or `uuid_parsing`.
     Invalidated:
       type: object
       description: A refusal for the request's inputs, listing each one.
@@ -1120,16 +1161,25 @@ components:
           schema:
             $ref: "#/components/schemas/Failure"
     Unauthorized:
-      description: The credential or one-time code presented was not accepted.
+      description: >-
+        Application authentication was missing, or the credentials or one-time
+        exchange code presented were not accepted. An unknown principal and a
+        wrong credential receive the same response, as do an unknown, spent,
+        expired and misdirected exchange code.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Failure"
     Forbidden:
       description: >-
-        The request was refused: a credential was missing, malformed, expired,
-        withdrawn or of the wrong class, scope or audience, or a browser check
-        failed. The words never say whether an account or application exists.
+        Authentication or authorization failed: a credential was missing, the
+        `Authorization` header was malformed, an access token was expired,
+        invalid, withdrawn or of the wrong class, issuer, scope or audience, a
+        CSRF check failed, or a sign-in could not be started or validated. An
+        expired access token is reported separately; every other access token
+        refusal, including a withdrawn token, a stale auth epoch and a
+        principal that no longer exists, receives the same response. No
+        response reveals whether an account or application exists.
       content:
         application/json:
           schema:
@@ -1158,7 +1208,7 @@ components:
           schema:
             $ref: "#/components/schemas/Invalidated"
     TooManyRequests:
-      description: The signed-in person's budget for this kind of change is spent.
+      description: The authenticated user's rate limit for this kind of change is exceeded.
       headers:
         Retry-After:
           $ref: "#/components/headers/Retry-After"

@@ -37,11 +37,11 @@ const maxResponseBytes = 64 << 10
 //
 // It carries no detail from the provider: the body of a failed token exchange
 // can quote the authorization code that was sent.
-var ErrProviderRefused = errors.New("the identity provider did not complete the sign-in")
+var ErrProviderRefused = errors.New("identity provider authentication failed")
 
-// ErrUnusableIdentity reports that a provider answered with a person this
-// service cannot record.
-var ErrUnusableIdentity = errors.New("the identity provider described this person in a way this service cannot use")
+// ErrUnusableIdentity reports that a provider authenticated an identity this
+// service cannot record, because a required attribute is absent.
+var ErrUnusableIdentity = errors.New("identity provider returned incomplete identity")
 
 // newHTTPClient builds the client every provider call goes through.
 //

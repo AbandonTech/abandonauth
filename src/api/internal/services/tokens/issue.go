@@ -11,25 +11,27 @@ import (
 	"github.com/google/uuid"
 )
 
-// IssueUserAccess signs a token that speaks for a person to one application.
+// IssueUserAccess signs an access token authenticating a user to one audience
+// application.
 //
-// A token for the AbandonAuth site itself carries the scope that manages
-// developer applications; a token for any other application only identifies the
-// person, so an application cannot use a token it was given to act on its
-// owner's account.
+// A token whose audience is the AbandonAuth site carries the scope that
+// authorizes managing developer applications; a token for any other audience
+// authorizes identification only, so an application cannot use a token issued
+// to it to manage its owner's account.
 func (s *Signer) IssueUserAccess(subject, audience, authEpoch uuid.UUID) (string, Token, error) {
 	if subject == uuid.Nil {
-		return "", Token{}, errors.New("a user token needs a subject")
+		return "", Token{}, errors.New("user ID is nil")
 	}
 
 	if audience == uuid.Nil {
-		return "", Token{}, errors.New("a user token needs an audience")
+		return "", Token{}, errors.New("audience application ID is nil")
 	}
 
 	return s.issue(UserAccess, subject, audience, authEpoch, 0)
 }
 
-// IssueDeveloperApplicationAccess signs a token that speaks for an application.
+// IssueDeveloperApplicationAccess signs an access token authenticating a
+// developer application as the principal.
 //
 // The version is the application's credential version at the moment of issue.
 // Resetting the application's refresh token raises it, which is what stops a
@@ -38,11 +40,11 @@ func (s *Signer) IssueDeveloperApplicationAccess(
 	applicationID, authEpoch uuid.UUID, credentialVersion int64,
 ) (string, Token, error) {
 	if applicationID == uuid.Nil {
-		return "", Token{}, errors.New("an application token needs an application")
+		return "", Token{}, errors.New("developer application ID is nil")
 	}
 
 	if credentialVersion <= 0 {
-		return "", Token{}, errors.New("an application token needs a credential version")
+		return "", Token{}, errors.New("credential version must be positive")
 	}
 
 	return s.issue(DeveloperApplicationAccess, applicationID, s.internalApplicationID, authEpoch, credentialVersion)
@@ -54,7 +56,7 @@ func (s *Signer) issue(
 	credentialVersion int64,
 ) (string, Token, error) {
 	if authEpoch == uuid.Nil {
-		return "", Token{}, errors.New("a token needs the authority epoch it is issued under")
+		return "", Token{}, errors.New("auth epoch is nil")
 	}
 
 	policy, err := s.policyFor(class)
@@ -64,7 +66,7 @@ func (s *Signer) issue(
 
 	identifier, err := uuid.NewRandom()
 	if err != nil {
-		return "", Token{}, fmt.Errorf("generating a token identifier: %w", err)
+		return "", Token{}, fmt.Errorf("generating token ID: %w", err)
 	}
 
 	scopes := s.scopesFor(class, audience)
@@ -95,7 +97,7 @@ func (s *Signer) issue(
 
 	raw, err := signed.SignedString(policy.key)
 	if err != nil {
-		return "", Token{}, fmt.Errorf("signing a token: %w", err)
+		return "", Token{}, fmt.Errorf("signing token: %w", err)
 	}
 
 	return raw, Token{

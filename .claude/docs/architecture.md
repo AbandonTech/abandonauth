@@ -91,7 +91,15 @@ audience containing the client identifier, nonce, and mandatory `exp` and `iat`
 within thirty seconds. Multiple audiences require a non-empty `azp` equal to the
 client identifier, and any other non-empty `azp` must equal it too; a non-empty
 `at_hash` must match the provider access token; `nbf` is enforced whenever
-present. An empty or null `azp` or `at_hash` decodes as absent.
+present. An empty or null `azp` or `at_hash` decodes as absent. A refused
+identity token is reduced to `providers.ErrProviderRefused` with a fixed,
+package-owned reason that quotes no claim, token or provider response.
+
+Once a callback has consumed the state, every failure is the same 403
+`Sign-in validation failed`: a provider that does not authenticate the user, a
+provider identity that is incomplete or cannot be stored, and a stored callback
+that no longer passes `internal/urlpolicy`. None of them redirects, creates a
+session or issues a code.
 
 | The login was for | The browser gets |
 | --- | --- |
@@ -139,15 +147,23 @@ stored with the session.
 
 ## Tokens, budgets, and expiry
 
-- Two access token classes, never interchangeable: one for a person, one for a
-  developer application. `internal/services/keyring` derives their signing keys
+- Two access token classes, never interchangeable: one authenticates a user,
+  whose ID is the subject claim, to the application in its audience claim; the
+  other authenticates a developer application as the principal, with the site
+  as its audience. `internal/services/keyring` derives their signing keys
   separately from the signing root. Each class has one shape, held in
-  `internal/services/tokens`: its key and key identifier, the scope string it
-  carries for a given audience, whether its audience must be the site, and
-  whether it carries a credential version. A token is accepted only when every
-  claim is exactly that shape, with canonical non-nil identifiers and a validity
+  `internal/services/tokens`: its key and key ID, the scope string it carries
+  for a given audience, whether its audience must be the site, and whether it
+  carries a credential version claim. A token is accepted only when every claim
+  is exactly that shape, with canonical non-nil identifiers and a validity
   interval of exactly the access lifetime from the moment of issue.
-- A developer application's token carries the credential version it was issued
+- A refused token wraps `tokens.ErrInvalid` with one package-owned reason, or is
+  `tokens.ErrExpired`; JWT library text is never surfaced. Those reasons are
+  never written to a response or a log: `internal/web/authentication.go`
+  reports expiry as `Access token expired`, and every other refusal, including
+  a withdrawn token, a stale auth epoch, the wrong class or audience and a
+  principal that no longer exists, as `Invalid access token`.
+- A developer application token carries the credential version it was issued
   under, so resetting that credential refuses every token issued before.
 - Every check is measured against the auth epoch, which
   `database rotate-auth-epoch` replaces in one transaction holding its row lock,

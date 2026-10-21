@@ -11,11 +11,36 @@ import (
 	"github.com/google/uuid"
 )
 
+// Key ID failures raised inside the key lookup, so they can be told apart from
+// parser and signature failures without repeating the JWT library's text.
+var (
+	errMissingKeyID = errors.New("missing key ID")
+	errUnknownKeyID = errors.New("unknown key ID")
+)
+
+// Reasons an identifier claim is refused.
+var (
+	errInvalidUUID      = errors.New("invalid UUID")
+	errNilUUID          = errors.New("nil UUID")
+	errNonCanonicalUUID = errors.New("non-canonical UUID")
+)
+
+// invalid wraps ErrInvalid with one package-owned reason.
+func invalid(reason string) error {
+	return fmt.Errorf("%w: %s", ErrInvalid, reason)
+}
+
+// invalidIdentifierClaim wraps ErrInvalid with the claim and the identifier
+// rule it broke, never the claim's value.
+func invalidIdentifierClaim(claim string, reason error) error {
+	return fmt.Errorf("%w: invalid %s claim: %v", ErrInvalid, claim, reason)
+}
+
 // Verify checks a token's signature and every claim the service commits to, and
-// returns what it says.
+// returns its verified claims.
 func (s *Signer) Verify(raw string) (Token, error) {
 	if raw == "" {
-		return Token{}, fmt.Errorf("%w: it is empty", ErrInvalid)
+		return Token{}, invalid("empty token")
 	}
 
 	var (
@@ -34,12 +59,12 @@ func (s *Signer) Verify(raw string) (Token, error) {
 	_, err := parser.ParseWithClaims(raw, &body, func(token *jwt.Token) (any, error) {
 		identifier, present := token.Header["kid"].(string)
 		if !present {
-			return nil, errors.New("the token names no key")
+			return nil, errMissingKeyID
 		}
 
 		signedClass, known := s.classForKeyID(identifier)
 		if !known {
-			return nil, errors.New("the token names a key this service does not sign with")
+			return nil, errUnknownKeyID
 		}
 
 		policy, err := s.policyFor(signedClass)
@@ -51,59 +76,67 @@ func (s *Signer) Verify(raw string) (Token, error) {
 
 		return policy.key, nil
 	})
-	if err != nil {
-		return Token{}, fmt.Errorf("%w: %s", ErrInvalid, err)
+
+	switch {
+	case errors.Is(err, errMissingKeyID):
+		return Token{}, invalid("missing key ID")
+	case errors.Is(err, errUnknownKeyID):
+		return Token{}, invalid("unknown key ID")
+	case err != nil:
+		// The library's text can describe the token's contents, so it is
+		// replaced rather than appended.
+		return Token{}, invalid("malformed token or invalid signature")
 	}
 
 	return s.verifyClaims(body, class)
 }
 
 // verifyClaims requires the body to be exactly what this service issues for the
-// class the signing key named, claim by claim.
+// class the signing key ID selected, claim by claim.
 func (s *Signer) verifyClaims(body claims, class Class) (Token, error) {
 	policy, err := s.policyFor(class)
 	if err != nil {
-		return Token{}, fmt.Errorf("%w: %s", ErrInvalid, err)
+		return Token{}, invalid(err.Error())
 	}
 
 	if body.TokenType != string(class) {
-		return Token{}, fmt.Errorf("%w: its class does not match the key that signed it", ErrInvalid)
+		return Token{}, invalid("token type does not match signing key")
 	}
 
 	if body.Issuer != s.issuer {
-		return Token{}, fmt.Errorf("%w: it was not issued by this service", ErrInvalid)
+		return Token{}, invalid("issuer claim mismatch")
 	}
 
 	if body.Lifespan != lifespan {
-		return Token{}, fmt.Errorf("%w: it does not carry the lifespan of an access token", ErrInvalid)
+		return Token{}, invalid("invalid lifespan claim")
 	}
 
 	if body.Subject != body.UserID {
-		return Token{}, fmt.Errorf("%w: it does not agree on who it speaks for", ErrInvalid)
+		return Token{}, invalid("subject and user ID conflict")
 	}
 
 	subject, err := identifier(body.Subject)
 	if err != nil {
-		return Token{}, fmt.Errorf("%w: the subject is not an identifier", ErrInvalid)
+		return Token{}, invalidIdentifierClaim("subject", err)
 	}
 
 	audience, err := identifier(body.Audience)
 	if err != nil {
-		return Token{}, fmt.Errorf("%w: the audience is not an application", ErrInvalid)
+		return Token{}, invalidIdentifierClaim("audience", err)
 	}
 
 	if policy.internalAudience && audience != s.internalApplicationID {
-		return Token{}, fmt.Errorf("%w: it was issued to an application that may not present it", ErrInvalid)
+		return Token{}, invalid("audience does not identify internal application")
 	}
 
 	authEpoch, err := identifier(body.AuthEpoch)
 	if err != nil {
-		return Token{}, fmt.Errorf("%w: the authority epoch is not an identifier", ErrInvalid)
+		return Token{}, invalidIdentifierClaim("auth epoch", err)
 	}
 
 	tokenID, err := identifier(body.TokenID)
 	if err != nil {
-		return Token{}, fmt.Errorf("%w: it cannot be identified, so it could not be withdrawn", ErrInvalid)
+		return Token{}, invalidIdentifierClaim("token ID", err)
 	}
 
 	// The scope is compared as the one string this service writes, so a scope
@@ -111,7 +144,7 @@ func (s *Signer) verifyClaims(body claims, class Class) (Token, error) {
 	// without being split up and read.
 	scopes := s.scopesFor(class, audience)
 	if body.Scope != strings.Join(scopes, " ") {
-		return Token{}, fmt.Errorf("%w: it does not carry the scope of its class", ErrInvalid)
+		return Token{}, invalid("scope claim mismatch")
 	}
 
 	version, err := credentialVersionOf(body, policy)
@@ -137,31 +170,32 @@ func (s *Signer) verifyClaims(body claims, class Class) (Token, error) {
 	}, nil
 }
 
-// identifier reads a claim that must be a UUID spelled the one way this service
-// spells one, and that names something.
+// identifier reads a claim that must be a non-nil UUID in this service's
+// canonical lowercase hyphenated form. The UUID library's error is replaced,
+// because it can quote the value.
 func identifier(value string) (uuid.UUID, error) {
 	parsed, err := uuid.Parse(value)
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, errInvalidUUID
 	}
 
 	if parsed == uuid.Nil {
-		return uuid.Nil, errors.New("the identifier names nothing")
+		return uuid.Nil, errNilUUID
 	}
 
 	if parsed.String() != value {
-		return uuid.Nil, errors.New("the identifier is not spelled canonically")
+		return uuid.Nil, errNonCanonicalUUID
 	}
 
 	return parsed, nil
 }
 
 // verifyValidity checks that the token's interval is exactly the one this
-// service issues, starting when it was issued and lasting the access lifetime,
-// and that the clock is inside it.
+// service issues, starting at iat and lasting the access lifetime, and that the
+// clock is inside it.
 func (s *Signer) verifyValidity(body claims) (time.Time, time.Time, error) {
 	if body.IssuedAt == nil || body.NotBefore == nil || body.ExpiresAt == nil {
-		return time.Time{}, time.Time{}, fmt.Errorf("%w: it does not say when it is valid", ErrInvalid)
+		return time.Time{}, time.Time{}, invalid("missing exp, iat, or nbf claim")
 	}
 
 	issuedAt := timeFromSeconds(*body.IssuedAt)
@@ -169,13 +203,11 @@ func (s *Signer) verifyValidity(body claims) (time.Time, time.Time, error) {
 	expiresAt := timeFromSeconds(*body.ExpiresAt)
 
 	if !notBefore.Equal(issuedAt) {
-		return time.Time{}, time.Time{}, fmt.Errorf("%w: it is not valid from when it was issued", ErrInvalid)
+		return time.Time{}, time.Time{}, invalid("nbf and iat claims conflict")
 	}
 
 	if !expiresAt.Equal(issuedAt.Add(AccessLifetime)) {
-		return time.Time{}, time.Time{}, fmt.Errorf(
-			"%w: it does not live for exactly the access lifetime", ErrInvalid,
-		)
+		return time.Time{}, time.Time{}, invalid("exp does not equal iat plus access lifetime")
 	}
 
 	now := s.now().UTC()
@@ -185,26 +217,26 @@ func (s *Signer) verifyValidity(body claims) (time.Time, time.Time, error) {
 	}
 
 	if now.Before(issuedAt.Add(-MaxClockSkew)) {
-		return time.Time{}, time.Time{}, fmt.Errorf("%w: it was issued in the future", ErrInvalid)
+		return time.Time{}, time.Time{}, invalid("iat claim is in the future")
 	}
 
 	return issuedAt, expiresAt, nil
 }
 
-// credentialVersionOf reads the version an application token was issued
-// against, and refuses a token of a class that carries none but has one: it
-// would otherwise be a token about an application dressed as a person.
+// credentialVersionOf reads the credential version a developer application
+// token was issued against, and refuses the claim on a class that must omit it,
+// so a user token cannot carry developer application claims.
 func credentialVersionOf(body claims, policy classPolicy) (int64, error) {
 	if !policy.credentialVersion {
 		if body.CredentialVersion != nil {
-			return 0, fmt.Errorf("%w: it carries a credential version it has no use for", ErrInvalid)
+			return 0, invalid("unexpected credential version claim")
 		}
 
 		return 0, nil
 	}
 
 	if body.CredentialVersion == nil || *body.CredentialVersion <= 0 {
-		return 0, fmt.Errorf("%w: it does not say which credential it was issued against", ErrInvalid)
+		return 0, invalid("missing or invalid credential version claim")
 	}
 
 	return *body.CredentialVersion, nil

@@ -9,7 +9,9 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/abandontech/abandonauth/src/api/internal/config"
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
 	"github.com/abandontech/abandonauth/src/api/internal/services/providers/providertest"
 	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
@@ -227,8 +229,8 @@ func TestRegisteredCallbacksOwnQueryIsKept(t *testing.T) {
 	}
 }
 
-// A code is spent once. The second attempt is refused in the same words as one
-// that never existed.
+// A code is spent once. The second attempt is refused with the same response
+// as one that never existed.
 func TestOneTimeCodeIsSpentOnce(t *testing.T) {
 	t.Parallel()
 
@@ -246,13 +248,52 @@ func TestOneTimeCodeIsSpentOnce(t *testing.T) {
 	service.POSTJSON("/login", credentials, servertest.Header("exchange-token", code)).
 		ExpectStatus(http.StatusOK)
 
-	service.POSTJSON("/login", credentials, servertest.Header("exchange-token", code)).
+	replayed := service.POSTJSON("/login", credentials, servertest.Header("exchange-token", code)).
 		ExpectStatus(http.StatusUnauthorized).
-		ExpectDetail("Token is not valid.")
+		ExpectDetail("Invalid exchange code")
 
-	service.POSTJSON("/login", credentials, servertest.Header("exchange-token", "a-code-that-never-existed")).
+	unknown := service.POSTJSON("/login", credentials, servertest.Header("exchange-token", "a-code-that-never-existed")).
 		ExpectStatus(http.StatusUnauthorized).
-		ExpectDetail("Token is not valid.")
+		ExpectDetail("Invalid exchange code")
+
+	if !bytes.Equal(replayed.Body, unknown.Body) {
+		t.Errorf("a spent code was refused as %s, an unknown one as %s", replayed.Body, unknown.Body)
+	}
+}
+
+// A code that has outlived its lifetime is refused with the same response as
+// one that never existed.
+func TestExpiredOneTimeCodeIsRefusedAsUnknown(t *testing.T) {
+	t.Parallel()
+
+	// The shortest lifetime the service accepts.
+	service := servertest.New(t, servertest.WithSetting(func(settings *config.Settings) {
+		settings.ExchangeCodeSeconds = 1
+	}))
+	service.SignIn(service.Providers.Someone(oauth.Discord, "the owner"))
+
+	application := service.RegisterApplication("a relying application", externalCallbackURI)
+	code := signInToApplication(t, service, application, externalCallbackURI)
+
+	credentials := map[string]string{
+		"id":            application.ID.String(),
+		"refresh_token": application.RefreshToken,
+	}
+
+	// Expiry is measured by the database, so this waits for it rather than
+	// rewriting a row to look old.
+	time.Sleep(1100 * time.Millisecond)
+
+	expired := service.POSTJSON("/login", credentials, servertest.Header("exchange-token", code)).
+		ExpectStatus(http.StatusUnauthorized).
+		ExpectDetail("Invalid exchange code")
+
+	unknown := service.POSTJSON("/login", credentials, servertest.Header("exchange-token", "a-code-that-never-existed")).
+		ExpectStatus(http.StatusUnauthorized)
+
+	if !bytes.Equal(expired.Body, unknown.Body) {
+		t.Errorf("an expired code was refused as %s, an unknown one as %s", expired.Body, unknown.Body)
+	}
 }
 
 // A code buys one token. Two requests from the application it was issued to,
@@ -314,8 +355,8 @@ func TestOneOneTimeCodeIsSpentAtMostOnce(t *testing.T) {
 			switch err := json.Unmarshal(answer.body, &failed); {
 			case err != nil:
 				t.Error("a refused request did not answer in this service's failure shape")
-			case failed.Detail != "Token is not valid.":
-				t.Error("a request was refused for something other than the code being unusable")
+			case failed.Detail != "Invalid exchange code":
+				t.Error("a request was refused for something other than the exchange code being invalid")
 			}
 		default:
 			t.Errorf("spending a code answered %d", answer.status)
@@ -373,10 +414,19 @@ func TestOneTimeCodeIsSpentByApplicationItWasIssuedTo(t *testing.T) {
 
 	code := signInToApplication(t, service, intended, externalCallbackURI)
 
-	service.POSTJSON("/login",
+	misdirected := service.POSTJSON("/login",
 		map[string]string{"id": other.ID.String(), "refresh_token": other.RefreshToken},
 		servertest.Header("exchange-token", code),
-	).ExpectStatus(http.StatusUnauthorized).ExpectDetail("Token is not valid.")
+	).ExpectStatus(http.StatusUnauthorized).ExpectDetail("Invalid exchange code")
+
+	unknown := service.POSTJSON("/login",
+		map[string]string{"id": other.ID.String(), "refresh_token": other.RefreshToken},
+		servertest.Header("exchange-token", "a-code-that-never-existed"),
+	).ExpectStatus(http.StatusUnauthorized)
+
+	if !bytes.Equal(misdirected.Body, unknown.Body) {
+		t.Errorf("another application's code was refused as %s, an unknown one as %s", misdirected.Body, unknown.Body)
+	}
 
 	service.POSTJSON("/login",
 		map[string]string{"id": intended.ID.String(), "refresh_token": intended.RefreshToken},
@@ -384,20 +434,16 @@ func TestOneTimeCodeIsSpentByApplicationItWasIssuedTo(t *testing.T) {
 	).ExpectStatus(http.StatusOK)
 }
 
-// A provider that answers without a name for the person describes somebody this
-// service cannot record, and nobody is signed in.
+// A provider identity without a name is incomplete, so this service cannot
+// record it, and the callback is refused like any other validation failure.
 func TestPersonUnnamedByProviderIsNotSignedIn(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
 
 	started := service.StartLogin(oauth.Discord, service.Site.ApplicationID, service.Site.CallbackURI)
-	response := service.FinishLogin(started, providertest.Identity{ID: "4242424242", Username: ""}).
-		ExpectStatus(http.StatusForbidden)
-
-	if response.Cookie(service.SessionCookieName()) != nil {
-		t.Error("a person the provider could not name was signed in")
-	}
+	expectSignInValidationFailed(t, service,
+		service.FinishLogin(started, providertest.Identity{ID: "4242424242", Username: ""}))
 }
 
 // Nothing a provider sign-in handles reaches the log: not the authorization

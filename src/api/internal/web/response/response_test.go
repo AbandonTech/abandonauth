@@ -87,7 +87,7 @@ func TestErrorWritesDetailMember(t *testing.T) {
 
 	recorder := httptest.NewRecorder()
 
-	response.Error(recorder, http.StatusForbidden, "Invalid authentication credentials")
+	response.Error(recorder, http.StatusForbidden, "Invalid access token")
 
 	if recorder.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want %d", recorder.Code, http.StatusForbidden)
@@ -101,7 +101,7 @@ func TestErrorWritesDetailMember(t *testing.T) {
 		t.Fatalf("body is not the expected shape: %v (%q)", err, recorder.Body.String())
 	}
 
-	if body.Detail != "Invalid authentication credentials" {
+	if body.Detail != "Invalid access token" {
 		t.Errorf("detail = %q", body.Detail)
 	}
 }
@@ -151,6 +151,14 @@ func TestNotFoundAndMethodNotAllowed(t *testing.T) {
 			if body.Detail != test.wantDetail {
 				t.Errorf("detail = %q, want %q", body.Detail, test.wantDetail)
 			}
+
+			if got, want := recorder.Body.String(), `{"detail":"`+test.wantDetail+`"}`+"\n"; got != want {
+				t.Errorf("body = %q, want %q", got, want)
+			}
+
+			if got := recorder.Header().Get("Content-Type"); got != response.ContentTypeJSON {
+				t.Errorf("content type = %q, want %q", got, response.ContentTypeJSON)
+			}
 		})
 	}
 }
@@ -161,8 +169,8 @@ func TestInvalidListsEveryRejectedInput(t *testing.T) {
 	recorder := httptest.NewRecorder()
 
 	response.Invalid(recorder, []response.Failure{
-		{Location: []any{"body", "name"}, Message: "Field required", Type: "missing"},
-		{Location: []any{"path", "application_id"}, Message: "Input should be a valid UUID", Type: "uuid_parsing"},
+		{Location: []any{"body", "name"}, Message: "Field is required", Type: "missing"},
+		{Location: []any{"path", "application_id"}, Message: "Input must be a UUID", Type: "uuid_parsing"},
 	})
 
 	if recorder.Code != http.StatusUnprocessableEntity {
@@ -190,7 +198,7 @@ func TestInvalidListsEveryRejectedInput(t *testing.T) {
 		t.Errorf("location = %v, want [body name]", first.Location)
 	}
 
-	if first.Message != "Field required" || first.Type != "missing" {
+	if first.Message != "Field is required" || first.Type != "missing" {
 		t.Errorf("first failure = %+v", first)
 	}
 }
@@ -246,8 +254,16 @@ func TestTooManyRequestsRoundsWaitUpAndSaysNothingAboutCaller(t *testing.T) {
 
 			// The message must be the same for every caller: a different one
 			// for a known account would answer whether the account exists.
-			if body.Detail != "Too many requests. Try again later." {
+			if body.Detail != "Rate limit exceeded" {
 				t.Errorf("detail = %q", body.Detail)
+			}
+
+			if got := recorder.Body.String(); got != "{\"detail\":\"Rate limit exceeded\"}\n" {
+				t.Errorf("body = %q", got)
+			}
+
+			if got := recorder.Header().Get("Content-Type"); got != response.ContentTypeJSON {
+				t.Errorf("content type = %q, want %q", got, response.ContentTypeJSON)
 			}
 		})
 	}

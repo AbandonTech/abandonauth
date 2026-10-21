@@ -3,10 +3,13 @@
 package web_test
 
 import (
+	"bytes"
 	"net/http"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
 	"github.com/abandontech/abandonauth/src/api/internal/services/tokens"
@@ -14,8 +17,9 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
 )
 
-// A credential this service did not issue identifies nobody, and being refused
-// says only that.
+// A credential this service did not issue authenticates no principal. A
+// malformed Authorization header is reported as such; every unusable bearer
+// value is the same invalid access token.
 func TestIdentifyingSomebodyNeedsCredentialThisServiceIssued(t *testing.T) {
 	t.Parallel()
 
@@ -25,22 +29,22 @@ func TestIdentifyingSomebodyNeedsCredentialThisServiceIssued(t *testing.T) {
 		authorization string
 		detail        string
 	}{
-		"no credential at all": {authorization: "", detail: "Not authenticated"},
+		"no credential at all": {authorization: "", detail: "Authentication required"},
 		"another scheme": {
-			authorization: "Basic c29tZW9uZQ==", detail: "Invalid authentication credentials",
+			authorization: "Basic c29tZW9uZQ==", detail: "Invalid Authorization header",
 		},
 		"the scheme with no value": {
-			authorization: "Bearer", detail: "Invalid authentication credentials",
+			authorization: "Bearer", detail: "Invalid Authorization header",
 		},
 		"the scheme with only spaces": {
-			authorization: "Bearer    ", detail: "Invalid authentication credentials",
+			authorization: "Bearer    ", detail: "Invalid Authorization header",
 		},
 		"something that is not a token": {
-			authorization: "Bearer not-a-token", detail: "Invalid token format",
+			authorization: "Bearer not-a-token", detail: "Invalid access token",
 		},
 		"a token with a broken signature": {
 			authorization: "Bearer eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJzb21lb25lIn0.not-a-signature",
-			detail:        "Invalid token format",
+			detail:        "Invalid access token",
 		},
 	}
 
@@ -60,8 +64,8 @@ func TestIdentifyingSomebodyNeedsCredentialThisServiceIssued(t *testing.T) {
 	}
 }
 
-// The credential an application holds is the application's, not its user's.
-// Presenting it where a person is expected identifies nobody.
+// A developer application access token authenticates the application, not its
+// owner. Presenting it where a user principal is required authenticates no one.
 func TestApplicationsOwnCredentialIdentifiesNoPerson(t *testing.T) {
 	t.Parallel()
 
@@ -73,14 +77,14 @@ func TestApplicationsOwnCredentialIdentifiesNoPerson(t *testing.T) {
 
 	service.GET("/me", servertest.Bearer(token)).
 		ExpectStatus(http.StatusForbidden).
-		ExpectDetail("Invalid token format")
+		ExpectDetail("Invalid access token")
 
 	service.GET("/user/applications", servertest.Bearer(token)).
 		ExpectStatus(http.StatusForbidden)
 }
 
-// A token identifies a person to one application. When that application is
-// gone there is nobody for it to identify them to.
+// A user access token's audience is one application. Once that application is
+// deleted the audience check refuses the token.
 func TestTokenForApplicationThatIsGoneIdentifiesNobody(t *testing.T) {
 	t.Parallel()
 
@@ -106,11 +110,11 @@ func TestTokenForApplicationThatIsGoneIdentifiesNobody(t *testing.T) {
 
 	service.GET("/me", servertest.Bearer(granted.Token)).
 		ExpectStatus(http.StatusForbidden).
-		ExpectDetail("Invalid token format")
+		ExpectDetail("Invalid access token")
 }
 
-// An application collecting a token has to say who it is, and a code cannot be
-// spent by saying nothing.
+// An application collecting a token has to authenticate, and a code cannot be
+// spent without application authentication.
 func TestSpendingCodeRequiresApplicationToIdentifyItself(t *testing.T) {
 	t.Parallel()
 
@@ -122,14 +126,23 @@ func TestSpendingCodeRequiresApplicationToIdentifyItself(t *testing.T) {
 
 	service.POSTJSON("/login", nil, servertest.Header("exchange-token", code)).
 		ExpectStatus(http.StatusUnauthorized).
-		ExpectDetail("Either a developer application JWT must be given in headers " +
-			"or the developer application credentials must be passed in the request body")
+		ExpectDetail("Application authentication required")
 
-	service.POSTJSON("/login",
+	wrongCredential := service.POSTJSON("/login",
 		map[string]string{"id": application.ID.String(), "refresh_token": "not-the-credential"},
 		servertest.Header("exchange-token", code),
 	).ExpectStatus(http.StatusForbidden).
-		ExpectDetail("Invalid username or refresh token")
+		ExpectDetail("Invalid application credentials")
+
+	unknownApplication := service.POSTJSON("/login",
+		map[string]string{"id": uuid.NewString(), "refresh_token": application.RefreshToken},
+		servertest.Header("exchange-token", code),
+	).ExpectStatus(http.StatusForbidden)
+
+	if !bytes.Equal(unknownApplication.Body, wrongCredential.Body) {
+		t.Errorf("an unknown application was refused as %s, a wrong credential as %s",
+			unknownApplication.Body, wrongCredential.Body)
+	}
 
 	// The code was never spent by any of that, so it is still good.
 	service.POSTJSON("/login",
@@ -189,9 +202,9 @@ func TestSpendingCodeReadsRequestBeforeCredential(t *testing.T) {
 	).ExpectStatus(http.StatusOK)
 }
 
-// A person's token speaks for a person. Presenting it where an application is
-// expected identifies nobody, which is the mirror of an application's own
-// credential identifying no person.
+// A user access token authenticates a user. Presenting it where a developer
+// application principal is required authenticates no one, which is the mirror
+// of a developer application token authenticating no user.
 func TestPersonsCredentialIsNotApplicationsCredential(t *testing.T) {
 	t.Parallel()
 
@@ -205,11 +218,12 @@ func TestPersonsCredentialIsNotApplicationsCredential(t *testing.T) {
 
 	service.GET("/developer_application/me", servertest.Bearer(token)).
 		ExpectStatus(http.StatusForbidden).
-		ExpectDetail("Invalid token format")
+		ExpectDetail("Invalid access token")
 }
 
-// A token is good for a quarter of an hour. Once it has aged out the person
-// holding it is told that, rather than that it was never this service's.
+// An access token is valid for fifteen minutes. Once it has expired the client
+// is told so, which is the one refusal reported separately from an invalid
+// token.
 func TestAgedOutTokenIsRefusedAsExpired(t *testing.T) {
 	t.Parallel()
 
@@ -230,7 +244,7 @@ func TestAgedOutTokenIsRefusedAsExpired(t *testing.T) {
 
 	service.GET("/me", servertest.Bearer(token)).
 		ExpectStatus(http.StatusForbidden).
-		ExpectDetail("Token has expired")
+		ExpectDetail("Access token expired")
 }
 
 // heldClock is a clock the test moves itself. The service reads it while

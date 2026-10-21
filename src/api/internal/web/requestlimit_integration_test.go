@@ -18,7 +18,7 @@ import (
 const developerApplicationMutationLimit = 20
 
 // Creating, changing and deleting applications share one budget per user. When
-// it is spent the user is told to come back later and how long to wait.
+// it is spent the user is told the rate limit is exceeded and how long to wait.
 func TestChangingApplicationsRunsOut(t *testing.T) {
 	t.Parallel()
 
@@ -49,7 +49,7 @@ func TestChangingApplicationsRunsOut(t *testing.T) {
 
 	refused := service.DELETE("/developer_application/"+id, service.Protected).
 		ExpectStatus(http.StatusTooManyRequests).
-		ExpectDetail("Too many requests. Try again later.")
+		ExpectDetail("Rate limit exceeded")
 
 	seconds, err := strconv.Atoi(refused.Header.Get("Retry-After"))
 	if err != nil || seconds < 1 {

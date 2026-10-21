@@ -3,6 +3,7 @@ package tokens_test
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,16 @@ import (
 const (
 	rootSecret = "placeholder-signing-secret-placeholder-signing-secret-placeholder"
 	issuer     = "https://api.auth.example.test"
+)
+
+// Package-owned refusal reasons shared by several cases below.
+const (
+	malformedOrBadSignature = "malformed token or invalid signature"
+	scopeMismatch           = "scope claim mismatch"
+	typeMismatch            = "token type does not match signing key"
+	lifetimeMismatch        = "exp does not equal iat plus access lifetime"
+	timeClaimsConflict      = "nbf and iat claims conflict"
+	missingTimeClaim        = "missing exp, iat, or nbf claim"
 )
 
 var (
@@ -110,7 +121,7 @@ func decodeSegment(t *testing.T, segment string) map[string]any {
 }
 
 // resign rebuilds a token from altered claims, so a test can present a token
-// that is correctly signed but says something it should not.
+// that is correctly signed but carries claims this service does not issue.
 func resign(t *testing.T, key []byte, keyID string, header, claims map[string]any) string {
 	t.Helper()
 
@@ -131,6 +142,21 @@ func resign(t *testing.T, key []byte, keyID string, header, claims map[string]an
 	return raw
 }
 
+// resignWithoutKeyID rebuilds a token whose header has no kid member at all.
+func resignWithoutKeyID(t *testing.T, key []byte, claims map[string]any) string {
+	t.Helper()
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS512, jwt.MapClaims(claims))
+	delete(token.Header, "kid")
+
+	raw, err := token.SignedString(key)
+	if err != nil {
+		t.Fatalf("re-signing a token: %v", err)
+	}
+
+	return raw
+}
+
 func userKey(t *testing.T) []byte {
 	t.Helper()
 
@@ -140,6 +166,25 @@ func userKey(t *testing.T) []byte {
 	}
 
 	return keys.UserAccessSigning()
+}
+
+// expectInvalid requires a token to be refused as invalid for exactly the given
+// package-owned reason. Only the error is printed, never the token.
+func expectInvalid(t *testing.T, signer *tokens.Signer, raw, reason string) {
+	t.Helper()
+
+	_, err := signer.Verify(raw)
+	if err == nil {
+		t.Fatal("the token was accepted")
+	}
+
+	if !errors.Is(err, tokens.ErrInvalid) || errors.Is(err, tokens.ErrExpired) {
+		t.Errorf("error = %v, want it to be ErrInvalid alone", err)
+	}
+
+	if want := "invalid token: " + reason; err.Error() != want {
+		t.Errorf("error = %q, want %q", err.Error(), want)
+	}
 }
 
 func TestIssuedUserTokenCarriesEveryClaimServiceCommitsTo(t *testing.T) {
@@ -184,13 +229,13 @@ func TestIssuedUserTokenCarriesEveryClaimServiceCommitsTo(t *testing.T) {
 	}
 
 	if _, carried := claims["credential_version"]; carried {
-		t.Error("a user token carries a credential version, which belongs to an application")
+		t.Error("a user token carries a credential version claim, which belongs to a developer application token")
 	}
 }
 
-// The site itself needs to manage applications; an application acting for a
-// person only needs to identify them.
-func TestScopeDependsOnWhoTokenWasIssuedFor(t *testing.T) {
+// A user token for the site authorizes application management; a user token
+// for any other audience authorizes identification only.
+func TestScopeDependsOnTokenAudience(t *testing.T) {
 	t.Parallel()
 
 	signer := newSigner(t, newClock())
@@ -235,7 +280,7 @@ func TestIssuedApplicationTokenNamesApplicationAndItsCredentialVersion(t *testin
 	}
 }
 
-func TestVerifyingReturnsWhatTokenSays(t *testing.T) {
+func TestVerifyingReturnsTokenClaims(t *testing.T) {
 	t.Parallel()
 
 	at := newClock()
@@ -305,10 +350,17 @@ func TestTokensExpireAfterFixedAccessLifetime(t *testing.T) {
 
 	at.at = at.at.Add(tokens.AccessLifetime + tokens.MaxClockSkew + time.Second)
 
-	if _, err := signer.Verify(raw); err == nil {
+	_, err := signer.Verify(raw)
+	if err == nil {
 		t.Fatal("an expired token was accepted")
-	} else if !strings.Contains(err.Error(), "expired") {
-		t.Errorf("expiry error = %v, want it to name expiry", err)
+	}
+
+	if !errors.Is(err, tokens.ErrExpired) || errors.Is(err, tokens.ErrInvalid) {
+		t.Errorf("error = %v, want it to be ErrExpired alone", err)
+	}
+
+	if err.Error() != "expired token" {
+		t.Errorf("error = %q, want %q", err.Error(), "expired token")
 	}
 }
 
@@ -336,9 +388,7 @@ func TestVerificationToleratesOnlySmallClockDifference(t *testing.T) {
 
 	at.at = issued.Add(-tokens.MaxClockSkew - time.Second)
 
-	if _, err := signer.Verify(raw); err == nil {
-		t.Error("a token from beyond the tolerated skew in the future was accepted")
-	}
+	expectInvalid(t, signer, raw, "iat claim is in the future")
 }
 
 // alteredClaims returns a copy of issued claims with some changed. A nil value
@@ -363,7 +413,7 @@ func alteredClaims(base map[string]any, changes map[string]any) map[string]any {
 }
 
 // The positive controls for the refusals below: a token of either class, to
-// either audience, that this service issued verifies and says what it was
+// either audience, that this service issued verifies with the claims it was
 // issued with.
 func TestEveryShapeThisServiceIssuesVerifies(t *testing.T) {
 	t.Parallel()
@@ -375,17 +425,17 @@ func TestEveryShapeThisServiceIssuesVerifies(t *testing.T) {
 		class  tokens.Class
 		scopes []string
 	}{
-		"a person to the site": {
+		"a user token for the site": {
 			raw:    issueUserAccess(t, signer, internalApplication),
 			class:  tokens.UserAccess,
 			scopes: []string{"abandonauth", "identify"},
 		},
-		"a person to another application": {
+		"a user token for another application": {
 			raw:    issueUserAccess(t, signer, otherApplication),
 			class:  tokens.UserAccess,
 			scopes: []string{"identify"},
 		},
-		"an application to the site": {
+		"a developer application token for the site": {
 			raw:    issueDeveloperAccess(t, signer, otherApplication, 3),
 			class:  tokens.DeveloperApplicationAccess,
 			scopes: []string{"abandonauth", "identify"},
@@ -412,6 +462,13 @@ func TestEveryShapeThisServiceIssuesVerifies(t *testing.T) {
 	}
 }
 
+// refusal is a token a test presents and the exact reason it must be refused
+// for.
+type refusal struct {
+	raw    string
+	reason string
+}
+
 func TestTokenIsRefusedWhenAnythingAboutItIsWrong(t *testing.T) {
 	t.Parallel()
 
@@ -422,180 +479,153 @@ func TestTokenIsRefusedWhenAnythingAboutItIsWrong(t *testing.T) {
 	genuine := issueUserAccess(t, signer, otherApplication)
 	header, base := decodeParts(t, genuine)
 
-	altered := func(changes map[string]any) map[string]any {
-		return alteredClaims(base, changes)
+	altered := func(changes map[string]any) string {
+		return resign(t, key, tokens.UserAccessKeyID, header, alteredClaims(base, changes))
 	}
 
 	_, toSite := decodeParts(t, issueUserAccess(t, signer, internalApplication))
 
-	tests := map[string]string{
-		"empty":                "",
-		"not a token":          "placeholder",
-		"two parts":            strings.Join(strings.Split(genuine, ".")[:2], "."),
-		"truncated":            genuine[:len(genuine)-4],
-		"altered signature":    withAlteredSignature(genuine),
-		"signed with the root": resign(t, []byte(rootSecret), tokens.UserAccessKeyID, header, base),
-		"signed with the developer key": resign(
-			t, developerKey(t), tokens.UserAccessKeyID, header, base,
-		),
-		"unknown key id":  resign(t, key, "abandonauth-unknown-v1", header, base),
-		"no key id":       resign(t, key, "", header, base),
-		"wrong issuer":    resign(t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"iss": "https://elsewhere.example.test"})),
-		"missing issuer":  resign(t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"iss": nil})),
-		"missing subject": resign(t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"sub": nil})),
-		"subject and user_id disagree": resign(
-			t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"sub": person.String() + "x"}),
-		),
-		"subject is not a uuid": resign(
-			t, key, tokens.UserAccessKeyID, header,
+	alteredToSite := func(changes map[string]any) string {
+		return resign(t, key, tokens.UserAccessKeyID, header, alteredClaims(toSite, changes))
+	}
+
+	tests := map[string]refusal{
+		"empty":                {"", "empty token"},
+		"not a token":          {"placeholder", malformedOrBadSignature},
+		"two parts":            {strings.Join(strings.Split(genuine, ".")[:2], "."), malformedOrBadSignature},
+		"truncated":            {genuine[:len(genuine)-4], malformedOrBadSignature},
+		"altered signature":    {withAlteredSignature(genuine), malformedOrBadSignature},
+		"signed with the root": {resign(t, []byte(rootSecret), tokens.UserAccessKeyID, header, base), malformedOrBadSignature},
+		"signed with the developer key": {
+			resign(t, developerKey(t), tokens.UserAccessKeyID, header, base), malformedOrBadSignature,
+		},
+		"unknown key id": {resign(t, key, "abandonauth-unknown-v1", header, base), "unknown key ID"},
+		"empty key id":   {resign(t, key, "", header, base), "unknown key ID"},
+		"no key id":      {resignWithoutKeyID(t, key, base), "missing key ID"},
+		"wrong issuer":   {altered(map[string]any{"iss": "https://elsewhere.example.test"}), "issuer claim mismatch"},
+		"missing issuer": {altered(map[string]any{"iss": nil}), "issuer claim mismatch"},
+		"missing subject": {
+			altered(map[string]any{"sub": nil}), "subject and user ID conflict",
+		},
+		"subject and user_id conflict": {
+			altered(map[string]any{"sub": person.String() + "x"}), "subject and user ID conflict",
+		},
+		"subject is not a uuid": {
 			altered(map[string]any{"sub": "placeholder", "user_id": "placeholder"}),
-		),
-		"missing audience":       resign(t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"aud": nil})),
-		"audience is not a uuid": resign(t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"aud": "placeholder"})),
-		"audience is a list": resign(
-			t, key, tokens.UserAccessKeyID, header,
-			altered(map[string]any{"aud": []any{otherApplication.String()}}),
-		),
-		"missing token type": resign(t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"token_type": nil})),
-		"token type does not match the key": resign(
-			t, key, tokens.UserAccessKeyID, header,
-			altered(map[string]any{"token_type": string(tokens.DeveloperApplicationAccess)}),
-		),
-		"unknown token type": resign(
-			t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"token_type": "exchange"}),
-		),
-		"missing lifespan": resign(t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"lifespan": nil})),
-		"wrong lifespan":   resign(t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"lifespan": "short"})),
-		"missing jti":      resign(t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"jti": nil})),
-		"jti is not a uuid": resign(
-			t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"jti": "placeholder"}),
-		),
-		"missing scope":      resign(t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"scope": nil})),
-		"missing auth epoch": resign(t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"auth_epoch": nil})),
-		"auth epoch is not a uuid": resign(
-			t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"auth_epoch": "placeholder"}),
-		),
-		"missing expiry": resign(t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"exp": nil})),
-		"missing issued at": resign(
-			t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"iat": nil}),
-		),
-		"missing not before": resign(
-			t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"nbf": nil}),
-		),
-		"not yet valid": resign(
-			t, key, tokens.UserAccessKeyID, header,
-			altered(map[string]any{"nbf": float64(at.at.Add(time.Hour).Unix())}),
-		),
-		"lives longer than the access lifetime": resign(
-			t, key, tokens.UserAccessKeyID, header,
+			"invalid subject claim: invalid UUID",
+		},
+		"missing audience":       {altered(map[string]any{"aud": nil}), "invalid audience claim: invalid UUID"},
+		"audience is not a uuid": {altered(map[string]any{"aud": "placeholder"}), "invalid audience claim: invalid UUID"},
+		"audience is a list": {
+			altered(map[string]any{"aud": []any{otherApplication.String()}}), malformedOrBadSignature,
+		},
+		"missing token type": {altered(map[string]any{"token_type": nil}), typeMismatch},
+		"token type does not match the key": {
+			altered(map[string]any{"token_type": string(tokens.DeveloperApplicationAccess)}), typeMismatch,
+		},
+		"unknown token type": {altered(map[string]any{"token_type": "exchange"}), typeMismatch},
+		"missing lifespan":   {altered(map[string]any{"lifespan": nil}), "invalid lifespan claim"},
+		"wrong lifespan":     {altered(map[string]any{"lifespan": "short"}), "invalid lifespan claim"},
+		"missing jti":        {altered(map[string]any{"jti": nil}), "invalid token ID claim: invalid UUID"},
+		"jti is not a uuid":  {altered(map[string]any{"jti": "placeholder"}), "invalid token ID claim: invalid UUID"},
+		"missing scope":      {altered(map[string]any{"scope": nil}), scopeMismatch},
+		"missing auth epoch": {altered(map[string]any{"auth_epoch": nil}), "invalid auth epoch claim: invalid UUID"},
+		"auth epoch is not a uuid": {
+			altered(map[string]any{"auth_epoch": "placeholder"}), "invalid auth epoch claim: invalid UUID",
+		},
+		"missing expiry":     {altered(map[string]any{"exp": nil}), missingTimeClaim},
+		"missing issued at":  {altered(map[string]any{"iat": nil}), missingTimeClaim},
+		"missing not before": {altered(map[string]any{"nbf": nil}), missingTimeClaim},
+		"not yet valid": {
+			altered(map[string]any{"nbf": float64(at.at.Add(time.Hour).Unix())}), timeClaimsConflict,
+		},
+		"lives longer than the access lifetime": {
 			altered(map[string]any{"exp": float64(at.at.Add(tokens.AccessLifetime + time.Second).Unix())}),
-		),
-		"a user token carrying a credential version": resign(
-			t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"credential_version": float64(1)}),
-		),
-		"lives shorter than the access lifetime": resign(
-			t, key, tokens.UserAccessKeyID, header,
+			lifetimeMismatch,
+		},
+		"a user token carrying a credential version": {
+			altered(map[string]any{"credential_version": float64(1)}), "unexpected credential version claim",
+		},
+		"lives shorter than the access lifetime": {
 			altered(map[string]any{"exp": float64(at.at.Add(tokens.AccessLifetime - time.Second).Unix())}),
-		),
-		"issued at a time its expiry does not agree with": resign(
-			t, key, tokens.UserAccessKeyID, header,
+			lifetimeMismatch,
+		},
+		"an iat that exp does not match": {
 			altered(map[string]any{
 				"iat": float64(at.at.Add(-time.Minute).Unix()),
 				"nbf": float64(at.at.Add(-time.Minute).Unix()),
 			}),
-		),
-		"valid from later than it was issued": resign(
-			t, key, tokens.UserAccessKeyID, header,
-			altered(map[string]any{"nbf": float64(at.at.Add(time.Second).Unix())}),
-		),
-		"valid from before it was issued": resign(
-			t, key, tokens.UserAccessKeyID, header,
-			altered(map[string]any{"nbf": float64(at.at.Add(-time.Second).Unix())}),
-		),
-		"a scope this service does not issue": resign(
-			t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"scope": "identify admin"}),
-		),
-		"an unknown scope alone": resign(
-			t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"scope": "admin"}),
-		),
-		"the site's scope on a token to another application": resign(
-			t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"scope": "abandonauth identify"}),
-		),
-		"a scope repeated": resign(
-			t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"scope": "identify identify"}),
-		),
-		"a scope with leading whitespace": resign(
-			t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"scope": " identify"}),
-		),
-		"a scope with trailing whitespace": resign(
-			t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"scope": "identify "}),
-		),
-		"a scope in another case": resign(
-			t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"scope": "Identify"}),
-		),
-		"an empty scope": resign(
-			t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"scope": ""}),
-		),
-		"the site's scopes reordered": resign(
-			t, key, tokens.UserAccessKeyID, header, alteredClaims(toSite, map[string]any{"scope": "identify abandonauth"}),
-		),
-		"the site's scopes with two spaces": resign(
-			t, key, tokens.UserAccessKeyID, header, alteredClaims(toSite, map[string]any{"scope": "abandonauth  identify"}),
-		),
-		"only one of the site's scopes": resign(
-			t, key, tokens.UserAccessKeyID, header, alteredClaims(toSite, map[string]any{"scope": "identify"}),
-		),
-		"a subject that names nobody": resign(
-			t, key, tokens.UserAccessKeyID, header,
+			lifetimeMismatch,
+		},
+		"an nbf later than iat": {
+			altered(map[string]any{"nbf": float64(at.at.Add(time.Second).Unix())}), timeClaimsConflict,
+		},
+		"an nbf earlier than iat": {
+			altered(map[string]any{"nbf": float64(at.at.Add(-time.Second).Unix())}), timeClaimsConflict,
+		},
+		"a scope this service does not issue": {altered(map[string]any{"scope": "identify admin"}), scopeMismatch},
+		"an unknown scope alone":              {altered(map[string]any{"scope": "admin"}), scopeMismatch},
+		"the site's scope on a token to another application": {
+			altered(map[string]any{"scope": "abandonauth identify"}), scopeMismatch,
+		},
+		"a scope repeated":                  {altered(map[string]any{"scope": "identify identify"}), scopeMismatch},
+		"a scope with leading whitespace":   {altered(map[string]any{"scope": " identify"}), scopeMismatch},
+		"a scope with trailing whitespace":  {altered(map[string]any{"scope": "identify "}), scopeMismatch},
+		"a scope in another case":           {altered(map[string]any{"scope": "Identify"}), scopeMismatch},
+		"an empty scope":                    {altered(map[string]any{"scope": ""}), scopeMismatch},
+		"the site's scopes reordered":       {alteredToSite(map[string]any{"scope": "identify abandonauth"}), scopeMismatch},
+		"the site's scopes with two spaces": {alteredToSite(map[string]any{"scope": "abandonauth  identify"}), scopeMismatch},
+		"only one of the site's scopes":     {alteredToSite(map[string]any{"scope": "identify"}), scopeMismatch},
+		"a nil subject": {
 			altered(map[string]any{"sub": uuid.Nil.String(), "user_id": uuid.Nil.String()}),
-		),
-		"an audience that names nothing": resign(
-			t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"aud": uuid.Nil.String()}),
-		),
-		"an authority epoch that names nothing": resign(
-			t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"auth_epoch": uuid.Nil.String()}),
-		),
-		"an identifier that names nothing": resign(
-			t, key, tokens.UserAccessKeyID, header, altered(map[string]any{"jti": uuid.Nil.String()}),
-		),
-		"a subject in upper case": resign(
-			t, key, tokens.UserAccessKeyID, header,
+			"invalid subject claim: nil UUID",
+		},
+		"a nil audience": {
+			altered(map[string]any{"aud": uuid.Nil.String()}), "invalid audience claim: nil UUID",
+		},
+		"a nil auth epoch": {
+			altered(map[string]any{"auth_epoch": uuid.Nil.String()}), "invalid auth epoch claim: nil UUID",
+		},
+		"a nil token ID": {
+			altered(map[string]any{"jti": uuid.Nil.String()}), "invalid token ID claim: nil UUID",
+		},
+		"a subject in upper case": {
 			altered(map[string]any{
 				"sub":     strings.ToUpper(person.String()),
 				"user_id": strings.ToUpper(person.String()),
 			}),
-		),
-		"an audience with a urn prefix": resign(
-			t, key, tokens.UserAccessKeyID, header,
+			"invalid subject claim: non-canonical UUID",
+		},
+		"an audience with a urn prefix": {
 			altered(map[string]any{"aud": "urn:uuid:" + otherApplication.String()}),
-		),
-		"an audience in braces": resign(
-			t, key, tokens.UserAccessKeyID, header,
+			"invalid audience claim: non-canonical UUID",
+		},
+		"an audience in braces": {
 			altered(map[string]any{"aud": "{" + otherApplication.String() + "}"}),
-		),
-		"an authority epoch without hyphens": resign(
-			t, key, tokens.UserAccessKeyID, header,
+			"invalid audience claim: non-canonical UUID",
+		},
+		"an auth epoch without hyphens": {
 			altered(map[string]any{"auth_epoch": strings.ReplaceAll(epoch.String(), "-", "")}),
-		),
-		"an identifier in upper case": resign(
-			t, key, tokens.UserAccessKeyID, header,
+			"invalid auth epoch claim: non-canonical UUID",
+		},
+		"a token ID in upper case": {
 			altered(map[string]any{"jti": strings.ToUpper(base["jti"].(string))}),
-		),
+			"invalid token ID claim: non-canonical UUID",
+		},
 	}
 
-	for name, raw := range tests {
+	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			if _, err := signer.Verify(raw); err == nil {
-				t.Error("the token was accepted")
-			}
+			expectInvalid(t, signer, test.raw, test.reason)
 		})
 	}
 }
 
-// An application token has one shape too: signed with the application key, to
-// the site, with both scopes and a positive credential version.
+// A developer application token has one shape too: signed with the developer
+// application key, with the site as its audience, both scopes and a positive
+// credential version.
 func TestApplicationTokenIsRefusedWhenAnythingAboutItIsWrong(t *testing.T) {
 	t.Parallel()
 
@@ -606,57 +636,47 @@ func TestApplicationTokenIsRefusedWhenAnythingAboutItIsWrong(t *testing.T) {
 	genuine := issueDeveloperAccess(t, signer, otherApplication, 7)
 	header, base := decodeParts(t, genuine)
 
-	altered := func(changes map[string]any) map[string]any {
-		return alteredClaims(base, changes)
+	altered := func(changes map[string]any) string {
+		return resign(t, key, tokens.DeveloperAccessKeyID, header, alteredClaims(base, changes))
 	}
 
-	tests := map[string]string{
-		"signed with the user key": resign(t, userKey(t), tokens.DeveloperAccessKeyID, header, base),
-		"named as a user token": resign(
-			t, key, tokens.DeveloperAccessKeyID, header,
-			altered(map[string]any{"token_type": string(tokens.UserAccess)}),
-		),
-		"to another application": resign(
-			t, key, tokens.DeveloperAccessKeyID, header, altered(map[string]any{"aud": otherApplication.String()}),
-		),
-		"to itself": resign(
-			t, key, tokens.DeveloperAccessKeyID, header, altered(map[string]any{"aud": base["sub"]}),
-		),
-		"without a credential version": resign(
-			t, key, tokens.DeveloperAccessKeyID, header, altered(map[string]any{"credential_version": nil}),
-		),
-		"with a credential version of zero": resign(
-			t, key, tokens.DeveloperAccessKeyID, header, altered(map[string]any{"credential_version": float64(0)}),
-		),
-		"with a negative credential version": resign(
-			t, key, tokens.DeveloperAccessKeyID, header, altered(map[string]any{"credential_version": float64(-1)}),
-		),
-		"with only the identify scope": resign(
-			t, key, tokens.DeveloperAccessKeyID, header, altered(map[string]any{"scope": "identify"}),
-		),
-		"with its scopes reordered": resign(
-			t, key, tokens.DeveloperAccessKeyID, header, altered(map[string]any{"scope": "identify abandonauth"}),
-		),
-		"with an extra scope": resign(
-			t, key, tokens.DeveloperAccessKeyID, header, altered(map[string]any{"scope": "abandonauth identify admin"}),
-		),
-		"for an application that names nothing": resign(
-			t, key, tokens.DeveloperAccessKeyID, header,
+	const (
+		notInternal    = "audience does not identify internal application"
+		invalidVersion = "missing or invalid credential version claim"
+	)
+
+	tests := map[string]refusal{
+		"signed with the user key": {
+			resign(t, userKey(t), tokens.DeveloperAccessKeyID, header, base), malformedOrBadSignature,
+		},
+		"typed as a user token": {
+			altered(map[string]any{"token_type": string(tokens.UserAccess)}), typeMismatch,
+		},
+		"to another application":            {altered(map[string]any{"aud": otherApplication.String()}), notInternal},
+		"to itself":                         {altered(map[string]any{"aud": base["sub"]}), notInternal},
+		"without a credential version":      {altered(map[string]any{"credential_version": nil}), invalidVersion},
+		"with a credential version of zero": {altered(map[string]any{"credential_version": float64(0)}), invalidVersion},
+		"with a negative credential version": {
+			altered(map[string]any{"credential_version": float64(-1)}), invalidVersion,
+		},
+		"with only the identify scope": {altered(map[string]any{"scope": "identify"}), scopeMismatch},
+		"with its scopes reordered":    {altered(map[string]any{"scope": "identify abandonauth"}), scopeMismatch},
+		"with an extra scope":          {altered(map[string]any{"scope": "abandonauth identify admin"}), scopeMismatch},
+		"with a nil subject": {
 			altered(map[string]any{"sub": uuid.Nil.String(), "user_id": uuid.Nil.String()}),
-		),
-		"living longer than the access lifetime": resign(
-			t, key, tokens.DeveloperAccessKeyID, header,
+			"invalid subject claim: nil UUID",
+		},
+		"living longer than the access lifetime": {
 			altered(map[string]any{"exp": float64(at.at.Add(tokens.AccessLifetime + time.Second).Unix())}),
-		),
+			lifetimeMismatch,
+		},
 	}
 
-	for name, raw := range tests {
+	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			if _, err := signer.Verify(raw); err == nil {
-				t.Error("the token was accepted")
-			}
+			expectInvalid(t, signer, test.raw, test.reason)
 		})
 	}
 
@@ -666,8 +686,8 @@ func TestApplicationTokenIsRefusedWhenAnythingAboutItIsWrong(t *testing.T) {
 	}
 }
 
-// An application token names an application, so it must not be usable where a
-// person is expected, and the reverse.
+// A developer application token authenticates an application, so it must not
+// be accepted where a user principal is expected, and the reverse.
 func TestTwoTokenClassesCannotStandInForEachOther(t *testing.T) {
 	t.Parallel()
 
@@ -713,9 +733,7 @@ func TestOnlyOneSigningAlgorithmIsAccepted(t *testing.T) {
 		t.Fatalf("building an unsigned token: %v", err)
 	}
 
-	if _, err := signer.Verify(raw); err == nil {
-		t.Error("an unsigned token was accepted")
-	}
+	expectInvalid(t, signer, raw, malformedOrBadSignature)
 
 	weaker := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims(claims))
 	weaker.Header["kid"] = tokens.UserAccessKeyID
@@ -725,9 +743,7 @@ func TestOnlyOneSigningAlgorithmIsAccepted(t *testing.T) {
 		t.Fatalf("building a differently signed token: %v", err)
 	}
 
-	if _, err := signer.Verify(raw); err == nil {
-		t.Error("a token signed with another algorithm was accepted")
-	}
+	expectInvalid(t, signer, raw, malformedOrBadSignature)
 }
 
 // Rotating the root secret is how a deployment withdraws every token at once.
@@ -752,9 +768,7 @@ func TestTokensDoNotSurviveRootSecretChange(t *testing.T) {
 		t.Fatalf("building the signer: %v", err)
 	}
 
-	if _, err := after.Verify(raw); err == nil {
-		t.Error("a token issued under the previous root secret was accepted")
-	}
+	expectInvalid(t, after, raw, malformedOrBadSignature)
 }
 
 func TestSignerNeedsEverythingItSignsWith(t *testing.T) {
@@ -771,45 +785,88 @@ func TestSignerNeedsEverythingItSignsWith(t *testing.T) {
 		Keys:                  keys,
 	}
 
-	tests := map[string]func(*tokens.Options){
-		"no issuer":               func(o *tokens.Options) { o.Issuer = "" },
-		"no internal application": func(o *tokens.Options) { o.InternalApplicationID = uuid.Nil },
-		"no keys":                 func(o *tokens.Options) { o.Keys = keyring.Keyring{} },
+	tests := map[string]struct {
+		breakOne func(*tokens.Options)
+		want     string
+	}{
+		"no issuer": {func(o *tokens.Options) { o.Issuer = "" }, "missing issuer"},
+		"no internal application": {
+			func(o *tokens.Options) { o.InternalApplicationID = uuid.Nil }, "missing internal application ID",
+		},
+		"no keys": {func(o *tokens.Options) { o.Keys = keyring.Keyring{} }, "missing signing key"},
 	}
 
-	for name, breakOne := range tests {
+	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
 			options := complete
-			breakOne(&options)
+			test.breakOne(&options)
 
-			if _, err := tokens.NewSigner(options); err == nil {
-				t.Error("the signer was built")
+			_, err := tokens.NewSigner(options)
+			if err == nil {
+				t.Fatal("the signer was built")
+			}
+
+			if err.Error() != test.want {
+				t.Errorf("error = %q, want %q", err.Error(), test.want)
 			}
 		})
 	}
 }
 
-func TestSignerRefusesToIssueTokenForNobody(t *testing.T) {
+func TestSignerRefusesToIssueTokenWithNilIdentifier(t *testing.T) {
 	t.Parallel()
 
 	signer := newSigner(t, newClock())
 
-	if _, _, err := signer.IssueUserAccess(uuid.Nil, otherApplication, epoch); err == nil {
-		t.Error("a token was issued without a subject")
+	issueUser := func(subject, audience, authEpoch uuid.UUID) func() error {
+		return func() error {
+			_, _, err := signer.IssueUserAccess(subject, audience, authEpoch)
+
+			return err
+		}
 	}
 
-	if _, _, err := signer.IssueUserAccess(person, uuid.Nil, epoch); err == nil {
-		t.Error("a token was issued without an audience")
+	issueDeveloper := func(application, authEpoch uuid.UUID, version int64) func() error {
+		return func() error {
+			_, _, err := signer.IssueDeveloperApplicationAccess(application, authEpoch, version)
+
+			return err
+		}
 	}
 
-	if _, _, err := signer.IssueUserAccess(person, otherApplication, uuid.Nil); err == nil {
-		t.Error("a token was issued without an authority epoch")
+	tests := map[string]struct {
+		issue func() error
+		want  string
+	}{
+		"a user token with a nil subject":    {issueUser(uuid.Nil, otherApplication, epoch), "user ID is nil"},
+		"a user token with a nil audience":   {issueUser(person, uuid.Nil, epoch), "audience application ID is nil"},
+		"a user token with a nil auth epoch": {issueUser(person, otherApplication, uuid.Nil), "auth epoch is nil"},
+		"a developer application token with a nil application": {
+			issueDeveloper(uuid.Nil, epoch, 1), "developer application ID is nil",
+		},
+		"a developer application token with credential version zero": {
+			issueDeveloper(otherApplication, epoch, 0), "credential version must be positive",
+		},
+		"a developer application token with a nil auth epoch": {
+			issueDeveloper(otherApplication, uuid.Nil, 1), "auth epoch is nil",
+		},
 	}
 
-	if _, _, err := signer.IssueDeveloperApplicationAccess(otherApplication, epoch, 0); err == nil {
-		t.Error("an application token was issued without a credential version")
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			err := test.issue()
+			if err == nil {
+				t.Fatal("the token was issued")
+			}
+
+			if err.Error() != test.want {
+				t.Errorf("error = %q, want %q", err.Error(), test.want)
+			}
+		})
 	}
 }
 

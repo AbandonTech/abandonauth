@@ -3,6 +3,7 @@
 package web_test
 
 import (
+	"bytes"
 	"net/http"
 	"net/url"
 	"testing"
@@ -11,9 +12,10 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
 )
 
-// A token that has been withdrawn stops identifying anybody, straight away and
-// for the rest of the life it would have had.
-func TestWithdrawnTokenIdentifiesNobody(t *testing.T) {
+// A withdrawn access token stops authenticating its principal straight away and
+// for the rest of its lifetime, and its refusal is indistinguishable from any
+// other invalid access token.
+func TestWithdrawnTokenIsRefusedAsInvalid(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -40,9 +42,19 @@ func TestWithdrawnTokenIdentifiesNobody(t *testing.T) {
 		t.Errorf("withdrawing a token answered with %s, want nothing", withdrawn.Body)
 	}
 
-	service.GET("/me", servertest.Bearer(granted.Token)).
+	refused := service.GET("/me", servertest.Bearer(granted.Token)).
 		ExpectStatus(http.StatusForbidden).
-		ExpectDetail("Invalid token format")
+		ExpectDetail("Invalid access token")
+
+	forged := service.GET("/me", servertest.Bearer("not-a-token")).ExpectStatus(http.StatusForbidden)
+
+	if !bytes.Equal(refused.Body, forged.Body) {
+		t.Errorf("a withdrawn token was refused as %s, a forged token as %s", refused.Body, forged.Body)
+	}
+
+	if len(refused.Cookies) != 0 {
+		t.Errorf("refusing a withdrawn token set %d cookies, want none", len(refused.Cookies))
+	}
 }
 
 // A one-time code can be withdrawn before it is spent, and then it cannot be
@@ -58,36 +70,54 @@ func TestWithdrawnCodeCannotBeSpent(t *testing.T) {
 
 	service.POSTJSON("/burn-token", map[string]string{"token": code}).ExpectStatus(http.StatusOK)
 
-	service.POSTJSON("/login",
+	withdrawn := service.POSTJSON("/login",
 		map[string]string{"id": application.ID.String(), "refresh_token": application.RefreshToken},
 		servertest.Header("exchange-token", code),
-	).ExpectStatus(http.StatusUnauthorized).ExpectDetail("Token is not valid.")
+	).ExpectStatus(http.StatusUnauthorized).ExpectDetail("Invalid exchange code")
+
+	unknown := service.POSTJSON("/login",
+		map[string]string{"id": application.ID.String(), "refresh_token": application.RefreshToken},
+		servertest.Header("exchange-token", "a value that was never issued"),
+	).ExpectStatus(http.StatusUnauthorized)
+
+	if !bytes.Equal(withdrawn.Body, unknown.Body) {
+		t.Errorf("a withdrawn code was refused as %s, an unknown one as %s", withdrawn.Body, unknown.Body)
+	}
 }
 
-// The answer is the same whatever was presented, so the endpoint cannot be used
-// to find out which credentials are outstanding.
+// The answer is the same empty success whatever was presented, so the endpoint
+// cannot be used to find out which credentials are outstanding.
 func TestWithdrawingSomethingSaysNothingAboutIt(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
+	service.SignIn(service.Providers.Someone(oauth.Discord, "the owner"))
 
-	values := []string{
-		"a value that was never issued",
-		"eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJzb21lb25lIn0.not-a-signature",
-		"",
+	application := service.RegisterApplication("a relying application", externalCallbackURI)
+	issuedToken := userAccessToken(t, service, application)
+	issuedCode := signInToApplication(t, service, application, externalCallbackURI)
+
+	// In order, so that each repeat follows the withdrawal it repeats.
+	values := []struct {
+		name  string
+		value string
+	}{
+		{"an issued access token", issuedToken},
+		{"the same access token again", issuedToken},
+		{"an issued exchange code", issuedCode},
+		{"the same exchange code again", issuedCode},
+		{"a value that was never issued", "a value that was never issued"},
+		{"a token with a forged signature", "eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJzb21lb25lIn0.not-a-signature"},
+		{"an empty value", ""},
 	}
 
-	for _, value := range values {
-		service.POSTJSON("/burn-token", map[string]string{"token": value})
-	}
+	for _, withdrawn := range values {
+		answered := service.POSTJSON("/burn-token", map[string]string{"token": withdrawn.value}).
+			ExpectStatus(http.StatusOK)
 
-	first := service.POSTJSON("/burn-token", map[string]string{"token": "the same value twice"}).
-		ExpectStatus(http.StatusOK)
-	second := service.POSTJSON("/burn-token", map[string]string{"token": "the same value twice"}).
-		ExpectStatus(http.StatusOK)
-
-	if string(first.Body) != string(second.Body) {
-		t.Errorf("withdrawing the same value twice answered %q then %q", first.Body, second.Body)
+		if len(answered.Body) != 0 {
+			t.Errorf("withdrawing %s answered with %d bytes, want none", withdrawn.name, len(answered.Body))
+		}
 	}
 }
 
@@ -130,7 +160,7 @@ func TestCodeInRedirectIsNotCredentialOnItsOwn(t *testing.T) {
 
 	service.GET("/me", servertest.Bearer(code)).
 		ExpectStatus(http.StatusForbidden).
-		ExpectDetail("Invalid token format")
+		ExpectDetail("Invalid access token")
 
 	service.GET("/ui/?" + url.Values{"code": {code}}.Encode()).
 		ExpectStatus(http.StatusTemporaryRedirect)

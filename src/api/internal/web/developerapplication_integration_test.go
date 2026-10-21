@@ -298,7 +298,7 @@ func TestApplicationCanClearItsCallbacks(t *testing.T) {
 
 	service.GET(authorizePath(application.ID, externalCallbackURI)).
 		ExpectStatus(http.StatusForbidden).
-		ExpectDetail("Invalid application ID or callback_uri")
+		ExpectDetail("Invalid application ID or callback URI")
 }
 
 // Changing an application is the owner's to do. Somebody else is told exactly
@@ -400,24 +400,25 @@ func TestManagingApplicationsChecksCredentialBeforeInput(t *testing.T) {
 
 	service.POSTJSON("/developer_application", map[string]string{}).
 		ExpectStatus(http.StatusForbidden).
-		ExpectDetail("Not authenticated")
+		ExpectDetail("Authentication required")
 
 	service.GET("/developer_application/not-an-identifier").
 		ExpectStatus(http.StatusForbidden).
-		ExpectDetail("Not authenticated")
+		ExpectDetail("Authentication required")
 
 	service.DELETE("/developer_application/not-an-identifier").
 		ExpectStatus(http.StatusForbidden).
-		ExpectDetail("Not authenticated")
+		ExpectDetail("Authentication required")
 
 	service.PATCHJSON("/developer_application/not-an-identifier/callback_uris",
 		map[string][]string{"callback_uris": {}}).
 		ExpectStatus(http.StatusForbidden).
-		ExpectDetail("Not authenticated")
+		ExpectDetail("Authentication required")
 }
 
 // A submitted list is taken whole or not at all: one URI this service would not
-// return a browser to leaves the application with what it had.
+// return a browser to leaves the application with what it had. The refusal
+// names the URI's zero-based index and neither the URI nor the rule it broke.
 func TestOneUnusableCallbackLeavesRegisteredSetAlone(t *testing.T) {
 	t.Parallel()
 
@@ -439,12 +440,16 @@ func TestOneUnusableCallbackLeavesRegisteredSetAlone(t *testing.T) {
 
 			application := service.RegisterApplication("an application", externalCallbackURI)
 
-			service.PATCHJSON(
+			refused := service.PATCHJSON(
 				"/developer_application/"+application.ID.String()+"/callback_uris",
 				[]string{externalCallbackURI, uri},
 				service.Protected,
 			).ExpectStatus(http.StatusBadRequest).
-				ExpectDetail("One of the callback URIs is not a URI this service will return a browser to")
+				ExpectDetail("Callback URI at index 1 is invalid")
+
+			if strings.Contains(string(refused.Body), uri) {
+				t.Error("the refusal repeats the URI that was submitted")
+			}
 
 			registered := registeredCallbacks(t, service, application)
 			if len(registered) != 1 || registered[0] != externalCallbackURI {
@@ -474,7 +479,7 @@ func TestCallbackIsMatchedExactly(t *testing.T) {
 	for _, callback := range nearly {
 		service.GET(authorizePath(application.ID, callback)).
 			ExpectStatus(http.StatusForbidden).
-			ExpectDetail("Invalid application ID or callback_uri")
+			ExpectDetail("Invalid application ID or callback URI")
 	}
 }
 
@@ -540,7 +545,8 @@ func TestApplicationsCredentialIsNotGuessable(t *testing.T) {
 			wrong := service.POSTJSON("/developer_application/login", map[string]string{
 				"id":            application.ID.String(),
 				"refresh_token": "not-the-credential",
-			}).ExpectStatus(http.StatusUnauthorized)
+			}).ExpectStatus(http.StatusUnauthorized).
+				ExpectDetail("Invalid application credentials")
 
 			absent := service.POSTJSON("/developer_application/login", map[string]string{
 				"id":            uuid.New().String(),
@@ -551,7 +557,7 @@ func TestApplicationsCredentialIsNotGuessable(t *testing.T) {
 				t.Errorf("a wrong credential answers %s and an unknown application answers %s", wrong.Body, absent.Body)
 			}
 
-			if len(absent.Cookies) != 0 {
+			if len(absent.Cookies) != 0 || len(wrong.Cookies) != 0 {
 				t.Errorf("an unknown application presenting %s was given cookies", name)
 			}
 
@@ -715,15 +721,15 @@ func TestManagingApplicationsNeedsCredential(t *testing.T) {
 
 	service.GET("/user/applications").
 		ExpectStatus(http.StatusForbidden).
-		ExpectDetail("Not authenticated")
+		ExpectDetail("Authentication required")
 
 	service.GET("/developer_application/" + uuid.New().String()).
 		ExpectStatus(http.StatusForbidden).
-		ExpectDetail("Not authenticated")
+		ExpectDetail("Authentication required")
 
 	service.POSTJSON("/developer_application", map[string]string{"name": "unauthorised"}).
 		ExpectStatus(http.StatusForbidden).
-		ExpectDetail("Not authenticated")
+		ExpectDetail("Authentication required")
 }
 
 func TestApplicationIsRegisteredWithName(t *testing.T) {

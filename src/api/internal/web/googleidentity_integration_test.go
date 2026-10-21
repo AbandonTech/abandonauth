@@ -4,6 +4,7 @@ package web_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,81 +15,92 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
 )
 
-// signInWithGoogleAnswering completes a Google sign-in against a provider that
-// answers as the test describes, and reports whether the browser ended up
-// signed in.
-func signInWithGoogleAnswering(t *testing.T, answering func(*providertest.Options)) bool {
+// identityMarker is part of every claim value and identity a test below
+// controls, so one search shows whether any of them reached a response or the
+// log.
+const identityMarker = "synthetic-identity-marker"
+
+// googleSignIn is one Google callback and what the test knows about it.
+type googleSignIn struct {
+	service  *servertest.Service
+	response *servertest.Response
+	code     string
+}
+
+// signInWithGoogleAnswering completes a Google sign-in to the site against a
+// provider that answers as the test describes.
+func signInWithGoogleAnswering(t *testing.T, answering func(*providertest.Options)) googleSignIn {
 	t.Helper()
 
 	service := servertest.New(t, servertest.WithProviderAnswering(answering))
 
 	started := service.StartLogin(oauth.Google, service.Site.ApplicationID, service.Site.CallbackURI)
-	response := service.FinishLogin(started, service.Providers.Someone(oauth.Google, "someone"))
+	code := service.Providers.Issue(oauth.Google, providertest.Grant{
+		Identity: providertest.Identity{
+			ID:       "google-subject-" + identityMarker,
+			Username: identityMarker + " name",
+		},
+		Challenge: started.Challenge,
+		Nonce:     started.Nonce,
+	})
 
-	if response.Status == http.StatusInternalServerError {
-		t.Errorf("a refused identity token was reported as a failure of this service: %s", response.Body)
+	return googleSignIn{
+		service:  service,
+		response: service.ReturnFromProvider(oauth.Google, code, started.State),
+		code:     code,
 	}
-
-	return response.Cookie(service.SessionCookieName()) != nil
 }
 
-// An identity token is what Google says about a person, and every one of these
-// is a way of saying it about somebody else, or of saying it without being
-// Google. None of them signs anybody in.
+func alteringIdentityToken(change func(jwt.MapClaims)) func(*providertest.Options) {
+	return func(options *providertest.Options) { options.AlterIdentityToken = change }
+}
+
+// The identity tokens Google must be refused for: each claims an identity for
+// another issuer, audience, authorized party, login, time or access token, or
+// is not signed with a key Google publishes. Every refusal is the same 403
+// response, grants no session, and repeats no claim, code or identity value in
+// the response or the log.
 func TestIdentityTokenIsRefusedUnlessGoogleIssuedItForThisLogin(t *testing.T) {
 	t.Parallel()
 
+	other := identityMarker + "-client-id"
+
 	refusals := map[string]func(*providertest.Options){
-		"another issuer": func(options *providertest.Options) {
-			options.AlterIdentityToken = func(claims jwt.MapClaims) {
-				claims["iss"] = "https://accounts.example.test"
-			}
-		},
-		"another audience": func(options *providertest.Options) {
-			options.AlterIdentityToken = func(claims jwt.MapClaims) {
-				claims["aud"] = "somebody-else's-client-id"
-			}
-		},
-		"several audiences without an authorized party": func(options *providertest.Options) {
-			options.AlterIdentityToken = func(claims jwt.MapClaims) {
-				claims["aud"] = []string{claims["aud"].(string), "somebody-else's-client-id"}
-			}
-		},
-		"an authorized party that is somebody else": func(options *providertest.Options) {
-			options.AlterIdentityToken = func(claims jwt.MapClaims) {
-				claims["aud"] = []string{claims["aud"].(string), "somebody-else's-client-id"}
-				claims["azp"] = "somebody-else's-client-id"
-			}
-		},
-		"a nonce from another login": func(options *providertest.Options) {
-			options.AlterIdentityToken = func(claims jwt.MapClaims) {
-				claims["nonce"] = "a-nonce-this-login-never-asked-for"
-			}
-		},
-		"no nonce at all": func(options *providertest.Options) {
-			options.AlterIdentityToken = func(claims jwt.MapClaims) { delete(claims, "nonce") }
-		},
-		"a token that has expired": func(options *providertest.Options) {
-			options.AlterIdentityToken = func(claims jwt.MapClaims) {
-				claims["exp"] = time.Now().Add(-time.Hour).Unix()
-			}
-		},
-		"a token issued in the future": func(options *providertest.Options) {
-			options.AlterIdentityToken = func(claims jwt.MapClaims) {
-				claims["iat"] = time.Now().Add(time.Hour).Unix()
-			}
-		},
-		"a token with no expiry": func(options *providertest.Options) {
-			options.AlterIdentityToken = func(claims jwt.MapClaims) { delete(claims, "exp") }
-		},
-		"nobody in particular": func(options *providertest.Options) {
-			options.AlterIdentityToken = func(claims jwt.MapClaims) { claims["sub"] = "" }
-		},
-		"an access token hash that does not match": func(options *providertest.Options) {
-			options.AlterIdentityToken = func(claims jwt.MapClaims) {
-				claims["at_hash"] = "not-the-hash-of-the-token-that-came-with-it"
-			}
-		},
+		"another issuer": alteringIdentityToken(func(claims jwt.MapClaims) {
+			claims["iss"] = "https://" + identityMarker + ".example.test"
+		}),
+		"another audience": alteringIdentityToken(func(claims jwt.MapClaims) {
+			claims["aud"] = other
+		}),
+		"an audience claim of the wrong type": alteringIdentityToken(func(claims jwt.MapClaims) {
+			claims["aud"] = map[string]any{identityMarker: true}
+		}),
+		"several audiences without an authorized party": alteringIdentityToken(func(claims jwt.MapClaims) {
+			claims["aud"] = []string{claims["aud"].(string), other}
+		}),
+		"an authorized party that is somebody else": alteringIdentityToken(func(claims jwt.MapClaims) {
+			claims["aud"] = []string{claims["aud"].(string), other}
+			claims["azp"] = other
+		}),
+		"a nonce from another login": alteringIdentityToken(func(claims jwt.MapClaims) {
+			claims["nonce"] = identityMarker + "-nonce"
+		}),
+		"no nonce at all": alteringIdentityToken(func(claims jwt.MapClaims) { delete(claims, "nonce") }),
+		"a token that has expired": alteringIdentityToken(func(claims jwt.MapClaims) {
+			claims["exp"] = time.Now().Add(-time.Hour).Unix()
+		}),
+		"a token issued in the future": alteringIdentityToken(func(claims jwt.MapClaims) {
+			claims["iat"] = time.Now().Add(time.Hour).Unix()
+		}),
+		"a token not yet active": alteringIdentityToken(func(claims jwt.MapClaims) {
+			claims["nbf"] = time.Now().Add(time.Hour).Unix()
+		}),
+		"a token with no expiry":     alteringIdentityToken(func(claims jwt.MapClaims) { delete(claims, "exp") }),
+		"a token with no issue time": alteringIdentityToken(func(claims jwt.MapClaims) { delete(claims, "iat") }),
+		"nobody in particular":       alteringIdentityToken(func(claims jwt.MapClaims) { claims["sub"] = "" }),
+		"an access token hash that does not match": alteringIdentityToken(func(claims jwt.MapClaims) {
+			claims["at_hash"] = identityMarker + "-at-hash"
+		}),
 		"a signature from a key Google does not publish": func(options *providertest.Options) {
 			options.SignIdentityTokenWithAnotherKey = true
 		},
@@ -101,8 +113,21 @@ func TestIdentityTokenIsRefusedUnlessGoogleIssuedItForThisLogin(t *testing.T) {
 		t.Run(what, func(t *testing.T) {
 			t.Parallel()
 
-			if signInWithGoogleAnswering(t, answering) {
-				t.Error("the browser was signed in")
+			signIn := signInWithGoogleAnswering(t, answering)
+
+			expectSignInValidationFailed(t, signIn.service, signIn.response)
+
+			for where, written := range map[string]string{
+				"the response": string(signIn.response.Body),
+				"the log":      signIn.service.Logs.String(),
+			} {
+				if strings.Contains(written, identityMarker) {
+					t.Errorf("%s repeats a claim or identity value", where)
+				}
+
+				if strings.Contains(written, signIn.code) {
+					t.Errorf("%s repeats the authorization code", where)
+				}
 			}
 		})
 	}
@@ -113,7 +138,13 @@ func TestIdentityTokenIsRefusedUnlessGoogleIssuedItForThisLogin(t *testing.T) {
 func TestGoogleSigningSomebodyInStillWorks(t *testing.T) {
 	t.Parallel()
 
-	if !signInWithGoogleAnswering(t, func(*providertest.Options) {}) {
+	signIn := signInWithGoogleAnswering(t, func(*providertest.Options) {})
+
+	signIn.response.
+		ExpectStatus(http.StatusTemporaryRedirect).
+		ExpectRedirectTo(signIn.service.Site.CallbackURI)
+
+	if signIn.response.Cookie(signIn.service.SessionCookieName()) == nil {
 		t.Error("a correct identity token did not sign anybody in")
 	}
 }

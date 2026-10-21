@@ -72,7 +72,8 @@ func Empty(writer http.ResponseWriter, status int) {
 	writer.WriteHeader(status)
 }
 
-// Error writes a failure with a human-readable explanation.
+// Error writes a failure with a human-readable detail. The detail is not a
+// stable machine code; clients classify a failure by its status.
 //
 // The detail is written by the service, never assembled from request input, so
 // it cannot be used to reflect a caller's value back to a browser.
@@ -116,7 +117,7 @@ func TooManyRequests(writer http.ResponseWriter, retryAfter time.Duration) {
 	}
 
 	writer.Header().Set(headerRetryAfter, strconv.Itoa(seconds))
-	Error(writer, http.StatusTooManyRequests, "Too many requests. Try again later.")
+	Error(writer, http.StatusTooManyRequests, "Rate limit exceeded")
 }
 
 // Redirect sends a browser elsewhere.

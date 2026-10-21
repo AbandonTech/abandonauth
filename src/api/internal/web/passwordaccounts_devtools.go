@@ -18,8 +18,12 @@ import (
 )
 
 // detailPasswordRejected is the answer to a password sign-in that was not
-// accepted, whether the account exists or not.
-const detailPasswordRejected = "Invalid username or password"
+// accepted. It is the same for an unknown account and a wrong password.
+const detailPasswordRejected = "Invalid user credentials"
+
+// detailPasswordUnusable is the answer to a password a new account cannot be
+// created with.
+const detailPasswordUnusable = "Invalid password"
 
 // createPasswordAccount makes an account that signs in with a password.
 //
@@ -45,7 +49,7 @@ func (s *Server) createPasswordAccount() http.Handler {
 
 		hashed, err := credentials.Hash(password)
 		if err != nil {
-			response.Error(writer, http.StatusBadRequest, detailPasswordRejected)
+			response.Error(writer, http.StatusBadRequest, detailPasswordUnusable)
 
 			return
 		}

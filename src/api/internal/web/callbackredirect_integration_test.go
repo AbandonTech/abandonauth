@@ -82,7 +82,9 @@ func TestDeclinedLoginReturnsBrowserToRegisteredSpelling(t *testing.T) {
 // A stored callback is re-checked against the policy before a browser is sent
 // to it. The registration that stored it passed, but the policy is what decides
 // where a browser goes, and it is applied at the moment of the redirect rather
-// than trusted from when the row was written.
+// than trusted from when the row was written. Whether the provider declined or
+// authenticated the user, the refusal is the one sign-in validation failure and
+// no exchange code is issued.
 func TestLoginWhoseStoredCallbackNoLongerPassesEndsWithoutRedirect(t *testing.T) {
 	t.Parallel()
 
@@ -119,14 +121,16 @@ func TestLoginWhoseStoredCallbackNoLongerPassesEndsWithoutRedirect(t *testing.T)
 				t.Fatalf("rewriting the stored callback: %v", err)
 			}
 
-			response := ending(service, started).ExpectStatus(http.StatusForbidden)
+			expectSignInValidationFailed(t, service, ending(service, started))
 
-			if location := response.Header.Get("Location"); location != "" {
-				t.Errorf("a browser was sent to %q", location)
+			var codes int64
+			if err := service.Pool.QueryRow(t.Context(),
+				`SELECT count(*) FROM oauth_exchange_code`).Scan(&codes); err != nil {
+				t.Fatalf("counting the exchange codes the callback left behind: %v", err)
 			}
 
-			if response.Cookie(service.SessionCookieName()) != nil {
-				t.Error("a login that could not be returned was given a session")
+			if codes != 0 {
+				t.Errorf("%d exchange codes were issued for a login that could not be returned", codes)
 			}
 		})
 	}

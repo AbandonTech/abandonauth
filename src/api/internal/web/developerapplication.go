@@ -3,6 +3,7 @@ package web
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/google/uuid"
 
@@ -15,9 +16,11 @@ import (
 )
 
 // detailUnsafeCallback is the answer to a callback URI this service would not
-// return a browser to. It says which position in the submitted list was
-// refused and why, and never repeats the URI.
-const detailUnsafeCallback = "One of the callback URIs is not a URI this service will return a browser to"
+// return a browser to. It names only the zero-based position in the submitted
+// list, never the URI or the policy rule it broke.
+func detailUnsafeCallback(index int) string {
+	return "Callback URI at index " + strconv.Itoa(index) + " is invalid"
+}
 
 // readApplicationName reads the name a new application is registered under.
 func readApplicationName(given *inputs.Inputs) string {
@@ -286,7 +289,7 @@ func (s *Server) replaceCallbackURIs() http.Handler {
 
 		var unsafe applications.UnsafeCallbackError
 		if errors.As(err, &unsafe) {
-			response.Error(writer, http.StatusBadRequest, detailUnsafeCallback)
+			response.Error(writer, http.StatusBadRequest, detailUnsafeCallback(unsafe.Index))
 
 			return
 		}

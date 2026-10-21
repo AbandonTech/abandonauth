@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
@@ -78,6 +79,29 @@ func TestStartingLoginReadsEmptyCallbackAsGiven(t *testing.T) {
 
 	if wanted.callbackURI != "" {
 		t.Errorf("callback_uri = %q, want empty", wanted.callbackURI)
+	}
+}
+
+// The refusal lists the providers offered and never repeats the value given.
+func TestStartingLoginNamesOfferedProvidersWhenRefusingOne(t *testing.T) {
+	t.Parallel()
+
+	const unoffered = "placeholder-unoffered-provider"
+
+	given := inputs.New(authorizeRequest(unoffered, authorizeQuery(signingInToApplicationID, registeredCallbackURI)))
+	readProviderLoginInputs(given)
+
+	failures := given.Failures()
+	if len(failures) != 1 {
+		t.Fatalf("refusals = %v, want exactly one", refusals(given))
+	}
+
+	if failures[0].Message != "Input must be discord, github, or google" {
+		t.Errorf("msg = %q", failures[0].Message)
+	}
+
+	if strings.Contains(failures[0].Message, unoffered) {
+		t.Error("the refusal repeats the provider that was named")
 	}
 }
 

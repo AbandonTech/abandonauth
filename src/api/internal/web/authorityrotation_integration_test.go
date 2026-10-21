@@ -3,6 +3,7 @@
 package web_test
 
 import (
+	"bytes"
 	"net/http"
 	"testing"
 
@@ -40,35 +41,47 @@ func TestNothingIssuedBeforeRotationIsAcceptedAfterIt(t *testing.T) {
 
 	service.GET("/me", servertest.Bearer(withdrawnToken)).
 		ExpectStatus(http.StatusForbidden).
-		ExpectDetail("Invalid token format")
+		ExpectDetail("Invalid access token")
 	service.GET("/me", servertest.Bearer(personToken)).ExpectStatus(http.StatusOK)
 
 	if _, err := database.RotateAuthority(t.Context(), service.Pool); err != nil {
 		t.Fatalf("rotating the authority: %v", err)
 	}
 
-	service.GET("/me", servertest.Bearer(personToken)).
+	rotatedUser := service.GET("/me", servertest.Bearer(personToken)).
 		ExpectStatus(http.StatusForbidden).
-		ExpectDetail("Invalid token format")
+		ExpectDetail("Invalid access token")
 
-	service.GET("/developer_application/me", servertest.Bearer(applicationToken)).
+	rotatedApplication := service.GET("/developer_application/me", servertest.Bearer(applicationToken)).
 		ExpectStatus(http.StatusForbidden).
-		ExpectDetail("Invalid token format")
+		ExpectDetail("Invalid access token")
 
-	// The record that refused this one is among the things a rotation clears,
-	// and it is refused all the same: the authority it was issued under is what
-	// refuses it now.
+	// The withdrawal record is among the things a rotation clears, and the token
+	// is refused all the same: its auth epoch claim is no longer current.
 	service.GET("/me", servertest.Bearer(withdrawnToken)).
 		ExpectStatus(http.StatusForbidden).
-		ExpectDetail("Invalid token format")
+		ExpectDetail("Invalid access token")
+
+	// A stale auth epoch is indistinguishable from a token this service never
+	// issued.
+	forged := service.GET("/me", servertest.Bearer("not-a-token")).ExpectStatus(http.StatusForbidden)
+
+	for name, refused := range map[string]*servertest.Response{
+		"a user token":                  rotatedUser,
+		"a developer application token": rotatedApplication,
+	} {
+		if !bytes.Equal(refused.Body, forged.Body) {
+			t.Errorf("%s from before the rotation was refused as %s, a forged token as %s", name, refused.Body, forged.Body)
+		}
+	}
 
 	service.GET("/me").
 		ExpectStatus(http.StatusForbidden).
-		ExpectDetail("Not authenticated")
+		ExpectDetail("Authentication required")
 }
 
-// userAccessToken signs a new person in to an application and collects the
-// token that identifies them to it.
+// userAccessToken signs a new user in to an application and collects a user
+// access token whose audience is that application.
 func userAccessToken(
 	t *testing.T, service *servertest.Service, application servertest.Application,
 ) string {

@@ -3,7 +3,7 @@
 package web_test
 
 import (
-	"encoding/json"
+	"bytes"
 	"net/http"
 	"net/url"
 	"strings"
@@ -129,7 +129,7 @@ func TestLoginOnlyNamesRegisteredCallback(t *testing.T) {
 			}.Encode())
 
 			response.ExpectStatus(http.StatusForbidden).
-				ExpectDetail("Invalid application ID or callback_uri")
+				ExpectDetail("Invalid application ID or callback URI")
 		})
 	}
 
@@ -176,20 +176,54 @@ func TestCallbackSpelledAnotherWaySpendsNoLogin(t *testing.T) {
 		ExpectRedirectTo(service.Site.CallbackURI)
 }
 
-// An application nobody registered is refused in the same words as a callback
-// that was not registered, so the endpoint does not say which applications
-// exist.
+// An application nobody registered is refused with the same response as a
+// callback that was not registered, so the endpoint does not say which
+// applications exist.
 func TestLoginForUnknownApplicationIsRefusedSameWay(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
 
-	service.GET("/ui/discord/authorize?" + url.Values{
+	unknown := service.GET("/ui/discord/authorize?" + url.Values{
 		"application_id": {uuid.New().String()},
 		"callback_uri":   {service.Site.CallbackURI},
 	}.Encode()).
 		ExpectStatus(http.StatusForbidden).
-		ExpectDetail("Invalid application ID or callback_uri")
+		ExpectDetail("Invalid application ID or callback URI")
+
+	unregistered := service.GET("/ui/discord/authorize?" + url.Values{
+		"application_id": {service.Site.ApplicationID.String()},
+		"callback_uri":   {"https://elsewhere.example.test/callback"},
+	}.Encode()).ExpectStatus(http.StatusForbidden)
+
+	if !bytes.Equal(unknown.Body, unregistered.Body) {
+		t.Errorf("an unknown application was refused as %s, an unregistered callback as %s",
+			unknown.Body, unregistered.Body)
+	}
+}
+
+// signInValidationFailure is the whole body of every refused callback once it
+// has begun consuming login state.
+const signInValidationFailure = `{"detail":"Sign-in validation failed"}` + "\n"
+
+// expectSignInValidationFailed requires the one callback refusal: the same
+// status and bytes, no redirect, and no session.
+func expectSignInValidationFailed(t *testing.T, service *servertest.Service, response *servertest.Response) {
+	t.Helper()
+
+	response.ExpectStatus(http.StatusForbidden)
+
+	if string(response.Body) != signInValidationFailure {
+		t.Errorf("body = %s, want %s", response.Body, signInValidationFailure)
+	}
+
+	if response.Header.Get("Location") != "" {
+		t.Error("a refused callback returned the browser somewhere")
+	}
+
+	if response.Cookie(service.SessionCookieName()) != nil {
+		t.Error("a refused callback gave the browser a session")
+	}
 }
 
 // The providers a person may sign in with are fixed. Anything else is refused
@@ -281,9 +315,45 @@ func TestLoginThisServiceDidNotStartCannotBeFinished(t *testing.T) {
 
 			service := servertest.New(t)
 
-			attempt(service).
-				ExpectStatus(http.StatusForbidden).
-				ExpectDetail("This login could not be matched to one that was started here")
+			expectSignInValidationFailed(t, service, attempt(service))
+		})
+	}
+}
+
+// Once login state has been consumed, a provider that refuses the exchange, a
+// provider identity that is incomplete and one this service cannot store are
+// answered exactly as an unknown state is.
+func TestCallbackValidationFailuresAreIndistinguishable(t *testing.T) {
+	t.Parallel()
+
+	failures := map[string]func(service *servertest.Service) *servertest.Response{
+		"an authorization code the provider refuses": func(service *servertest.Service) *servertest.Response {
+			started := service.StartLogin(oauth.Discord, service.Site.ApplicationID, service.Site.CallbackURI)
+
+			return service.ReturnFromProvider(oauth.Discord, "not-a-code-the-provider-issued", started.State)
+		},
+		"a provider identity with no name": func(service *servertest.Service) *servertest.Response {
+			started := service.StartLogin(oauth.Discord, service.Site.ApplicationID, service.Site.CallbackURI)
+
+			return service.FinishLogin(started, providertest.Identity{ID: "4815162342", Username: ""})
+		},
+		"a provider identifier this service cannot store": func(service *servertest.Service) *servertest.Response {
+			started := service.StartLogin(oauth.GitHub, service.Site.ApplicationID, service.Site.CallbackURI)
+
+			return service.FinishLogin(started, providertest.Identity{ID: "-5", Username: "someone"})
+		},
+		"an unknown state": func(service *servertest.Service) *servertest.Response {
+			return service.ReturnFromProvider(oauth.Discord, "an-authorization-code", "a-state-value")
+		},
+	}
+
+	for name, attempt := range failures {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			service := servertest.New(t)
+
+			expectSignInValidationFailed(t, service, attempt(service))
 		})
 	}
 }
@@ -319,17 +389,7 @@ func TestLoginNotCompletedByProviderIsOverForGood(t *testing.T) {
 				Nonce:     started.Nonce,
 			})
 
-			replayed := service.ReturnFromProvider(provider, code, started.State).
-				ExpectStatus(http.StatusForbidden).
-				ExpectDetail("This login could not be matched to one that was started here")
-
-			if replayed.Cookie(service.SessionCookieName()) != nil {
-				t.Error("a login that was already over signed a browser in")
-			}
-
-			if location := replayed.Header.Get("Location"); location != "" {
-				t.Error("a login that was already over returned the browser somewhere")
-			}
+			expectSignInValidationFailed(t, service, service.ReturnFromProvider(provider, code, started.State))
 		})
 	}
 }
@@ -397,15 +457,12 @@ func TestOneLoginStateCompletesAtMostOnce(t *testing.T) {
 		case http.StatusForbidden:
 			refused++
 
-			var failed struct {
-				Detail string `json:"detail"`
+			if string(answer.body) != signInValidationFailure {
+				t.Error("a callback was refused with something other than the sign-in validation failure")
 			}
 
-			switch err := json.Unmarshal(answer.body, &failed); {
-			case err != nil:
-				t.Error("a refused callback did not answer in this service's failure shape")
-			case failed.Detail != "This login could not be matched to one that was started here":
-				t.Error("a callback was refused for something other than the login not matching")
+			if answer.location != "" || answer.cookie(service.SessionCookieName()) != nil {
+				t.Error("a refused callback returned the browser somewhere or gave it a session")
 			}
 		default:
 			t.Errorf("a callback answered %d", answer.status)
@@ -429,11 +486,6 @@ func TestLoginRefusedByProviderSignsNobodyIn(t *testing.T) {
 	service := servertest.New(t)
 	started := service.StartLogin(oauth.Discord, service.Site.ApplicationID, service.Site.CallbackURI)
 
-	response := service.ReturnFromProvider(oauth.Discord, "not-a-code-the-provider-issued", started.State).
-		ExpectStatus(http.StatusForbidden).
-		ExpectDetail("This login could not be matched to one that was started here")
-
-	if response.Cookie(service.SessionCookieName()) != nil {
-		t.Error("a refused login was given a session")
-	}
+	expectSignInValidationFailed(t, service,
+		service.ReturnFromProvider(oauth.Discord, "not-a-code-the-provider-issued", started.State))
 }

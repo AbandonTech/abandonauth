@@ -33,26 +33,28 @@ const (
 	originHeader = "Origin"
 )
 
-// What a caller is told when it is not allowed through. The wording is the same
-// whoever they are: nothing here says whether a token, an account or an
-// application exists.
+// What a caller is told when authentication or authorization fails. Each is
+// one equivalence class: detailInvalidToken covers every non-expiry token
+// refusal, including revocation, a stale auth epoch, the wrong class or
+// audience and a missing principal, so no response reveals which check failed
+// or whether a token, account or application exists.
 const (
-	detailNotAuthenticated  = "Not authenticated"
-	detailInvalidCredential = "Invalid authentication credentials"
-	detailInvalidToken      = "Invalid token format"
-	detailExpiredToken      = "Token has expired"
-	detailMissingScope      = "JWT lacks the required scope to access this endpoint."
-	detailUnsafeRequest     = "This request could not be confirmed as coming from the AbandonAuth site"
-	detailUnavailable       = "Internal Server Error"
+	detailAuthenticationRequired = "Authentication required"
+	detailInvalidAuthorization   = "Invalid Authorization header"
+	detailInvalidToken           = "Invalid access token"
+	detailExpiredToken           = "Access token expired"
+	detailMissingScope           = "Access token missing required scope"
+	detailCSRFFailed             = "CSRF validation failed"
+	detailUnavailable            = "Internal Server Error"
 )
 
-// Caller is the person a request was made by.
+// Caller is the authenticated user principal of a request.
 type Caller struct {
 	UserID uuid.UUID
 
-	// FromBrowser reports that the caller proved itself with a session cookie
-	// rather than a token, which is what makes a request subject to the
-	// cross-site checks.
+	// FromBrowser reports that the caller authenticated with a session cookie
+	// rather than an access token, which is what subjects a request to the
+	// CSRF checks.
 	FromBrowser bool
 
 	// SessionValue is the cookie the session was found by, so a request that
@@ -60,8 +62,8 @@ type Caller struct {
 	SessionValue string
 }
 
-// audiencePolicy says which applications a person's token may have been issued
-// to for a route to accept it.
+// audiencePolicy selects which audience a user access token must name for a
+// route to accept it.
 type audiencePolicy int
 
 const (
@@ -73,8 +75,9 @@ const (
 	audienceRegisteredApplication
 )
 
-// requireUser authenticates the person behind a request, by access token or by
-// browser session, and answers the request itself when it cannot.
+// requireUser authenticates the user principal of a request, by access token or
+// by browser session, and writes the refusal itself when authentication or
+// authorization fails.
 func (s *Server) requireUser(
 	writer http.ResponseWriter, request *http.Request, scope string, policy audiencePolicy,
 ) (Caller, bool) {
@@ -83,7 +86,7 @@ func (s *Server) requireUser(
 	switch {
 	case presented != "":
 		if !wellFormed {
-			response.Error(writer, http.StatusForbidden, detailInvalidCredential)
+			response.Error(writer, http.StatusForbidden, detailInvalidAuthorization)
 
 			return Caller{}, false
 		}
@@ -92,7 +95,7 @@ func (s *Server) requireUser(
 	case cookieValue(request, s.SessionCookieName()) != "":
 		return s.callerFromSession(writer, request)
 	default:
-		response.Error(writer, http.StatusForbidden, detailNotAuthenticated)
+		response.Error(writer, http.StatusForbidden, detailAuthenticationRequired)
 
 		return Caller{}, false
 	}
@@ -137,7 +140,7 @@ func (s *Server) callerFromSession(writer http.ResponseWriter, request *http.Req
 	session, err := s.sessions.Lookup(request.Context(), value)
 	if errors.Is(err, sessions.ErrNoSuchSession) {
 		s.endSession(writer)
-		response.Error(writer, http.StatusForbidden, detailNotAuthenticated)
+		response.Error(writer, http.StatusForbidden, detailAuthenticationRequired)
 
 		return Caller{}, false
 	}
@@ -149,7 +152,7 @@ func (s *Server) callerFromSession(writer http.ResponseWriter, request *http.Req
 	}
 
 	if changesState(request.Method) && !s.confirmedBySite(request, session) {
-		response.Error(writer, http.StatusForbidden, detailUnsafeRequest)
+		response.Error(writer, http.StatusForbidden, detailCSRFFailed)
 
 		return Caller{}, false
 	}
@@ -165,13 +168,13 @@ func (s *Server) requireApplication(
 	presented, wellFormed := bearerCredential(request)
 
 	if presented == "" {
-		response.Error(writer, http.StatusForbidden, detailNotAuthenticated)
+		response.Error(writer, http.StatusForbidden, detailAuthenticationRequired)
 
 		return applications.Application{}, false
 	}
 
 	if !wellFormed {
-		response.Error(writer, http.StatusForbidden, detailInvalidCredential)
+		response.Error(writer, http.StatusForbidden, detailInvalidAuthorization)
 
 		return applications.Application{}, false
 	}
@@ -191,9 +194,9 @@ func (s *Server) requireApplication(
 	return application, true
 }
 
-// applicationBehind returns the application a token speaks for, provided the
-// token is of that class, was issued to this service, and was issued against
-// the credential the application holds now.
+// applicationBehind returns the developer application a token's subject claim
+// identifies, provided the token is of that class, its audience is this site,
+// and its credential version equals the application's current one.
 func (s *Server) applicationBehind(
 	ctx context.Context, token tokens.Token,
 ) (applications.Application, error) {
@@ -216,7 +219,9 @@ func (s *Server) applicationBehind(
 	return application, nil
 }
 
-// acceptToken verifies a token and that the authority behind it still stands.
+// acceptToken verifies a token, then that its auth epoch is current and it has
+// not been withdrawn. Only expiry is reported separately; the verifier's
+// internal reason never reaches the response or the log.
 func (s *Server) acceptToken(
 	ctx context.Context, writer http.ResponseWriter, presented string,
 ) (tokens.Token, bool) {
@@ -297,8 +302,9 @@ func (s *Server) audienceAccepted(
 // confirmedBySite reports whether a state-changing request really came from the
 // site rather than from a page that merely caused the cookie to be sent.
 //
-// Both checks are needed: the origin says who made the request, and the token
-// proves the maker could read a cookie, which only this origin can.
+// Both checks are needed: the Origin header identifies the requesting site, and
+// the CSRF token proves the requester could read a cookie, which only this
+// origin can.
 func (s *Server) confirmedBySite(request *http.Request, session sessions.Session) bool {
 	if !s.config.Site.MatchesHeader(request.Header.Get(originHeader)) {
 		return false
@@ -318,8 +324,9 @@ func (s *Server) confirmedBySite(request *http.Request, session sessions.Session
 	return session.MatchesCSRFToken(presented)
 }
 
-// refusePrincipal answers a request whose credential was good but whose account
-// or application is gone, without saying which of the two happened.
+// refusePrincipal answers a verified token whose principal is missing or not
+// acceptable for the route with the same detail as any other invalid access
+// token, and any other failure as a server error.
 func (s *Server) refusePrincipal(writer http.ResponseWriter, request *http.Request, err error) {
 	if errors.Is(err, accounts.ErrNoSuchUser) || errors.Is(err, applications.ErrNoSuchApplication) {
 		response.Error(writer, http.StatusForbidden, detailInvalidToken)

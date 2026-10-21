@@ -1014,6 +1014,89 @@ func TestAPISchemaResponseConventions(t *testing.T) {
 	}
 }
 
+// Refusal text is for people, so the document says clients classify a refusal
+// by status, `loc` and `type`, and states each refusal equivalence class a
+// client could otherwise mistake for a difference worth probing.
+func TestAPISchemaStatesRefusalContract(t *testing.T) {
+	t.Parallel()
+
+	document := canonicalOpenAPI(t)
+	schemas := document.Components.Schemas
+	responses := document.Components.Responses
+
+	statements := map[string]struct {
+		description string
+		wanted      []string
+	}{
+		"the Failure schema": {schemas["Failure"].Description, []string{
+			"human-readable detail",
+			"never repeats a request value",
+			"not a stable machine-readable code and may change",
+			"classify a refusal by its HTTP status",
+		}},
+		"the InputFailure schema": {schemas["InputFailure"].Description, []string{
+			"`loc` and `type` identify the refusal",
+			"`msg` is human-readable, is not a stable machine-readable code and may change",
+		}},
+		"the Forbidden response": {responses["Forbidden"].Description, []string{
+			"An expired access token is reported separately",
+			"every other access token refusal, including a withdrawn token, a stale auth epoch and a " +
+				"principal that no longer exists, receives the same response",
+			"No response reveals whether an account or application exists",
+		}},
+		"the Unauthorized response": {responses["Unauthorized"].Description, []string{
+			"An unknown principal and a wrong credential receive the same response",
+			"an unknown, spent, expired and misdirected exchange code",
+		}},
+		"POST /api/login": {document.operation(t, "POST /api/login").Description, []string{
+			"refused with the same 403 for an unknown application and a wrong refresh token",
+		}},
+		"PATCH /api/developer_application/{application_id}/callback_uris": {
+			document.operation(t, "PATCH /api/developer_application/{application_id}/callback_uris").Description,
+			[]string{"names only the zero-based index of the first refused URI", "never the URI or the rule it broke"},
+		},
+		"GET /api/ui/{provider}/authorize": {document.operation(t, "GET /api/ui/{provider}/authorize").Description, []string{
+			"with the same response whether the application or the callback is unknown",
+		}},
+	}
+
+	for _, key := range []string{"GET /api/ui/discord-callback", "GET /api/ui/github-callback", "GET /api/google"} {
+		statements[key] = struct {
+			description string
+			wanted      []string
+		}{document.operation(t, key).Description, []string{
+			"Every failure after the state is consumed is refused with that same 403 response",
+			"a provider that does not authenticate the user",
+			"a provider identity that is incomplete or cannot be stored",
+			"a stored callback that no longer passes the callback URI policy",
+			"carries no redirect and issues no session or one-time code",
+		}}
+	}
+
+	for where, stated := range statements {
+		description := prose(stated.description)
+		for _, statement := range stated.wanted {
+			if !strings.Contains(description, statement) {
+				t.Errorf("%s does not state %q", where, statement)
+			}
+		}
+	}
+}
+
+// A token is a set of verified claims, not a party to the exchange. Wording
+// that personifies one blurs which principal is authenticated.
+func TestAPISchemaDescribesTokensWithoutPersonification(t *testing.T) {
+	t.Parallel()
+
+	source := strings.ToLower(prose(string(embeddedOpenAPISchema)))
+
+	for _, metaphor := range []string{"speaks for", "speak for", "dressed as", "token says", "token said"} {
+		if strings.Contains(source, metaphor) {
+			t.Errorf("the schema describes a token as something that %q", metaphor)
+		}
+	}
+}
+
 // A reference to a component that does not exist leaves a reader with half a
 // contract, so every one has to resolve within the document.
 func TestAPISchemaReferencesResolve(t *testing.T) {
