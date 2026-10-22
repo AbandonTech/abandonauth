@@ -26,7 +26,6 @@
       "**/*.p12": "deny",
       "*.pfx": "deny",
       "**/*.pfx": "deny"
-    },
-    "external_directory": "deny"
+    }
   }
 }
