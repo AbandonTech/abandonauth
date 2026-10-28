@@ -29,9 +29,10 @@ are relative to `src/api/`.
   versions
 - `sqlc.yaml` — how `queries/` becomes the generated `query` package
 - `revive.toml` — lint rules
-- `cmd/abandonauth.go` — commands, flags, environment binding, the version;
-  secrets are environment-only and have no flag; `provision`'s two input modes,
-  its origin check and the callback it derives
+- `cmd/abandonauth.go` — commands, flags, environment binding, the version,
+  `development` unless the image build links in `VERSION`; secrets are
+  environment-only and have no flag; `provision`'s two input modes, its origin
+  check and the callback it derives
 - `cmd/operations.go` — `serve`, `database rotate-auth-epoch`, `provision`; the
   listener is opened before housekeeping starts, and both stop together
 - `internal/config/` — validated immutable configuration, the default and
@@ -215,7 +216,8 @@ rewrite live data for no functional gain and is deliberately out of scope.
 - `./scripts/check.sh --integration` — the same up to vet, then the migration
   controller checks, then the container: `-tags='integration devtools' ./...`
   and `-tags=integration ./...` with race detection, a database and coverage
-- `./scripts/migrationcheck.sh` — in a Compose project of its own: concurrent
+- `./scripts/migrationcheck.sh` — in a Compose project of its own, on images it
+  first builds from the tree: concurrent
   `up` requests converging on one migration, a failed migration starting neither
   provisioning nor API, the password in neither Goose's arguments nor its log;
   refused provisioning starting no API and writing nothing, and provisioning
@@ -236,7 +238,9 @@ When to run which, and what to report, is in `.claude/docs/testing.md`.
 ## Tooling and CI
 
 - `src/api/Dockerfile` — one build, two runtime targets: `deployment` (default)
-  and `development`, built on the exact Go patch tag `go.mod` declares
+  and `development`, built on the exact Go patch tag `go.mod` declares; the
+  `VERSION` build argument is linked into both binaries, and the shared runtime
+  stage labels both images with it and with `REVISION`
 - `Dockerfile.test` — the image the container checks run in, on the same tag
 - `.gitattributes` — every text file is checked out with LF endings on every
   platform, because the container checks copy the working tree into a Linux
@@ -246,9 +250,16 @@ When to run which, and what to report, is in `.claude/docs/testing.md`.
   build
 - `.github/workflows/linting.yml` — pre-commit, skipping the hook `check.yml`
   runs
-- `.github/workflows/` — image build and publish, push and pull-request entry
-  points
-- `.github/dependabot.yml` — dependency updates
+- `.github/workflows/build_api.yml` — builds both API images as `development`,
+  or, called by a release, pushes the deployment image as the tag's version and
+  `latest`
+- `.github/workflows/build_frontend.yml` — the site image, published from `main`
+- `.github/workflows/release.yml` — a `vMAJOR.MINOR.PATCH` tag push: linting and
+  checks, then the API build with package write; one at a time. Who may push such
+  a tag is a GitHub tag ruleset, not workflow code
+- `.github/workflows/main.yml`, `pull_request.yml` — read-only entry points;
+  `main` alone grants the frontend publication package write
+- `.github/dependabot.yml` — dependency updates, including the pinned actions
 
 The published deployment image carries no password sign-in, refuses
 `DEBUG=true`, runs as an account that is not root, and holds the service binary,
@@ -261,7 +272,8 @@ serves, as YAML and as JSON.
 `provisioning` service, the same image running `abandonauth provision` with
 only `DATABASE_URL` and `DEBUG`, both on the internal database network only and
 both to completion before the API starts. Both
-images are built on every pull request by `.github/workflows/`.
+images are built on every pull request by `.github/workflows/`; only a release
+tag publishes the API image, as its version and `latest`.
 
 ## Documentation and agent tooling
 

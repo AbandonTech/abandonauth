@@ -4,6 +4,9 @@ on:
   push:
     branches: main
 
+permissions:
+  contents: read
+
 jobs:
   linting:
     uses: ./.github/workflows/linting.yml
@@ -16,15 +19,19 @@ jobs:
     needs:
       - linting
       - check
+    permissions:
+      contents: read
     with:
-      latest: true
-      push: true
+      push: false
 
   build_frontend:
     uses: ./.github/workflows/build_frontend.yml
     needs:
       - linting
       - check
+    permissions:
+      contents: read
+      packages: write
     with:
       latest: true
       push: true

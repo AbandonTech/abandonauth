@@ -1,4 +1,6 @@
 ARG GO_VERSION=1.27.2
+ARG VERSION=development
+ARG REVISION=unknown
 
 FROM golang:${GO_VERSION} AS source
 
@@ -18,14 +20,18 @@ RUN go tool sqlc generate
 
 FROM source AS compile-deployment
 
+ARG VERSION
+
 # CGO_ENABLED=0 produces a binary with no dynamic dependencies, which is what
 # lets the runtime stage hold nothing but the binary and a certificate bundle.
-RUN CGO_ENABLED=0 go build -trimpath -o /abandonauth ./cmd
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-X main.version=${VERSION}" -o /abandonauth ./cmd
 
 
 FROM source AS compile-development
 
-RUN CGO_ENABLED=0 go build -trimpath -tags=devtools -o /abandonauth ./cmd
+ARG VERSION
+
+RUN CGO_ENABLED=0 go build -trimpath -tags=devtools -ldflags="-X main.version=${VERSION}" -o /abandonauth ./cmd
 
 
 # The pinned Goose CLI with every driver but PostgreSQL excluded, kept a
@@ -42,11 +48,15 @@ RUN CGO_ENABLED=0 go build -trimpath \
 # interpreter.
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 
+ARG VERSION
+ARG REVISION
+
 LABEL org.opencontainers.image.title="AbandonAuth" \
-      org.opencontainers.image.description="Identity provider and OAuth application broker." \
+      org.opencontainers.image.description="Authentic Auth Service... Provides identification of a user from multiple external services." \
       org.opencontainers.image.source="https://github.com/AbandonTech/abandonauth" \
-      org.opencontainers.image.licenses="GPL-3.0" \
-      org.opencontainers.image.version="0.0.1"
+      org.opencontainers.image.licenses="GPL-3.0-only" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}"
 
 EXPOSE 8000
 

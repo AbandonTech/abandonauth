@@ -265,6 +265,25 @@ func TestOnlySupportedCommandsAreRegistered(t *testing.T) {
 	}
 }
 
+func TestVersionFlagReportsBuildVersion(t *testing.T) {
+	if version == "" {
+		t.Fatal("the build carries no version")
+	}
+
+	var output strings.Builder
+
+	command := newCommand(&recorder{})
+	command.Writer = &output
+
+	if err := command.Run(t.Context(), []string{"abandonauth", "--version"}); err != nil {
+		t.Fatalf("--version failed: %v", err)
+	}
+
+	if want := "abandonauth version " + version + "\n"; output.String() != want {
+		t.Errorf("--version printed %q, want %q", output.String(), want)
+	}
+}
+
 func TestCommandFailuresAreReported(t *testing.T) {
 	applyEnvironment(t, placeholderEnvironment())
 

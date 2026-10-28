@@ -22,9 +22,9 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/web"
 )
 
-// version identifies the build in the command's version output, in log lines
-// and in image labels.
-const version = "0.0.1"
+// version identifies the build in the command's version output and in log
+// lines. A release build sets it at link time from its protected release tag.
+var version = "development"
 
 // buildServesDevelopmentRoutes reports whether this binary was compiled with the
 // password sign-in and documentation routes.

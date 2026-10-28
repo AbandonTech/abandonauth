@@ -109,7 +109,7 @@ start over.
 Authenticated users are limited to 20 developer application changes (create,
 delete, credential reset, callback replacement) per minute.
 
-## The published image
+## Deploying the API
 
 The image built from `src/api/Dockerfile` (the `deployment` target) contains no
 password sign-in, refuses to start with `DEBUG` set, and runs as an account that
@@ -122,6 +122,13 @@ schema is served as JSON at `/api/openapi.json`. Both describe the two
 development-only password operations, labelled as such, which this image
 answers with 404.
 
+A released image is `ghcr.io/abandontech/abandonauth-api:<version>`, and
+`latest` points at the newest release. `abandonauth --version`, the serving log
+line and the `org.opencontainers.image.version` label all report that version;
+`org.opencontainers.image.revision` is the full commit it was built from. Any
+image built outside a release, including the ones `compose.yml` builds, reports
+`development`.
+
 `compose.yml` builds that target unless `API_BUILD_TARGET` names the other one.
 Deploy with:
 
@@ -131,6 +138,37 @@ docker compose up --build -d
 
 It reads `.env` from the repository root. The database publishes no host port
 and is on a network the site does not join.
+
+### Releasing the API image
+
+Pushing a tag `vMAJOR.MINOR.PATCH` starts `.github/workflows/release.yml`: it
+runs the linting and the integration checks, then publishes the API image as
+`:MAJOR.MINOR.PATCH` and `:latest`, so `v0.0.1` publishes
+`ghcr.io/abandontech/abandonauth-api:0.0.1`. `main` and pull requests build both
+API images but publish neither.
+
+```shell
+git tag v0.0.1 origin/main
+git push origin v0.0.1
+```
+
+Who may release is GitHub configuration, not workflow code. Before the first
+release, a repository administrator adds a tag ruleset for `refs/tags/v*` that
+lets only the release managers create matching tags and blocks updating or
+deleting them, and confirms the `abandonauth-api` package grants GitHub Actions
+write access to this repository only.
+
+## Deploying the site
+
+The site is built from `src/website/Dockerfile`. Its
+[settings](./src/website/README.md#settings) are read when the image is built,
+not when it starts, so changing one means rebuilding. At run time its server
+reaches the API at `NUXT_API_ADDRESS` and listens on port 3000. `compose.yml`
+builds it as the `website` service from the root `.env`.
+
+Every push to `main` publishes it, once the linting and the checks pass, as
+`ghcr.io/abandontech/abandonauth-frontend:<short commit>` and `:latest`, built
+for `https://auth.abandontech.cloud`.
 
 ## The database
 

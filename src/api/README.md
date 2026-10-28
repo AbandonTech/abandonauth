@@ -10,6 +10,7 @@ Settings, provider registration, deployment and the check commands are in the
 ## Commands
 
 ```text
+abandonauth --version                      print the version this binary was built as
 abandonauth serve                          answer API requests
 abandonauth database rotate-auth-epoch     withdraw every issued credential
 abandonauth provision                      create the site's application, asking for its UUID and the site origin
@@ -80,3 +81,10 @@ One Dockerfile produces both, and they differ by build tag:
 `compose.yml` selects `deployment` unless `API_BUILD_TARGET` in `.env` names the
 other. Code that must not exist in a deployment lives in a file guarded by the
 `devtools` tag.
+
+Both take two build arguments: `VERSION`, linked into the binary as the version
+it reports and logs, and `REVISION`. Both images are labelled with them. They
+default to `development` and `unknown`; a build run by `go build` alone also
+reports `development`. A release sets them from its tag and its commit, as the
+[repository README](../../README.md#releasing-the-api-image) describes. Neither
+is a runtime setting.

@@ -273,6 +273,16 @@ provisioning_order() {
         die "origins with and without a trailing slash produced different callbacks"
 }
 
+# Compose builds only a missing image, so without this a check would run
+# whatever image another run left behind.
+build_images() {
+    if ! built=$(project build migrations provisioning migration-gate-api 2>&1); then
+        printf '%s\n' "$built" >&2
+        die "the deployment image did not build"
+    fi
+}
+
+stream_stage "deployment image: built from this tree" build_images
 stream_stage "migration controller: concurrent up converges" converge
 stream_stage "migration controller: a failed migration starts neither provisioning nor API, and leaks no password" gate
 stream_stage "provisioning: a refused input starts no API, writes nothing and repeats nothing" provisioning_gate
