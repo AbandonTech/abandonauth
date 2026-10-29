@@ -23,7 +23,7 @@ import (
 )
 
 // version identifies the build in the command's version output and in log
-// lines. A release build sets it at link time from its protected release tag.
+// lines. An image build sets it at link time to the commit it was built from.
 var version = "development"
 
 // buildServesDevelopmentRoutes reports whether this binary was compiled with the

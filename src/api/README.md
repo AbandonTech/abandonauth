@@ -82,9 +82,7 @@ One Dockerfile produces both, and they differ by build tag:
 other. Code that must not exist in a deployment lives in a file guarded by the
 `devtools` tag.
 
-Both take two build arguments: `VERSION`, linked into the binary as the version
-it reports and logs, and `REVISION`. Both images are labelled with them. They
-default to `development` and `unknown`; a build run by `go build` alone also
-reports `development`. A release sets them from its tag and its commit, as the
-[repository README](../../README.md#releasing-the-api-image) describes. Neither
-is a runtime setting.
+Both take one build argument, `COMMIT`, linked into the binary as the version it
+reports and logs and set as the image's revision label. It defaults to
+`development`, which a build run by `go build` alone also reports; CI sets it to
+the short commit the image is published as. It is not a runtime setting.

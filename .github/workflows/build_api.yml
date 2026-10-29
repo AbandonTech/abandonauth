@@ -3,8 +3,13 @@ name: Build Api
 on:
   workflow_call:
     inputs:
+      latest:
+        description: "If the container should be tagged as latest."
+        type: boolean
+        required: false
+        default: false
       push:
-        description: "If the deployment image is published as the release tag's version and latest."
+        description: "If the built container should be pushed."
         type: boolean
         required: false
         default: false
@@ -19,17 +24,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Determine the version
-        id: version
-        env:
-          PUBLISH: ${{ inputs.push }}
-        run: |
-          if [ "$PUBLISH" = true ]; then
-            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=development" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
@@ -41,14 +35,19 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Create SHA Container Tag
+        id: sha_tag
+        run: |
+          tag=$(cut -c 1-7 <<< $GITHUB_SHA)
+          echo "tag=$tag" >> $GITHUB_OUTPUT
+
       - name: Build the development target
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
           context: src/api
           target: development
           build-args: |
-            VERSION=${{ steps.version.outputs.version }}
-            REVISION=${{ github.sha }}
+            COMMIT=${{ steps.sha_tag.outputs.tag }}
           push: false
 
       - name: Build and push the deployment target
@@ -57,9 +56,8 @@ jobs:
           context: src/api
           target: deployment
           build-args: |
-            VERSION=${{ steps.version.outputs.version }}
-            REVISION=${{ github.sha }}
+            COMMIT=${{ steps.sha_tag.outputs.tag }}
           push: ${{ inputs.push }}
           tags: |
-            ghcr.io/abandontech/abandonauth-api:${{ steps.version.outputs.version }}
-            ${{ inputs.push && 'ghcr.io/abandontech/abandonauth-api:latest' || '' }}
+            ghcr.io/abandontech/abandonauth-api:${{ steps.sha_tag.outputs.tag }}
+            ${{ inputs.latest && 'ghcr.io/abandontech/abandonauth-api:latest' || '' }}

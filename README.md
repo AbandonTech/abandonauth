@@ -122,12 +122,11 @@ schema is served as JSON at `/api/openapi.json`. Both describe the two
 development-only password operations, labelled as such, which this image
 answers with 404.
 
-A released image is `ghcr.io/abandontech/abandonauth-api:<version>`, and
-`latest` points at the newest release. `abandonauth --version`, the serving log
-line and the `org.opencontainers.image.version` label all report that version;
-`org.opencontainers.image.revision` is the full commit it was built from. Any
-image built outside a release, including the ones `compose.yml` builds, reports
-`development`.
+Every push to `main` publishes it, once the linting and the checks pass, as
+`ghcr.io/abandontech/abandonauth-api:<short commit>` and `:latest`.
+`abandonauth --version`, the serving log line and the
+`org.opencontainers.image.revision` label all report that commit. Any other
+build, including the ones `compose.yml` makes, reports `development`.
 
 `compose.yml` builds that target unless `API_BUILD_TARGET` names the other one.
 Deploy with:
@@ -138,25 +137,6 @@ docker compose up --build -d
 
 It reads `.env` from the repository root. The database publishes no host port
 and is on a network the site does not join.
-
-### Releasing the API image
-
-Pushing a tag `vMAJOR.MINOR.PATCH` starts `.github/workflows/release.yml`: it
-runs the linting and the integration checks, then publishes the API image as
-`:MAJOR.MINOR.PATCH` and `:latest`, so `v0.0.1` publishes
-`ghcr.io/abandontech/abandonauth-api:0.0.1`. `main` and pull requests build both
-API images but publish neither.
-
-```shell
-git tag v0.0.1 origin/main
-git push origin v0.0.1
-```
-
-Who may release is GitHub configuration, not workflow code. Before the first
-release, a repository administrator adds a tag ruleset for `refs/tags/v*` that
-lets only the release managers create matching tags and blocks updating or
-deleting them, and confirms the `abandonauth-api` package grants GitHub Actions
-write access to this repository only.
 
 ## Deploying the site
 

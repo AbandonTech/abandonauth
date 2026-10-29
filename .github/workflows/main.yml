@@ -21,8 +21,10 @@ jobs:
       - check
     permissions:
       contents: read
+      packages: write
     with:
-      push: false
+      latest: true
+      push: true
 
   build_frontend:
     uses: ./.github/workflows/build_frontend.yml
