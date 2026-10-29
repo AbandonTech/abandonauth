@@ -47,6 +47,7 @@ jobs:
           context: src/website
           build-args: |
             ABANDON_AUTH_URL=https://auth.abandontech.cloud
+            ABANDON_AUTH_SITE_URL=https://auth.abandontech.cloud
             ABANDON_AUTH_DEVELOPER_APP_ID=cd022be1-35af-4248-8d70-4205ed1c20c6
           push: ${{ inputs.push }}
           tags: |

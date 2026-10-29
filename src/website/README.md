@@ -36,7 +36,9 @@ own server route forwards `event.path` whole. Both end at the same address.
 | `ABANDON_AUTH_DEVELOPER_APP_ID` | The application this site signs people in to |
 
 All three are read at build time, from this directory's own `.env` rather than
-the one at the repository root. A deployment passes them as build arguments.
+the one at the repository root. A deployment passes them as build arguments,
+and the image build refuses to start without `ABANDON_AUTH_SITE_URL` and
+`ABANDON_AUTH_DEVELOPER_APP_ID`.
 
 The sign-in callback is `ABANDON_AUTH_SITE_URL` plus `/api/ui`, and the API
 matches it byte for byte against what the application registered, so changing
