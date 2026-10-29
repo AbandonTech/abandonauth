@@ -4,14 +4,24 @@ on:
   push:
     branches: main
 
+permissions:
+  contents: read
+
 jobs:
   linting:
     uses: ./.github/workflows/linting.yml
+
+  check:
+    uses: ./.github/workflows/check.yml
 
   build_api:
     uses: ./.github/workflows/build_api.yml
     needs:
       - linting
+      - check
+    permissions:
+      contents: read
+      packages: write
     with:
       latest: true
       push: true
@@ -20,6 +30,10 @@ jobs:
     uses: ./.github/workflows/build_frontend.yml
     needs:
       - linting
+      - check
+    permissions:
+      contents: read
+      packages: write
     with:
       latest: true
       push: true

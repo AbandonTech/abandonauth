@@ -4,6 +4,9 @@ on:
   pull_request:
     branches: main
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -12,12 +15,23 @@ jobs:
   linting:
     uses: ./.github/workflows/linting.yml
 
+  check:
+    uses: ./.github/workflows/check.yml
+
   build_api:
     uses: ./.github/workflows/build_api.yml
     needs:
       - linting
+      - check
+    permissions:
+      contents: read
+    with:
+      push: false
 
   build_frontend:
     uses: ./.github/workflows/build_frontend.yml
     needs:
       - linting
+      - check
+    permissions:
+      contents: read

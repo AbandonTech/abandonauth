@@ -1,0 +1,1240 @@
+openapi: "3.1.0"
+info:
+  title: AbandonAuth
+  version: "0.0.1"
+  description: Identity provider and OAuth application broker.
+tags:
+  - name: Users
+    description: The authenticated user, and the developer applications that user owns.
+  - name: Authentication
+    description: >-
+      Starting provider sign-ins, spending one-time codes, withdrawing
+      credentials and ending browser sessions.
+  - name: Developer Applications
+    description: >-
+      Applications that send people here to sign in, their credentials and the
+      exact callback URIs they may be returned to.
+  - name: Provider Callbacks
+    description: >-
+      The addresses Discord, GitHub and Google return a browser to. Only a
+      browser following a provider's redirect calls them.
+  - name: Development Sign-In
+    description: >-
+      Password accounts for local development without a provider. A deployment
+      build contains neither route nor handler, and answers both addresses 404.
+
+paths:
+  /api/me:
+    get:
+      tags: [Users]
+      summary: Describe the authenticated user
+      description: >-
+        Describe the user a user access token or browser session authenticates.
+
+
+        With `UserAccessToken`, the token must carry the `identify` scope and
+        its audience must be a developer application that is still registered;
+        a token whose audience application has since been deleted is refused.
+        A developer application access token is refused here.
+
+
+        With `BrowserSession`, the session cookie alone authenticates the user.
+        A request that sends an `Authorization` header is authenticated by that
+        header and never by the cookie.
+      security:
+        - UserAccessToken: []
+        - BrowserSession: []
+      responses:
+        "200":
+          description: The authenticated user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/user/applications:
+    get:
+      tags: [Users]
+      summary: List the signed-in person's developer applications
+      description: >-
+        List every developer application the signed-in person owns.
+
+
+        With `UserAccessToken`, the token must have been issued to the
+        AbandonAuth site itself and carry the `abandonauth` scope. A token any
+        other application holds is refused, so an application cannot read what
+        else its user has registered. A developer application access token is
+        refused here.
+
+
+        With `BrowserSession`, the session cookie alone authenticates the user.
+        A request that sends an `Authorization` header is authenticated by that
+        header and never by the cookie.
+      security:
+        - UserAccessToken: []
+        - BrowserSession: []
+      responses:
+        "200":
+          description: The applications the person owns, possibly none.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DeveloperApplication"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/login:
+    post:
+      tags: [Authentication]
+      summary: Spend a one-time code for a user access token
+      description: >-
+        Spend the one-time code a provider callback returned the browser with,
+        for a user access token whose subject is the user who signed in and
+        whose audience is the collecting application. The token expires fifteen
+        minutes after it is issued.
+
+
+        Application proof is mandatory. The collecting application
+        authenticates either with its own `DeveloperApplicationAccessToken` in
+        the `Authorization` header, or, when no `Authorization` header is sent,
+        with its `DeveloperApplicationCredentials` in the body. A present
+        `Authorization` header takes precedence: if it is malformed or refused,
+        the request is refused and never falls back to the body credentials.
+        With no `Authorization` header and no body, or a body of JSON `null`,
+        the request is refused with 401. A body that is present must carry both
+        `id` and `refresh_token`; body credentials that are not accepted are
+        refused with the same 403 for an unknown application and a wrong
+        refresh token.
+
+
+        The code must have been issued to the authenticated application.
+        Spending it is one atomic delete, so a code is spent at most once: a
+        replayed code, an expired code, a code issued to another application
+        and a code never issued are all refused with the same 401, whether the
+        second attempt arrives later or at the same instant on another worker.
+      security:
+        - DeveloperApplicationAccessToken: []
+      parameters:
+        - $ref: "#/components/parameters/ExchangeToken"
+      requestBody:
+        required: false
+        description: >-
+          The collecting application's own credentials, sent only when no
+          `Authorization` header is sent.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeveloperApplicationCredentials"
+      responses:
+        "200":
+          description: A user access token for the collecting application.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/InvalidInput"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/burn-token:
+    post:
+      tags: [Authentication]
+      summary: Withdraw a credential
+      description: >-
+        Withdraw a one-time code or an access token before it would have
+        expired. No authentication is required: holding the value is the only
+        authority needed to give it up.
+
+
+        A one-time code is removed and can no longer be spent. An access token
+        this service issued is recorded as withdrawn and is refused for the
+        rest of its lifetime. The answer is the same empty 200 whether the
+        value was withdrawn, was already gone, or was never issued, so this
+        operation cannot be used to discover which credentials are outstanding.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CredentialWithdrawal"
+      responses:
+        "200":
+          description: The value is no longer accepted. The response has no body.
+        "422":
+          $ref: "#/components/responses/InvalidInput"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/developer_application:
+    post:
+      tags: [Developer Applications]
+      summary: Register a developer application
+      description: >-
+        Register a developer application owned by the signed-in person. The
+        answer carries the application's refresh token, which is returned only
+        here: it is stored as a hash and cannot be read back. It stays valid
+        until it is replaced through the reset_token operation.
+
+
+        With `UserAccessToken`, the token must have been issued to the
+        AbandonAuth site itself and carry the `abandonauth` scope; a token any
+        other application holds, and a developer application access token, are
+        refused. With `BrowserSession`, the request must also carry the exact
+        site `Origin` and an `X-CSRF-Token` equal to the readable CSRF cookie
+        and bound to the server-side session. A request authenticated by
+        `UserAccessToken` needs neither header.
+
+
+        Rate limited: every developer application change by one signed-in
+        person spends from one budget of 20 per minute, shared by registration,
+        deletion, credential reset and callback replacement. A spent budget is
+        answered 429 with `Retry-After`.
+      security:
+        - UserAccessToken: []
+        - BrowserSession: []
+      parameters:
+        - $ref: "#/components/parameters/ConditionalOrigin"
+        - $ref: "#/components/parameters/ConditionalCSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeveloperApplicationName"
+      responses:
+        "200":
+          description: The new application and its refresh token, returned once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeveloperApplicationWithCredential"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/InvalidInput"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/developer_application/login:
+    post:
+      tags: [Developer Applications]
+      summary: Exchange an application's refresh token for its access token
+      description: >-
+        Authenticate a developer application with its identifier and refresh
+        token. The answer is a developer application access token whose subject
+        is the application itself, is bound to the application's current
+        credential version, and expires fifteen minutes after it is issued.
+
+
+        A refresh token that is not the application's and an application that
+        does not exist are refused with the same 401, after the same amount of
+        work, so the refusal does not reveal which applications exist.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeveloperApplicationCredentials"
+      responses:
+        "200":
+          description: A developer application access token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidInput"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/developer_application/me:
+    get:
+      tags: [Developer Applications]
+      summary: Describe the developer application its access token authenticates
+      description: >-
+        Describe the developer application a developer application access token
+        authenticates. Only `DeveloperApplicationAccessToken` is accepted: a user
+        access token and a browser session are refused. A token issued before
+        the application's refresh token was last reset is refused.
+      security:
+        - DeveloperApplicationAccessToken: []
+      responses:
+        "200":
+          description: The authenticated developer application.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeveloperApplication"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/developer_application/{application_id}:
+    get:
+      tags: [Developer Applications]
+      summary: Describe one of the signed-in person's developer applications
+      description: >-
+        Describe a developer application the signed-in person owns, with the
+        exact callback URIs it may be returned to. An application somebody else
+        owns is answered 404, exactly as one that does not exist, so ownership
+        is never revealed.
+
+
+        With `UserAccessToken`, the token must have been issued to the
+        AbandonAuth site itself and carry the `abandonauth` scope; a token any
+        other application holds, and a developer application access token, are
+        refused. `BrowserSession` is accepted without further headers because
+        this operation changes nothing.
+      security:
+        - UserAccessToken: []
+        - BrowserSession: []
+      parameters:
+        - $ref: "#/components/parameters/ApplicationIdPath"
+      responses:
+        "200":
+          description: The application and its callback URIs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeveloperApplicationWithCallbackURIs"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/ApplicationNotFound"
+        "422":
+          $ref: "#/components/responses/InvalidInput"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+    delete:
+      tags: [Developer Applications]
+      summary: Delete one of the signed-in person's developer applications
+      description: >-
+        Delete a developer application the signed-in person owns, with its
+        callback URIs, its logins in progress and its unspent one-time codes.
+        An application somebody else owns is answered 404, exactly as one that
+        does not exist, so ownership is never revealed.
+
+
+        With `UserAccessToken`, the token must have been issued to the
+        AbandonAuth site itself and carry the `abandonauth` scope; a token any
+        other application holds, and a developer application access token, are
+        refused. With `BrowserSession`, the request must also carry the exact
+        site `Origin` and an `X-CSRF-Token` equal to the readable CSRF cookie
+        and bound to the server-side session. A request authenticated by
+        `UserAccessToken` needs neither header.
+
+
+        Rate limited: every developer application change by one signed-in
+        person spends from one budget of 20 per minute, shared by registration,
+        deletion, credential reset and callback replacement. A spent budget is
+        answered 429 with `Retry-After`.
+      security:
+        - UserAccessToken: []
+        - BrowserSession: []
+      parameters:
+        - $ref: "#/components/parameters/ApplicationIdPath"
+        - $ref: "#/components/parameters/ConditionalOrigin"
+        - $ref: "#/components/parameters/ConditionalCSRFToken"
+      responses:
+        "200":
+          description: The application that was deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeveloperApplication"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/ApplicationNotFound"
+        "422":
+          $ref: "#/components/responses/InvalidInput"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/developer_application/{application_id}/reset_token:
+    patch:
+      tags: [Developer Applications]
+      summary: Replace a developer application's refresh token
+      description: >-
+        Issue a new refresh token for a developer application the signed-in
+        person owns. The replaced refresh token stops authenticating the
+        application at once, and every developer application access token
+        issued against it is refused from then on, because the application's
+        credential version changes. The new refresh token is returned only in
+        this answer. An application somebody else owns is answered 404, exactly
+        as one that does not exist.
+
+
+        With `UserAccessToken`, the token must have been issued to the
+        AbandonAuth site itself and carry the `abandonauth` scope; a token any
+        other application holds, and a developer application access token, are
+        refused. With `BrowserSession`, the request must also carry the exact
+        site `Origin` and an `X-CSRF-Token` equal to the readable CSRF cookie
+        and bound to the server-side session. A request authenticated by
+        `UserAccessToken` needs neither header.
+
+
+        Rate limited: every developer application change by one signed-in
+        person spends from one budget of 20 per minute, shared by registration,
+        deletion, credential reset and callback replacement. A spent budget is
+        answered 429 with `Retry-After`.
+      security:
+        - UserAccessToken: []
+        - BrowserSession: []
+      parameters:
+        - $ref: "#/components/parameters/ApplicationIdPath"
+        - $ref: "#/components/parameters/ConditionalOrigin"
+        - $ref: "#/components/parameters/ConditionalCSRFToken"
+      responses:
+        "200":
+          description: The application and its new refresh token, returned once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeveloperApplicationWithCredential"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/ApplicationNotFound"
+        "422":
+          $ref: "#/components/responses/InvalidInput"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/developer_application/{application_id}/callback_uris:
+    patch:
+      tags: [Developer Applications]
+      summary: Replace a developer application's callback URIs
+      description: >-
+        Make the set of callback URIs a developer application may be returned
+        to exactly the set submitted. URIs not yet registered are added, URIs
+        registered but not submitted are removed, and URIs in both are kept. A
+        URI is matched by its exact spelling. An empty list leaves the
+        application with no callback.
+
+
+        The set is replaced atomically, whole or not at all: one URI this
+        service would not return a browser to is answered 400 and leaves the
+        application with the set it had. The 400 names only the zero-based
+        index of the first refused URI in the submitted list, never the URI or
+        the rule it broke. Replacements of one application's set
+        run one after the other under the application's row lock, so two
+        arriving together leave one submitted set and never a mixture. An
+        application somebody else owns, or one deleted before its set could be
+        replaced, is answered 404, exactly as one that does not exist.
+
+
+        A callback URI must be absolute and use HTTPS, except on a loopback
+        host where a port is required; it carries no user information, no
+        fragment, no control characters, and no `code` or `authentication`
+        query key, which this service appends itself.
+
+
+        With `UserAccessToken`, the token must have been issued to the
+        AbandonAuth site itself and carry the `abandonauth` scope; a token any
+        other application holds, and a developer application access token, are
+        refused. With `BrowserSession`, the request must also carry the exact
+        site `Origin` and an `X-CSRF-Token` equal to the readable CSRF cookie
+        and bound to the server-side session. A request authenticated by
+        `UserAccessToken` needs neither header.
+
+
+        Rate limited: every developer application change by one signed-in
+        person spends from one budget of 20 per minute, shared by registration,
+        deletion, credential reset and callback replacement. A spent budget is
+        answered 429 with `Retry-After`.
+      security:
+        - UserAccessToken: []
+        - BrowserSession: []
+      parameters:
+        - $ref: "#/components/parameters/ApplicationIdPath"
+        - $ref: "#/components/parameters/ConditionalOrigin"
+        - $ref: "#/components/parameters/ConditionalCSRFToken"
+      requestBody:
+        required: true
+        description: The complete set of callback URIs.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+      responses:
+        "200":
+          description: The application whose callback set was replaced.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeveloperApplication"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/ApplicationNotFound"
+        "422":
+          $ref: "#/components/responses/InvalidInput"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/ui/{provider}/authorize:
+    get:
+      tags: [Authentication]
+      summary: Start a sign-in with a provider
+      description: >-
+        Start a sign-in with Discord, GitHub or Google for a developer
+        application. A browser navigates here; the answer is a redirect, not a
+        JSON document.
+
+
+        The `callback_uri` must exactly match one of the URIs the application
+        registered, compared by its exact spelling; anything else is refused
+        with 403 before anything is stored, with the same response whether the
+        application or the callback is unknown.
+
+
+        This service then creates login state that is opaque, unpredictable,
+        expiring after five minutes and single-use. It is bound to the
+        initiating browser by a short-lived cookie, and to the provider, the
+        application and the exact registered callback, all held server-side.
+        Only the opaque state travels through the browser. PKCE with the `S256`
+        challenge method is used for every provider, and a Google sign-in also
+        carries a nonce. The browser is redirected to the provider's own fixed
+        HTTPS authorization address.
+
+
+        No access token or session token is ever put in a redirect query
+        string.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/Provider"
+        - $ref: "#/components/parameters/ApplicationIdQuery"
+        - $ref: "#/components/parameters/CallbackURIQuery"
+      responses:
+        "307":
+          $ref: "#/components/responses/RedirectToProvider"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/InvalidInput"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/ui/discord-callback:
+    get:
+      tags: [Provider Callbacks]
+      summary: Finish a sign-in with Discord
+      description: >-
+        The address Discord returns the browser to after a sign-in started at
+        `/api/ui/discord/authorize`.
+
+
+        The state must be the opaque, unpredictable, expiring, single-use value
+        this service issued, presented by the same browser that started the
+        sign-in, for Discord, and it is consumed by one atomic delete. A state
+        that was never issued, has expired, was already used, belongs to
+        another browser or was started with another provider is refused with
+        the same 403. The authorization code is exchanged with the PKCE `S256`
+        verifier held for that sign-in.
+
+
+        Every failure after the state is consumed is refused with that same
+        403 response: a provider that does not authenticate the user, a
+        provider identity that is incomplete or cannot be stored, and a stored
+        callback that no longer passes the callback URI policy, whether or not
+        the browser returned with an authorization code. Such a refusal
+        carries no redirect and issues no session or one-time code.
+
+
+        The browser is returned to the exact registered callback spelling,
+        with no existing byte rewritten. A sign-in for any developer
+        application other than the AbandonAuth site appends only one
+        parameter, the one-time code under the `code` query key, which only
+        that application can spend at `POST /api/login`. A sign-in for the
+        AbandonAuth site itself receives a browser session cookie and nothing
+        is appended. A browser returned without an authorization code is sent
+        to the callback with nothing appended.
+
+
+        No access token or session token is ever put in a redirect query
+        string.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/State"
+        - $ref: "#/components/parameters/ProviderAuthorizationCode"
+      responses:
+        "307":
+          $ref: "#/components/responses/RedirectToCallback"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/ui/github-callback:
+    get:
+      tags: [Provider Callbacks]
+      summary: Finish a sign-in with GitHub
+      description: >-
+        The address GitHub returns the browser to after a sign-in started at
+        `/api/ui/github/authorize`.
+
+
+        The state must be the opaque, unpredictable, expiring, single-use value
+        this service issued, presented by the same browser that started the
+        sign-in, for GitHub, and it is consumed by one atomic delete. A state
+        that was never issued, has expired, was already used, belongs to
+        another browser or was started with another provider is refused with
+        the same 403. The authorization code is exchanged with the PKCE `S256`
+        verifier held for that sign-in.
+
+
+        Every failure after the state is consumed is refused with that same
+        403 response: a provider that does not authenticate the user, a
+        provider identity that is incomplete or cannot be stored, and a stored
+        callback that no longer passes the callback URI policy, whether or not
+        the browser returned with an authorization code. Such a refusal
+        carries no redirect and issues no session or one-time code.
+
+
+        The browser is returned to the exact registered callback spelling,
+        with no existing byte rewritten. A sign-in for any developer
+        application other than the AbandonAuth site appends only one
+        parameter, the one-time code under the `code` query key, which only
+        that application can spend at `POST /api/login`. A sign-in for the
+        AbandonAuth site itself receives a browser session cookie and nothing
+        is appended. A browser returned without an authorization code is sent
+        to the callback with nothing appended.
+
+
+        No access token or session token is ever put in a redirect query
+        string.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/State"
+        - $ref: "#/components/parameters/ProviderAuthorizationCode"
+      responses:
+        "307":
+          $ref: "#/components/responses/RedirectToCallback"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/google:
+    get:
+      tags: [Provider Callbacks]
+      summary: Finish a sign-in with Google
+      description: >-
+        The address Google returns the browser to after a sign-in started at
+        `/api/ui/google/authorize`.
+
+
+        The state must be the opaque, unpredictable, expiring, single-use value
+        this service issued, presented by the same browser that started the
+        sign-in, for Google, and it is consumed by one atomic delete. A state
+        that was never issued, has expired, was already used, belongs to
+        another browser or was started with another provider is refused with
+        the same 403. The authorization code is exchanged with the PKCE `S256`
+        verifier held for that sign-in.
+
+
+        Every failure after the state is consumed is refused with that same
+        403 response: a provider that does not authenticate the user, a
+        provider identity that is incomplete or cannot be stored, and a stored
+        callback that no longer passes the callback URI policy, whether or not
+        the browser returned with an authorization code. Such a refusal
+        carries no redirect and issues no session or one-time code.
+
+
+        Google's identity token is verified before any user is authenticated. Its
+        algorithm must be RS256 and nothing else, and its signature must verify
+        against Google's published keys. Its issuer must be exactly
+        `https://accounts.google.com`. Its audience must contain this service's
+        client identifier. When the token names more than one audience, a
+        non-empty `azp` equal to the client identifier is required. Any other
+        non-empty `azp` must equal the client identifier. Its `exp` and `iat`
+        claims are mandatory and checked within the bounded clock skew of
+        thirty seconds. `nbf` is enforced whenever it is present. Its nonce is
+        mandatory and must match the nonce issued for this sign-in. A non-empty
+        `at_hash` must match the provider access token returned with it.
+
+
+        The browser is returned to the exact registered callback spelling,
+        with no existing byte rewritten. A sign-in for any developer
+        application other than the AbandonAuth site appends only one
+        parameter, the one-time code under the `authentication` query key,
+        which only that application can spend at `POST /api/login`. A sign-in
+        for the AbandonAuth site itself receives a browser session cookie and
+        nothing is appended. A browser returned without an authorization code
+        is sent to the callback with nothing appended.
+
+
+        No access token or session token is ever put in a redirect query
+        string.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/State"
+        - $ref: "#/components/parameters/ProviderAuthorizationCode"
+      responses:
+        "307":
+          $ref: "#/components/responses/RedirectToCallback"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/ui/logout:
+    post:
+      tags: [Authentication]
+      summary: End the browser session
+      description: >-
+        End the browser session the session cookie names.
+
+
+        The session is deleted on the server before the session and CSRF
+        cookies are cleared, so a copy of the session cookie taken before
+        logout is refused by every worker afterwards. The request must carry
+        the exact site `Origin` and an `X-CSRF-Token` equal to the readable
+        CSRF cookie and bound to the server-side session. A missing
+        `X-CSRF-Token` is answered 422; a missing or expired session, or an
+        `Origin` or token that does not match, is answered 403.
+      security:
+        - BrowserSession: []
+      parameters:
+        - $ref: "#/components/parameters/RequiredOrigin"
+        - $ref: "#/components/parameters/RequiredCSRFToken"
+      responses:
+        "200":
+          description: >-
+            The session was deleted and both cookies were cleared. The response
+            has no body.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/InvalidInput"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/create_test_user:
+    post:
+      tags: [Development Sign-In]
+      summary: Create a password account for local development
+      description: >-
+        Development-only. Create an account that signs in with a password, for
+        local development without a provider. A password that cannot be stored,
+        because it is empty or longer than 72 bytes, is answered 400.
+
+
+        This operation exists only in a development build compiled with the
+        `devtools` tag, running with debug mode on and a loopback-only
+        listener. A deployment build contains neither the route nor the handler
+        and answers 404, as does a development build missing either of the
+        other two conditions.
+      x-abandonauth-build: development
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordAccount"
+      responses:
+        "200":
+          description: The account that was created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/DevelopmentOperationUnavailable"
+        "422":
+          $ref: "#/components/responses/InvalidInput"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/login_test_user:
+    post:
+      tags: [Development Sign-In]
+      summary: Sign in with a password for local development
+      description: >-
+        Development-only. Sign the browser in as a password account. The
+        browser receives the same session and CSRF cookies a provider sign-in
+        to the AbandonAuth site gives, and the answer carries a user access
+        token for the site. No cookie is set unless the whole sign-in
+        succeeds. A wrong password and an unknown account are refused with the
+        same 401.
+
+
+        This operation exists only in a development build compiled with the
+        `devtools` tag, running with debug mode on and a loopback-only
+        listener. A deployment build contains neither the route nor the handler
+        and answers 404, as does a development build missing either of the
+        other two conditions.
+      x-abandonauth-build: development
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordLogin"
+      responses:
+        "200":
+          description: A user access token for the AbandonAuth site.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/DevelopmentOperationUnavailable"
+        "422":
+          $ref: "#/components/responses/InvalidInput"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+
+components:
+  securitySchemes:
+    UserAccessToken:
+      bearerFormat: JWT
+      description: >-
+        A `user_access` token, sent in the `Authorization` header with the
+        `Bearer` scheme. Its subject is the authenticated user and its audience
+        is one developer application. It is obtained at `POST /api/login` and
+        expires fifteen minutes after it is issued. It can be withdrawn early
+        at `POST /api/burn-token`, and every token is withdrawn when the
+        service's authority is rotated.
+
+
+        Each operation checks its scope and audience exactly: some accept a
+        token for any still-registered application carrying `identify`, others
+        only a token for the AbandonAuth site carrying `abandonauth`. This
+        token is never accepted where a `DeveloperApplicationAccessToken` is
+        required, and that token is never accepted in its place.
+      scheme: bearer
+      type: http
+    DeveloperApplicationAccessToken:
+      bearerFormat: JWT
+      description: >-
+        A `developer_application_access` token, sent in the `Authorization`
+        header with the `Bearer` scheme. It authenticates a developer
+        application as the principal: its subject is the application, its
+        audience is the AbandonAuth site, and it carries exactly the
+        `abandonauth` and `identify` scopes. It
+        is obtained at `POST /api/developer_application/login`, expires fifteen
+        minutes after it is issued, and is bound to the application's
+        credential version, so resetting the refresh token refuses every token
+        issued before the reset.
+
+
+        This token is never accepted where a `UserAccessToken` is required,
+        and that token is never accepted in its place.
+      scheme: bearer
+      type: http
+    BrowserSession:
+      type: apiKey
+      in: cookie
+      name: __Host-abandonauth_session
+      description: >-
+        The browser session cookie set when a user signs in to the AbandonAuth
+        site. The cookie holds a random value; the server stores only its
+        digest, with the user ID and a CSRF token digest. Expiry is absolute and
+        is not extended by use. Logout deletes the session on the server.
+
+
+        Over HTTPS the cookie is `__Host-abandonauth_session` with `HttpOnly`,
+        `Secure`, `SameSite=Lax`, `Path=/` and no `Domain`. Beside it the
+        readable `__Host-abandonauth_csrf` cookie, with the same attributes
+        except `HttpOnly`, carries the CSRF token the site copies into a
+        header. Only when the site itself is on a loopback address without TLS
+        are the cookies named `abandonauth_session` and `abandonauth_csrf`,
+        without the `__Host-` prefix or `Secure`.
+
+
+        A browser-authenticated request that changes state additionally
+        requires the exact site `Origin`, a non-empty `X-CSRF-Token`, equality
+        between that header and the readable CSRF cookie, and a match to the
+        CSRF digest bound to the server-side session. A request that sends an
+        `Authorization` header is authenticated by that header and never by
+        this cookie, and needs neither `Origin` nor `X-CSRF-Token`.
+
+  parameters:
+    ApplicationIdPath:
+      name: application_id
+      in: path
+      required: true
+      description: The developer application's identifier.
+      schema:
+        type: string
+        format: uuid
+    ApplicationIdQuery:
+      name: application_id
+      in: query
+      required: true
+      description: The developer application the person is signing in to.
+      schema:
+        type: string
+        format: uuid
+    CallbackURIQuery:
+      name: callback_uri
+      in: query
+      required: true
+      description: >-
+        Exactly one of the callback URIs the application registered, in its
+        exact registered spelling.
+      schema:
+        type: string
+    Provider:
+      name: provider
+      in: path
+      required: true
+      description: The provider to sign in with.
+      schema:
+        type: string
+        enum: [discord, github, google]
+    State:
+      name: state
+      in: query
+      required: true
+      description: >-
+        The opaque login state this service put in the authorization request.
+        A missing state is refused like any other unmatched one.
+      schema:
+        type: string
+    ProviderAuthorizationCode:
+      name: code
+      in: query
+      required: false
+      description: >-
+        The authorization code the provider issued. Absent when the person
+        declined or the provider sent them back without one.
+      schema:
+        type: string
+    ExchangeToken:
+      name: exchange-token
+      in: header
+      required: true
+      description: >-
+        The one-time code a provider callback returned the browser with.
+      schema:
+        type: string
+    ConditionalOrigin:
+      name: Origin
+      in: header
+      required: false
+      description: >-
+        Required when the request is authenticated by `BrowserSession`, and
+        then must be exactly the AbandonAuth site's origin. Not needed when the
+        request is authenticated by an `Authorization` header.
+      schema:
+        type: string
+    ConditionalCSRFToken:
+      name: X-CSRF-Token
+      in: header
+      required: false
+      description: >-
+        Required when the request is authenticated by `BrowserSession`, and
+        then must equal the readable CSRF cookie and match the CSRF digest
+        bound to the server-side session. Not needed when the request is
+        authenticated by an `Authorization` header.
+      schema:
+        type: string
+    RequiredOrigin:
+      name: Origin
+      in: header
+      required: true
+      description: Exactly the AbandonAuth site's origin.
+      schema:
+        type: string
+    RequiredCSRFToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      description: >-
+        The value of the readable CSRF cookie, which must match the CSRF digest
+        bound to the server-side session.
+      schema:
+        type: string
+
+  headers:
+    Location:
+      description: Where the browser is sent.
+      schema:
+        type: string
+    Retry-After:
+      description: Whole seconds to wait before the budget allows another change.
+      schema:
+        type: integer
+        minimum: 1
+
+  schemas:
+    TokenResponse:
+      type: object
+      description: An access token.
+      required: [token]
+      properties:
+        token:
+          type: string
+    User:
+      type: object
+      description: What an application may learn about the person who signed in.
+      required: [id, username]
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+    DeveloperApplication:
+      type: object
+      description: A developer application.
+      required: [id, name, owner_id]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        owner_id:
+          type: string
+          format: uuid
+    DeveloperApplicationWithCallbackURIs:
+      type: object
+      description: A developer application and the exact URIs it may be returned to.
+      required: [id, name, owner_id, callback_uris]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        owner_id:
+          type: string
+          format: uuid
+        callback_uris:
+          type: array
+          items:
+            type: string
+    DeveloperApplicationWithCredential:
+      type: object
+      description: >-
+        A developer application and its refresh token. The refresh token is
+        returned only once, in this answer; it is stored as a hash and cannot
+        be read back.
+      required: [id, name, owner_id, token]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        owner_id:
+          type: string
+          format: uuid
+        token:
+          type: string
+          description: The application's refresh token.
+    DeveloperApplicationName:
+      type: object
+      description: The name a new developer application is registered under.
+      required: [name]
+      properties:
+        name:
+          type: string
+    DeveloperApplicationCredentials:
+      type: object
+      description: A developer application's identifier and refresh token.
+      required: [id, refresh_token]
+      properties:
+        id:
+          type: string
+          format: uuid
+        refresh_token:
+          type: string
+    CredentialWithdrawal:
+      type: object
+      description: A credential to withdraw.
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: An access token or a one-time code.
+    PasswordAccount:
+      type: object
+      description: Development-only. The password account to create.
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+    PasswordLogin:
+      type: object
+      description: Development-only. The password account to sign in as.
+      required: [user_id, password]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        password:
+          type: string
+    Failure:
+      type: object
+      description: >-
+        A refusal, with one human-readable detail written by this service. The
+        detail never repeats a request value. It is not a stable
+        machine-readable code and may change; classify a refusal by its HTTP
+        status.
+      required: [detail]
+      properties:
+        detail:
+          type: string
+    InputFailure:
+      type: object
+      description: >-
+        One input a request was refused for. `loc` and `type` identify the
+        refusal; `msg` is human-readable, is not a stable machine-readable code
+        and may change.
+      required: [loc, msg, type]
+      properties:
+        loc:
+          type: array
+          description: >-
+            Where the input was found, from outermost to innermost: the part of
+            the request, then the field, then the index within it.
+          items:
+            anyOf:
+              - type: string
+              - type: integer
+        msg:
+          type: string
+          description: >-
+            A human-readable description of the refusal that never repeats the
+            refused value.
+        type:
+          type: string
+          description: The category of refusal, such as `missing` or `uuid_parsing`.
+    Invalidated:
+      type: object
+      description: A refusal for the request's inputs, listing each one.
+      required: [detail]
+      properties:
+        detail:
+          type: array
+          items:
+            $ref: "#/components/schemas/InputFailure"
+
+  responses:
+    BadRequest:
+      description: The input was well formed but cannot be accepted.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Failure"
+    Unauthorized:
+      description: >-
+        Application authentication was missing, or the credentials or one-time
+        exchange code presented were not accepted. An unknown principal and a
+        wrong credential receive the same response, as do an unknown, spent,
+        expired and misdirected exchange code.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Failure"
+    Forbidden:
+      description: >-
+        Authentication or authorization failed: a credential was missing, the
+        `Authorization` header was malformed, an access token was expired,
+        invalid, withdrawn or of the wrong class, issuer, scope or audience, a
+        CSRF check failed, or a sign-in could not be started or validated. An
+        expired access token is reported separately; every other access token
+        refusal, including a withdrawn token, a stale auth epoch and a
+        principal that no longer exists, receives the same response. No
+        response reveals whether an account or application exists.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Failure"
+    ApplicationNotFound:
+      description: >-
+        No developer application with this identifier is owned by the
+        signed-in person. One owned by somebody else is answered the same way.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Failure"
+    DevelopmentOperationUnavailable:
+      description: >-
+        The operation is unavailable: this is a deployment build, or a
+        development build without debug mode or without a loopback-only
+        listener.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Failure"
+    InvalidInput:
+      description: The request's inputs were refused; each one is listed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Invalidated"
+    TooManyRequests:
+      description: The authenticated user's rate limit for this kind of change is exceeded.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/Retry-After"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Failure"
+    Unavailable:
+      description: The request could not be answered. Nothing about the cause is disclosed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Failure"
+    RedirectToProvider:
+      description: >-
+        The browser is sent to the provider's fixed HTTPS authorization
+        address. Of the login this service holds, only the opaque state, the
+        PKCE challenge and, for Google, the nonce travel in it. The response
+        has no body.
+      headers:
+        Location:
+          $ref: "#/components/headers/Location"
+    RedirectToCallback:
+      description: >-
+        The browser is sent to the application's exact registered callback.
+        The response has no body.
+      headers:
+        Location:
+          $ref: "#/components/headers/Location"

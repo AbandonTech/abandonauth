@@ -1,45 +1,92 @@
 services:
 
-  abandonauth:
-    network_mode: "host"
-    build:
+  migrations:
+    build: &api-build
       context: src/api
       dockerfile: Dockerfile
-      args: # Enables hot reloading
-        - uvicorn_extras=--reload
+      target: ${API_BUILD_TARGET:-deployment}
+    entrypoint: ["/usr/local/bin/goose", "-env=none", "-no-color"]
+    command: ["up"]
+    # An allowlist: no JWT or provider secret reaches Goose, and the password
+    # stays out of the DSN, which Goose quotes when a connection cannot open.
+    environment:
+      GOOSE_DRIVER: postgres
+      GOOSE_MIGRATION_DIR: /migrations
+      GOOSE_DBSTRING: ${GOOSE_DBSTRING}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    networks:
+      - db_access
+    depends_on:
+      database:
+        condition: service_healthy
+
+  provisioning:
+    build: *api-build
+    entrypoint: ["/usr/local/bin/abandonauth"]
+    command:
+      - "provision"
+      - "--application-id=${ABANDON_AUTH_DEVELOPER_APP_ID}"
+      - "--site-url=${ABANDON_AUTH_SITE_URL}"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      DEBUG: ${DEBUG:-false}
+    networks:
+      - db_access
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+
+  abandonauth:
+    build: *api-build
     env_file:
       - ".env"
+    ports:
+      - "${API_PORT:-8000}:8000"
+    networks:
+      - default
+      - db_access
     depends_on:
-      - database
-    volumes:  # mount the source code as a volume, so we can use hot reloading
-      - "./src/api/abandonauth:/app/abandonauth:ro"
-      - "./prisma:/app/prisma:ro"
+      database:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+      provisioning:
+        condition: service_completed_successfully
 
   website:
-    network_mode: "host"
     build:
       context: ./src/website
       dockerfile: Dockerfile
       args:
         ABANDON_AUTH_URL: ${ABANDON_AUTH_URL}
+        ABANDON_AUTH_SITE_URL: ${ABANDON_AUTH_SITE_URL}
         ABANDON_AUTH_DEVELOPER_APP_ID: ${ABANDON_AUTH_DEVELOPER_APP_ID}
-        GITHUB_REDIRECT: ${GITHUB_REDIRECT}
-        DISCORD_REDIRECT: ${DISCORD_REDIRECT}
+    environment:
+      NUXT_API_ADDRESS: ${ABANDON_AUTH_API_ADDRESS}
+    ports:
+      - "${WEBSITE_PORT:-3000}:3000"
+    depends_on:
+      - abandonauth
 
   database:
     image: "postgres:${POSTGRES_VERSION:-15-alpine}"
-    network_mode: "host"
     volumes:
       - postgres_data:/var/lib/postgresql/data/
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER}" ]
       interval: 2s
       timeout: 1s
       retries: 5
     environment:
-      - "POSTGRES_HOST=${POSTGRES_HOST}"
-      - "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}"
-      - "POSTGRES_USER=${POSTGRES_USER}"
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER}
+    networks:
+      - db_access
+
+networks:
+  db_access:
+    internal: true
 
 volumes:
   postgres_data:

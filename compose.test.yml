@@ -1,0 +1,93 @@
+# Started by ./scripts/check.sh --integration and by ./scripts/db.sh.
+
+services:
+
+  database:
+    # Matches the deployed major version.
+    image: "postgres:15"
+    environment:
+      POSTGRES_DB: abandonauth_template
+      POSTGRES_USER: abandonauth
+      POSTGRES_PASSWORD: placeholder
+    # Each test holds its own database on this server, so the default 100 is not enough.
+    command: ["postgres", "-c", "max_connections=300"]
+    healthcheck:
+      # Never the template: a session connected to it stops it being cloned.
+      test: ["CMD-SHELL", "pg_isready -U abandonauth -d postgres"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  migrations:
+    build: &api-build
+      context: src/api
+      dockerfile: Dockerfile
+      target: deployment
+    entrypoint: ["/usr/local/bin/goose", "-env=none", "-no-color"]
+    command: ["up"]
+    environment:
+      GOOSE_DRIVER: postgres
+      GOOSE_MIGRATION_DIR: /migrations
+      GOOSE_DBSTRING: "host=database port=5432 user=abandonauth dbname=abandonauth_template sslmode=disable connect_timeout=5"
+      # scripts/migrationcheck.sh substitutes a wrong sentinel to force a failure.
+      PGPASSWORD: ${MIGRATION_CHECK_PASSWORD:-placeholder}
+    depends_on:
+      database:
+        condition: service_healthy
+
+  provisioning:
+    profiles: ["migration-gate"]
+    build: *api-build
+    entrypoint: ["/usr/local/bin/abandonauth"]
+    command:
+      - "provision"
+      - "--application-id=${PROVISIONING_CHECK_APPLICATION_ID-}"
+      - "--site-url=${PROVISIONING_CHECK_SITE_URL-}"
+    environment:
+      DATABASE_URL: "postgres://abandonauth:placeholder@database:5432/abandonauth_template?sslmode=disable&connect_timeout=5"
+      DEBUG: "false"
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+
+  migration-gate-api:
+    profiles: ["migration-gate"]
+    build: *api-build
+    command: ["serve"]
+    environment:
+      DATABASE_URL: "postgres://abandonauth:placeholder@database:5432/abandonauth_template?sslmode=disable&connect_timeout=5"
+      JWT_SECRET: placeholder-signing-secret-placeholder-signing-secret-placeholder
+      ABANDON_AUTH_DEVELOPER_APP_ID: ${PROVISIONING_CHECK_APPLICATION_ID-}
+      ABANDON_AUTH_SITE_URL: https://auth.example.test
+      ABANDON_AUTH_URL: https://api.auth.example.test
+      DISCORD_CLIENT_ID: discord-client-id
+      DISCORD_CLIENT_SECRET: discord-client-secret-placeholder
+      ABANDON_AUTH_DISCORD_CALLBACK: https://api.auth.example.test/api/ui/discord-callback
+      GITHUB_CLIENT_ID: github-client-id
+      GITHUB_CLIENT_SECRET: github-client-secret-placeholder
+      ABANDON_AUTH_GITHUB_CALLBACK: https://api.auth.example.test/api/ui/github-callback
+      GOOGLE_CLIENT_ID: google-client-id
+      GOOGLE_CLIENT_SECRET: google-client-secret-placeholder
+      GOOGLE_CALLBACK: https://api.auth.example.test/api/google
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+      provisioning:
+        condition: service_completed_successfully
+
+  check:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+      additional_contexts:
+        api: service:migrations
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+    environment:
+      TEST_DATABASE_URL: "postgres://abandonauth:placeholder@database:5432/postgres?sslmode=disable"
+      TEST_TEMPLATE_DATABASE: abandonauth_template
+      GOOSE_DRIVER: postgres
+      GOOSE_MIGRATION_DIR: /migrations
+      GOOSE_DBSTRING: "host=database port=5432 user=abandonauth dbname=abandonauth_template sslmode=disable connect_timeout=5"
+      PGPASSWORD: placeholder
