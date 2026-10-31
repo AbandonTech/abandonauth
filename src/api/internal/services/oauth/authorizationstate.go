@@ -38,10 +38,23 @@ const (
 	Discord Provider = "discord"
 	GitHub  Provider = "github"
 	Google  Provider = "google"
+	Steam   Provider = "steam"
 )
 
 // Providers lists every provider, in the order they are offered.
-var Providers = []Provider{Discord, GitHub, Google}
+var Providers = []Provider{Discord, GitHub, Google, Steam}
+
+// usesProofKey reports whether a provider's sign-in ends in an authorization
+// code exchanged with a PKCE verifier. Steam's ends in an OpenID 2.0 assertion
+// that Steam verifies directly, and has no verifier to hold.
+func (p Provider) usesProofKey() bool {
+	switch p {
+	case Discord, GitHub, Google:
+		return true
+	default:
+		return false
+	}
+}
 
 // ParseProvider returns the provider a path segment names.
 func ParseProvider(value string) (Provider, bool) {
@@ -76,7 +89,8 @@ type Start struct {
 	BrowserBinding string
 
 	// Challenge is the PKCE challenge sent to the provider. The verifier it was
-	// derived from stays in the database, encrypted, until the callback.
+	// derived from stays in the database, encrypted, until the callback. It is
+	// empty for Steam, whose sign-in has no verifier.
 	Challenge string
 
 	// Nonce ties an identity token to this login and is empty for a provider
@@ -94,7 +108,7 @@ type Login struct {
 	CallbackURI string
 
 	// Verifier is the PKCE verifier, decrypted, to be sent to the provider with
-	// the authorization code.
+	// the authorization code. It is empty for Steam.
 	Verifier string
 
 	// NonceDigest is what the identity token's nonce must digest to.
@@ -153,17 +167,12 @@ func (s *Store) Begin(
 		}
 	}
 
-	verifier, err := credentials.NewOpaqueValue()
+	verifier, sealed, sealNonce, err := s.proofKeyFor(provider)
 	if err != nil {
 		return Start{}, err
 	}
 
 	nonce, nonceDigest, err := nonceFor(provider)
-	if err != nil {
-		return Start{}, err
-	}
-
-	sealed, sealNonce, err := s.seal(verifier)
 	if err != nil {
 		return Start{}, err
 	}
@@ -183,12 +192,32 @@ func (s *Store) Begin(
 		return Start{}, fmt.Errorf("recording a login in progress: %w", err)
 	}
 
-	return Start{
-		State:          state,
-		BrowserBinding: binding,
-		Challenge:      challengeFor(verifier),
-		Nonce:          nonce,
-	}, nil
+	started := Start{State: state, BrowserBinding: binding, Nonce: nonce}
+	if verifier != "" {
+		started.Challenge = challengeFor(verifier)
+	}
+
+	return started, nil
+}
+
+// proofKeyFor creates the PKCE verifier and its sealed form for a provider that
+// uses one, and nothing for a provider that does not.
+func (s *Store) proofKeyFor(provider Provider) (verifier string, sealed, sealNonce []byte, err error) {
+	if !provider.usesProofKey() {
+		return "", nil, nil, nil
+	}
+
+	verifier, err = credentials.NewOpaqueValue()
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	sealed, sealNonce, err = s.seal(verifier)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	return verifier, sealed, sealNonce, nil
 }
 
 // Consume spends a login in progress, returning what the callback must honour.
@@ -214,9 +243,13 @@ func (s *Store) Consume(ctx context.Context, provider Provider, state, browserBi
 		return Login{}, fmt.Errorf("consuming a login in progress: %w", err)
 	}
 
-	verifier, err := s.open(consumed.PkceVerifierNonce, consumed.PkceVerifierCiphertext)
-	if err != nil {
-		return Login{}, err
+	var verifier string
+
+	if provider.usesProofKey() {
+		verifier, err = s.open(consumed.PkceVerifierNonce, consumed.PkceVerifierCiphertext)
+		if err != nil {
+			return Login{}, err
+		}
 	}
 
 	return Login{

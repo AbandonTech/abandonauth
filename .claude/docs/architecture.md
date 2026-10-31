@@ -70,15 +70,19 @@ The site builds no provider address. `GET /api/ui/{provider}/authorize`, given
 an application and a callback:
 
 1. checks the callback is one that application registered, exactly;
-2. creates opaque state, a browser-binding value, a PKCE verifier and, for
-   Google, a nonce;
+2. creates opaque state, a browser-binding value, a PKCE verifier for the OAuth
+   providers (Discord, GitHub, Google) and, for Google, a nonce;
 3. stores their digests, the application, the exact callback and the encrypted
    verifier in a row expiring in five minutes;
 4. sets the short-lived binding cookie and redirects to the provider's own fixed
    HTTPS address.
 
 Only the opaque state travels in that redirect, useless without the browser's
-cookie.
+cookie. Steam signs in through OpenID 2.0, which has no PKCE: its row holds no
+verifier, and the state travels inside `openid.return_to`, the site's origin
+plus `/api/ui/steam-callback` with the state appended. The realm is the site's
+origin plus `/`. Steam signs that return address into its assertion, which is
+what binds the assertion to this one login in place of PKCE.
 
 The callback consumes state in one `DELETE ... RETURNING` that also requires the
 browser binding, the provider and the current auth epoch: state works once, for
@@ -94,6 +98,25 @@ client identifier, and any other non-empty `azp` must equal it too; a non-empty
 present. An empty or null `azp` or `at_hash` decodes as absent. A refused
 identity token is reduced to `providers.ErrProviderRefused` with a fixed,
 package-owned reason that quotes no claim, token or provider response.
+
+A Steam callback (`internal/web/providercallback.go`, `steamCallback`) runs in
+three parts, in this order:
+
+1. `providers.Steam.ReadCallback` checks what needs neither the login nor
+   Steam: the assertion's binding to this login and its form (see
+   `security.md`). A callback failing these is the 403 below without the login
+   being spent, so the person who really returns can still finish.
+2. The login is consumed, as for every other provider. A `cancel` returns the
+   browser to the callback with nothing appended.
+3. `providers.Steam.Identify` posts every returned `openid.*` field, mode
+   replaced by `check_authentication`, to
+   `https://steamcommunity.com/openid/login` through the same bounded,
+   non-redirecting client, and accepts only `is_valid:true`. Because the login
+   is already spent, a refused assertion cannot be retried.
+
+The identity is the Steam ID alone, held as decimal text in `SteamAccount`
+because it is an unsigned 64-bit integer; the account is created named `steam:`
+plus that ID and never renamed.
 
 Once a callback has consumed the state, every failure is the same 403
 `Sign-in validation failed`: a provider that does not authenticate the user, a
@@ -113,7 +136,8 @@ stored only as a digest, spent by a delete a second attempt cannot repeat.
 Either way the browser goes to the callback exactly as registered: checks run
 against a copy whose scheme and host are lower cased, the redirect is built from
 the registered string, only the one response parameter is appended, under the
-key `internal/urlpolicy` owns (`code`, or `authentication` for Google) and
+key `internal/urlpolicy` owns (`code`, Steam included, or `authentication` for
+Google) and
 refuses at registration. Declining at the provider returns the browser to that
 same validated string, nothing added.
 
@@ -223,9 +247,11 @@ checks the site origin with `config.ParseSiteOrigin`, the parser `serve` uses,
 so both apply one transport rule for a build and debug setting. The ordinary
 test template is migrated and never provisioned.
 
-Rotating the authority and any migration changing authority-bound state both
-begin by locking the `auth_epoch` row `FOR UPDATE`, so neither interleaves with
-the other or with a second rotation.
+Rotating the authority begins by locking the `auth_epoch` row `FOR UPDATE`, as
+does any migration replacing the epoch, so neither interleaves with the other or
+with a second rotation. A migration changing login state, codes, sessions or
+revocations locks those tables in rotation's order instead, so the two cannot
+deadlock.
 
 ## Build modes
 

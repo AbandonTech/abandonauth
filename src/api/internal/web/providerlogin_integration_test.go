@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -22,12 +23,19 @@ var providerAuthorizationEndpoints = map[oauth.Provider]string{
 	oauth.Discord: "https://discord.com/oauth2/authorize",
 	oauth.GitHub:  "https://github.com/login/oauth/authorize",
 	oauth.Google:  "https://accounts.google.com/o/oauth2/v2/auth",
+	oauth.Steam:   "https://steamcommunity.com/openid/login",
 }
 
 // A login sends the browser to the provider's own published address, carrying
-// an opaque state and a challenge the provider cannot reverse.
+// an opaque state. An OAuth provider is also sent a challenge it cannot
+// reverse; Steam is sent the exact OpenID 2.0 request, with the state inside
+// the address it is to return the browser to.
 func TestLoginIsStartedAtProvidersOwnAddress(t *testing.T) {
 	t.Parallel()
+
+	if len(providerAuthorizationEndpoints) != len(oauth.Providers) {
+		t.Fatalf("%d providers are offered and %d have a stated address", len(oauth.Providers), len(providerAuthorizationEndpoints))
+	}
 
 	for provider, endpoint := range providerAuthorizationEndpoints {
 		t.Run(string(provider), func(t *testing.T) {
@@ -45,6 +53,16 @@ func TestLoginIsStartedAtProvidersOwnAddress(t *testing.T) {
 				t.Errorf("the browser was sent to %q, want %q", before, endpoint)
 			}
 
+			if len(started.State) < 32 {
+				t.Errorf("state = %q, want an unguessable value", started.State)
+			}
+
+			if provider == oauth.Steam {
+				expectSteamAuthorizationRequest(t, sentTo.Query(), started.State)
+
+				return
+			}
+
 			query := sentTo.Query()
 
 			if query.Get("response_type") != "code" {
@@ -59,14 +77,37 @@ func TestLoginIsStartedAtProvidersOwnAddress(t *testing.T) {
 				t.Errorf("code_challenge = %q, want a digest", query.Get("code_challenge"))
 			}
 
-			if len(query.Get("state")) < 32 {
-				t.Errorf("state = %q, want an unguessable value", query.Get("state"))
-			}
-
 			if provider == oauth.Google && len(query.Get("nonce")) < 32 {
 				t.Errorf("nonce = %q, want an unguessable value", query.Get("nonce"))
 			}
 		})
+	}
+}
+
+// expectSteamAuthorizationRequest requires exactly the OpenID 2.0 request this
+// service makes of Steam: identifier selection, the site's root as the realm,
+// and a return address that is the configured callback with the state
+// appended. Nothing an OAuth provider is sent, and no secret, is among it.
+func expectSteamAuthorizationRequest(t *testing.T, query url.Values, state string) {
+	t.Helper()
+
+	want := map[string]string{
+		"openid.ns":         "http://specs.openid.net/auth/2.0",
+		"openid.mode":       "checkid_setup",
+		"openid.claimed_id": "http://specs.openid.net/auth/2.0/identifier_select",
+		"openid.identity":   "http://specs.openid.net/auth/2.0/identifier_select",
+		"openid.realm":      servertest.SiteOrigin + "/",
+		"openid.return_to":  servertest.SiteOrigin + "/api/ui/steam-callback?" + url.Values{"state": {state}}.Encode(),
+	}
+
+	if len(query) != len(want) {
+		t.Errorf("Steam was sent %d parameters, want exactly %d", len(query), len(want))
+	}
+
+	for name, value := range want {
+		if sent := query[name]; len(sent) != 1 || sent[0] != value {
+			t.Errorf("%s = %q, want %q", name, sent, value)
+		}
 	}
 }
 
@@ -172,6 +213,42 @@ func TestCallbackSpelledAnotherWaySpendsNoLogin(t *testing.T) {
 		started,
 		service.Providers.Someone(oauth.Discord, "the person who really came back"),
 	).
+		ExpectStatus(http.StatusTemporaryRedirect).
+		ExpectRedirectTo(service.Site.CallbackURI)
+}
+
+// The same holds for Steam's callback, carrying a genuine assertion: no other
+// spelling spends the login or asks Steam anything, and the assertion still
+// finishes the login at the one address that is served.
+func TestSteamCallbackSpelledAnotherWaySpendsNoLogin(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	started := service.StartLogin(oauth.Steam, service.Site.ApplicationID, service.Site.CallbackURI)
+
+	assertion := service.Providers.Issue(oauth.Steam, providertest.Grant{
+		Identity: service.Providers.Someone(oauth.Steam, "the person who really came back"),
+		ReturnTo: started.ReturnTo,
+	})
+
+	query := "?" + url.Values{"state": {started.State}}.Encode() + "&" + assertion
+
+	for _, target := range []string{
+		"/ui/steam-callback",
+		"/api//ui/steam-callback",
+		"/api/ui/../ui/steam-callback",
+		"/api/ui/%2e%2e/ui/steam-callback",
+		"/api/ui%2fsteam-callback",
+		"/api/ui/steam%2Dcallback",
+		"/api/ui/steam-callback/",
+	} {
+		service.AtExactTarget(http.MethodGet, target+query).
+			ExpectStatus(http.StatusNotFound)
+	}
+
+	expectSteamAskedNothing(t, service)
+
+	service.ReturnFromProvider(oauth.Steam, assertion, started.State).
 		ExpectStatus(http.StatusTemporaryRedirect).
 		ExpectRedirectTo(service.Site.CallbackURI)
 }
@@ -345,6 +422,21 @@ func TestCallbackValidationFailuresAreIndistinguishable(t *testing.T) {
 		"an unknown state": func(service *servertest.Service) *servertest.Response {
 			return service.ReturnFromProvider(oauth.Discord, "an-authorization-code", "a-state-value")
 		},
+		"an assertion Steam does not verify": func(service *servertest.Service) *servertest.Response {
+			started := service.StartLogin(oauth.Steam, service.Site.ApplicationID, service.Site.CallbackURI)
+			assertion := service.Providers.Issue(oauth.Steam, providertest.Grant{
+				Identity: service.Providers.Someone(oauth.Steam, "someone"),
+				ReturnTo: started.ReturnTo,
+			})
+
+			return service.ReturnFromProvider(oauth.Steam,
+				strings.Replace(assertion, "openid.sig=", "openid.sig=x", 1), started.State)
+		},
+		"a Steam callback that is not an assertion": func(service *servertest.Service) *servertest.Response {
+			started := service.StartLogin(oauth.Steam, service.Site.ApplicationID, service.Site.CallbackURI)
+
+			return service.ReturnFromProvider(oauth.Steam, "openid.mode=id_res", started.State)
+		},
 	}
 
 	for name, attempt := range failures {
@@ -387,6 +479,7 @@ func TestLoginNotCompletedByProviderIsOverForGood(t *testing.T) {
 				Identity:  service.Providers.Someone(provider, "the person who declined"),
 				Challenge: started.Challenge,
 				Nonce:     started.Nonce,
+				ReturnTo:  started.ReturnTo,
 			})
 
 			expectSignInValidationFailed(t, service, service.ReturnFromProvider(provider, code, started.State))
@@ -394,50 +487,76 @@ func TestLoginNotCompletedByProviderIsOverForGood(t *testing.T) {
 	}
 }
 
-// A state value completes one login. Two callbacks arriving together with the
-// same state, from the same browser, are not two sign-ins.
-//
-// Each carries an authorization code of its own that the provider would honour,
-// so nothing on the provider's side can be what refuses the second: only the
-// login state can. The site's own application is used, so a completed login
-// ends in a session rather than in a code travelling in a URL.
-func TestOneLoginStateCompletesAtMostOnce(t *testing.T) {
-	t.Parallel()
+// returnAddress is the whole address a browser comes back from the provider to,
+// carrying a fresh answer the provider would honour for the person: an
+// authorization code, or for Steam a signed assertion.
+func returnAddress(service *servertest.Service, started servertest.Authorization, person providertest.Identity) string {
+	answer := service.Providers.Issue(started.Provider, providertest.Grant{
+		Identity:  person,
+		Challenge: started.Challenge,
+		Nonce:     started.Nonce,
+		ReturnTo:  started.ReturnTo,
+	})
 
-	service := servertest.New(t)
-	started := service.StartLogin(oauth.Discord, service.Site.ApplicationID, service.Site.CallbackURI)
+	address := service.EndpointURL(servertest.CallbackPath(started.Provider)) + "?"
 
-	binding := &http.Cookie{
-		Name:  service.LoginCookieName(),
-		Value: service.CookieValue(service.LoginCookieName()),
+	if started.Provider == oauth.Steam {
+		return address + url.Values{"state": {started.State}}.Encode() + "&" + answer
 	}
 
-	if binding.Value == "" {
+	return address + url.Values{"code": {answer}, "state": {started.State}}.Encode()
+}
+
+// boundCallback prepares a request to an address carrying the browser's login
+// binding, as the browser that started the login would send it.
+func boundCallback(t *testing.T, service *servertest.Service, address string) *http.Request {
+	t.Helper()
+
+	binding := service.CookieValue(service.LoginCookieName())
+	if binding == "" {
 		t.Fatal("the browser was given nothing that ties the login to it")
 	}
 
-	person := service.Providers.Someone(oauth.Discord, "a person coming back twice at once")
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, address, nil)
+	if err != nil {
+		t.Fatalf("preparing a callback request: %v", err)
+	}
+
+	request.AddCookie(&http.Cookie{Name: service.LoginCookieName(), Value: binding})
+
+	return request
+}
+
+// A state value completes one login. Two callbacks arriving together with the
+// same state, from the same browser, are not two sign-ins.
+//
+// Each carries an answer of its own that the provider would honour, so nothing
+// on the provider's side can be what refuses the second: only the login state
+// can. The site's own application is used, so a completed login ends in a
+// session rather than in a code travelling in a URL.
+func TestOneLoginStateCompletesAtMostOnce(t *testing.T) {
+	t.Parallel()
+
+	for _, provider := range []oauth.Provider{oauth.Discord, oauth.Steam} {
+		t.Run(string(provider), func(t *testing.T) {
+			t.Parallel()
+
+			expectOneOfTwoCallbacksCompletes(t, provider)
+		})
+	}
+}
+
+func expectOneOfTwoCallbacksCompletes(t *testing.T, provider oauth.Provider) {
+	t.Helper()
+
+	service := servertest.New(t)
+	started := service.StartLogin(provider, service.Site.ApplicationID, service.Site.CallbackURI)
+
+	person := service.Providers.Someone(provider, "a person coming back twice at once")
 	requests := make([]*http.Request, 0, 2)
 
 	for range 2 {
-		code := service.Providers.Issue(oauth.Discord, providertest.Grant{
-			Identity:  person,
-			Challenge: started.Challenge,
-			Nonce:     started.Nonce,
-		})
-
-		address := service.EndpointURL(servertest.CallbackPath(oauth.Discord)) + "?" + url.Values{
-			"code":  {code},
-			"state": {started.State},
-		}.Encode()
-
-		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, address, nil)
-		if err != nil {
-			t.Fatalf("preparing a callback request: %v", err)
-		}
-
-		request.AddCookie(binding)
-		requests = append(requests, request)
+		requests = append(requests, boundCallback(t, service, returnAddress(service, started, person)))
 	}
 
 	var completed, refused, signedIn int
@@ -476,6 +595,10 @@ func TestOneLoginStateCompletesAtMostOnce(t *testing.T) {
 	if signedIn != 1 {
 		t.Errorf("%d browsers were signed in, want one", signedIn)
 	}
+
+	if asked := service.Providers.SteamVerifications(); provider == oauth.Steam && asked != 1 {
+		t.Errorf("Steam was asked to verify %d assertions for one login, want one", asked)
+	}
 }
 
 // The authorization code has to be one the provider issued for this login, and
@@ -488,4 +611,264 @@ func TestLoginRefusedByProviderSignsNobodyIn(t *testing.T) {
 
 	expectSignInValidationFailed(t, service,
 		service.ReturnFromProvider(oauth.Discord, "not-a-code-the-provider-issued", started.State))
+}
+
+// steamReturnTo is the address Steam is asked to return a browser to for a
+// login state, which is what it signs into its assertion.
+func steamReturnTo(state string) string {
+	return servertest.SiteOrigin + "/api/ui/steam-callback?" + url.Values{"state": {state}}.Encode()
+}
+
+// expectSteamAskedNothing requires that no request to verify an assertion has
+// left for Steam.
+func expectSteamAskedNothing(t *testing.T, service *servertest.Service) {
+	t.Helper()
+
+	if asked := service.Providers.SteamVerifications(); asked != 0 {
+		t.Errorf("Steam was asked to verify %d assertions, want none", asked)
+	}
+}
+
+// A signed assertion is worth nothing without the login it was returned for:
+// state never issued, already spent, held by another browser or started with
+// another provider is refused as every other state is, and Steam is not asked.
+func TestSteamLoginThisServiceDidNotStartCannotBeFinished(t *testing.T) {
+	t.Parallel()
+
+	refusals := map[string]func(service *servertest.Service) *servertest.Response{
+		"a state value that was never issued": func(service *servertest.Service) *servertest.Response {
+			const never = "a-state-value-this-service-never-issued"
+
+			assertion := service.Providers.Issue(oauth.Steam, providertest.Grant{
+				Identity: service.Providers.Someone(oauth.Steam, "someone"),
+				ReturnTo: steamReturnTo(never),
+			})
+
+			return service.ReturnFromProvider(oauth.Steam, assertion, never)
+		},
+		"a state value in a browser that did not start the login": func(
+			service *servertest.Service,
+		) *servertest.Response {
+			started := service.StartLogin(oauth.Steam, service.Site.ApplicationID, service.Site.CallbackURI)
+			service.Forget(service.LoginCookieName())
+
+			return service.FinishLogin(started, service.Providers.Someone(oauth.Steam, "someone"))
+		},
+		"a state value started with another provider": func(service *servertest.Service) *servertest.Response {
+			started := service.StartLogin(oauth.Discord, service.Site.ApplicationID, service.Site.CallbackURI)
+
+			assertion := service.Providers.Issue(oauth.Steam, providertest.Grant{
+				Identity: service.Providers.Someone(oauth.Steam, "someone"),
+				ReturnTo: steamReturnTo(started.State),
+			})
+
+			return service.ReturnFromProvider(oauth.Steam, assertion, started.State)
+		},
+	}
+
+	for name, attempt := range refusals {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			service := servertest.New(t)
+
+			expectSignInValidationFailed(t, service, attempt(service))
+			expectSteamAskedNothing(t, service)
+		})
+	}
+
+	t.Run("a Steam state value at another provider's callback", func(t *testing.T) {
+		t.Parallel()
+
+		service := servertest.New(t)
+		started := service.StartLogin(oauth.Steam, service.Site.ApplicationID, service.Site.CallbackURI)
+
+		expectSignInValidationFailed(t, service,
+			service.ReturnFromProvider(oauth.Discord, "an-authorization-code", started.State))
+	})
+
+	t.Run("a state value that has already been spent", func(t *testing.T) {
+		t.Parallel()
+
+		service := servertest.New(t)
+		started := service.StartLogin(oauth.Steam, service.Site.ApplicationID, service.Site.CallbackURI)
+		person := service.Providers.Someone(oauth.Steam, "someone")
+
+		assertion := service.Providers.Issue(oauth.Steam, providertest.Grant{Identity: person, ReturnTo: started.ReturnTo})
+
+		service.ReturnFromProvider(oauth.Steam, assertion, started.State).
+			ExpectStatus(http.StatusTemporaryRedirect).
+			ExpectRedirectTo(service.Site.CallbackURI)
+
+		expectSignInValidationFailed(t, service, service.ReturnFromProvider(oauth.Steam, assertion, started.State))
+		expectSignInValidationFailed(t, service, service.FinishLogin(started, person))
+
+		if asked := service.Providers.SteamVerifications(); asked != 1 {
+			t.Errorf("Steam was asked to verify %d assertions, want only the first", asked)
+		}
+	})
+}
+
+// Steam signs the address it returns a browser to, and that address carries
+// the login's state, so an assertion returned for one login cannot finish
+// another. Presenting it so spends neither login.
+func TestSteamAssertionCannotBeMovedToAnotherLogin(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+
+	first := service.StartLogin(oauth.Steam, service.Site.ApplicationID, service.Site.CallbackURI)
+	second := service.StartLogin(oauth.Steam, service.Site.ApplicationID, service.Site.CallbackURI)
+
+	assertion := service.Providers.Issue(oauth.Steam, providertest.Grant{
+		Identity: service.Providers.Someone(oauth.Steam, "the person who signed in first"),
+		ReturnTo: first.ReturnTo,
+	})
+
+	expectSignInValidationFailed(t, service, service.ReturnFromProvider(oauth.Steam, assertion, second.State))
+	expectSteamAskedNothing(t, service)
+
+	service.ReturnFromProvider(oauth.Steam, assertion, first.State).
+		ExpectStatus(http.StatusTemporaryRedirect).
+		ExpectRedirectTo(service.Site.CallbackURI)
+
+	service.FinishLogin(second, service.Providers.Someone(oauth.Steam, "the person who signed in second")).
+		ExpectStatus(http.StatusTemporaryRedirect).
+		ExpectRedirectTo(service.Site.CallbackURI)
+}
+
+// A callback whose shape alone is wrong is refused before the login is looked
+// at: it spends no login and asks Steam nothing, so the person who really
+// returns with that state can still finish.
+func TestMalformedSteamCallbackSpendsNoLoginAndAsksSteamNothing(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	started := service.StartLogin(oauth.Steam, service.Site.ApplicationID, service.Site.CallbackURI)
+	person := service.Providers.Someone(oauth.Steam, "the person who really returns")
+
+	assertion := service.Providers.Issue(oauth.Steam, providertest.Grant{Identity: person, ReturnTo: started.ReturnTo})
+	state := url.Values{"state": {started.State}}.Encode()
+
+	altered := func(change func(url.Values)) string {
+		fields, err := url.ParseQuery(assertion)
+		if err != nil {
+			t.Fatalf("reading the assertion: %v", err)
+		}
+
+		change(fields)
+
+		return state + "&" + fields.Encode()
+	}
+
+	malformed := map[string]string{
+		"a repeated state":     state + "&" + state + "&" + assertion,
+		"a repeated mode":      state + "&" + assertion + "&openid.mode=id_res",
+		"a repeated signature": state + "&" + assertion + "&openid.sig=placeholder",
+		"malformed encoding":   state + "&" + assertion + "&openid.sig=%zz",
+		"no signature":         altered(func(fields url.Values) { fields.Del("openid.sig") }),
+		"an empty association handle": altered(func(fields url.Values) {
+			fields.Set("openid.assoc_handle", "")
+		}),
+		"an unsigned return address": altered(func(fields url.Values) {
+			fields.Set("openid.signed", "op_endpoint,claimed_id,identity,response_nonce,assoc_handle")
+		}),
+		"another provider endpoint": altered(func(fields url.Values) {
+			fields.Set("openid.op_endpoint", "https://steam.example.test/openid/login")
+		}),
+		"an identity other than the claimed one": altered(func(fields url.Values) {
+			fields.Set("openid.identity", "https://steamcommunity.com/openid/id/76561197960265729")
+		}),
+		"a stale nonce": altered(func(fields url.Values) {
+			fields.Set("openid.response_nonce", time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)+"placeholder")
+		}),
+		"no state": assertion,
+	}
+
+	for name, query := range malformed {
+		response := service.GET(servertest.CallbackPath(oauth.Steam) + "?" + query)
+
+		if response.Status != http.StatusForbidden || string(response.Body) != signInValidationFailure {
+			t.Errorf("%s: answered %d %s, want the sign-in validation failure", name, response.Status, response.Body)
+		}
+	}
+
+	expectSteamAskedNothing(t, service)
+
+	service.ReturnFromProvider(oauth.Steam, assertion, started.State).
+		ExpectStatus(http.StatusTemporaryRedirect).
+		ExpectRedirectTo(service.Site.CallbackURI)
+
+	if asked := service.Providers.SteamVerifications(); asked != 1 {
+		t.Errorf("Steam was asked to verify %d assertions, want only the genuine one", asked)
+	}
+}
+
+// An assertion that is well formed but that Steam did not sign as presented
+// spends the login it names, after exactly one question to Steam, and cannot
+// be retried: not even with the genuine assertion for the same login.
+func TestAssertionSteamRefusesSpendsLogin(t *testing.T) {
+	t.Parallel()
+
+	forgeries := map[string]func(url.Values){
+		"a signature Steam did not make": func(fields url.Values) {
+			fields.Set("openid.sig", "cGxhY2Vob2xkZXItc2lnbmF0dXJl")
+		},
+		"another person's Steam ID": func(fields url.Values) {
+			fields.Set("openid.claimed_id", "https://steamcommunity.com/openid/id/76561197960265729")
+			fields.Set("openid.identity", "https://steamcommunity.com/openid/id/76561197960265729")
+		},
+	}
+
+	for name, forge := range forgeries {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			service := servertest.New(t)
+			started := service.StartLogin(oauth.Steam, service.Site.ApplicationID, service.Site.CallbackURI)
+			person := service.Providers.Someone(oauth.Steam, "someone")
+
+			genuine := service.Providers.Issue(oauth.Steam, providertest.Grant{Identity: person, ReturnTo: started.ReturnTo})
+
+			fields, err := url.ParseQuery(genuine)
+			if err != nil {
+				t.Fatalf("reading the assertion: %v", err)
+			}
+
+			forge(fields)
+
+			expectSignInValidationFailed(t, service, service.ReturnFromProvider(oauth.Steam, fields.Encode(), started.State))
+
+			if asked := service.Providers.SteamVerifications(); asked != 1 {
+				t.Errorf("Steam was asked to verify %d assertions, want one", asked)
+			}
+
+			expectSignInValidationFailed(t, service, service.ReturnFromProvider(oauth.Steam, genuine, started.State))
+
+			if asked := service.Providers.SteamVerifications(); asked != 1 {
+				t.Errorf("Steam was asked to verify %d assertions, want only the first", asked)
+			}
+
+			var steamAccounts int
+			if err := service.Pool.QueryRow(t.Context(), `SELECT count(*) FROM "SteamAccount"`).Scan(&steamAccounts); err != nil {
+				t.Fatalf("counting Steam accounts: %v", err)
+			}
+
+			if steamAccounts != 0 {
+				t.Errorf("%d Steam accounts were created by a refused assertion", steamAccounts)
+			}
+
+			written := service.Logs.String()
+			for what, value := range map[string]string{
+				"the login state":      started.State,
+				"the signature":        fields.Get("openid.sig"),
+				"the response nonce":   fields.Get("openid.response_nonce"),
+				"the claimed Steam ID": fields.Get("openid.claimed_id"),
+			} {
+				if strings.Contains(written, value) {
+					t.Errorf("%s reached the log", what)
+				}
+			}
+		})
+	}
 }

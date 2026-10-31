@@ -37,6 +37,7 @@ func databaseState(t *testing.T, pool *pgxpool.Pool) string {
 		`SELECT 'discord ' || "user_id" FROM "DiscordAccount" ORDER BY "id"`,
 		`SELECT 'github ' || "user_id" FROM "GitHubAccount" ORDER BY "id"`,
 		`SELECT 'google ' || "user_id" FROM "GoogleAccount" ORDER BY "id"`,
+		`SELECT 'steam ' || "user_id" FROM "SteamAccount" ORDER BY "id"`,
 		`SELECT 'password ' || "user_id" FROM "PasswordAccount" ORDER BY "id"`,
 	}
 
@@ -123,7 +124,7 @@ func TestProvisioningCreatesSiteApplication(t *testing.T) {
 		t.Errorf("%d accounts exist, want only the owner", users)
 	}
 
-	for _, table := range []string{"DiscordAccount", "GitHubAccount", "GoogleAccount", "PasswordAccount"} {
+	for _, table := range []string{"DiscordAccount", "GitHubAccount", "GoogleAccount", "SteamAccount", "PasswordAccount"} {
 		statement := fmt.Sprintf(`SELECT count(*) FROM %s WHERE "user_id" = $1`, pgx.Identifier{table}.Sanitize())
 		if held := count(t, pool, statement, owner.ID); held != 0 {
 			t.Errorf("the owner holds a %s, so someone could sign in as it", table)

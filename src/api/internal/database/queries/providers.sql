@@ -18,6 +18,12 @@ FROM "User"
 JOIN "GoogleAccount" ON "GoogleAccount"."user_id" = "User"."id"
 WHERE "GoogleAccount"."id" = $1;
 
+-- name: GetUserBySteamAccount :one
+SELECT "User"."id", "User"."username"
+FROM "User"
+JOIN "SteamAccount" ON "SteamAccount"."user_id" = "User"."id"
+WHERE "SteamAccount"."id" = $1;
+
 -- name: CreateDiscordAccount :exec
 INSERT INTO "DiscordAccount" ("id", "user_id")
 VALUES ($1, $2);
@@ -28,4 +34,8 @@ VALUES ($1, $2);
 
 -- name: CreateGoogleAccount :exec
 INSERT INTO "GoogleAccount" ("id", "user_id")
+VALUES ($1, $2);
+
+-- name: CreateSteamAccount :exec
+INSERT INTO "SteamAccount" ("id", "user_id")
 VALUES ($1, $2);

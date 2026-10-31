@@ -33,6 +33,16 @@ Mock provider HTTP calls and database access, or use isolated test databases.
 Never use a live OAuth client or a real credential. Test output, fixtures and
 snapshots contain placeholders only.
 
+Steam is no exception. `providertest` signs the Steam assertions it issues for
+a login's exact return address and answers `check_authentication` as valid only
+for one of those, unaltered, posted to `https://steamcommunity.com/openid/login`
+itself; its transport carries only HTTPS, and it counts verifications, which is
+how a test proves a refusal asked Steam nothing.
+Steam's negative protocol coverage, the refusals that need neither a login nor
+Steam, lives beside the client in `internal/services/providers/steam_test.go`,
+driven through a transport the test answers; the journeys that spend or keep a
+login live in `internal/web`. No test contacts Steam or uses a live identity.
+
 Build test state from what the repository itself produces. Every test schema
 comes from the standalone Goose CLI: the check setup migrates a template
 database with the deployment image's Goose, and `internal/database/testdatabase`
@@ -134,8 +144,8 @@ ordinary `serving` event, and publish no host port.
 That runs in the check's own Compose project; the template the tests clone is
 migrated and never provisioned, so each integration test owns its rows. Inside
 the container, `scripts/containercheck.sh` takes the template through a no-op
-`up`, `down`, `down-to 0` and `up` with the deployment image's Goose before any
-test clones it.
+`up`, `down` twice, `down-to 0` and `up` with the deployment image's Goose
+before any test clones it.
 
 Besides revive and vet, `scripts/check.sh` runs Staticcheck on all four tag
 sets (none, `devtools`, `integration`, `integration devtools`) and a dead-code

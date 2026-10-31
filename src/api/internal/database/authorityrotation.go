@@ -41,7 +41,7 @@ func RotateAuthority(ctx context.Context, pool *pgxpool.Pool) (AuthorityRotation
 	queries := query.New(transaction)
 
 	// Locked before anything is deleted, so a second rotation or a migration
-	// changing authority-bound state waits rather than interleaving.
+	// replacing the epoch waits rather than interleaving.
 	if _, err := queries.LockAuthEpoch(ctx); err != nil {
 		return AuthorityRotation{}, fmt.Errorf("locking the authority: %w", err)
 	}

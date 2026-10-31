@@ -50,6 +50,7 @@ func TestNothingIsServedAboveAPIsRouteRoot(t *testing.T) {
 		"/ui/logout",
 		"/ui/discord-callback?code=placeholder&state=placeholder",
 		"/ui/github-callback?code=placeholder&state=placeholder",
+		"/ui/steam-callback?state=placeholder&openid.ns=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0&openid.mode=cancel",
 		"/ui/discord/authorize?application_id=placeholder&callback_uri=placeholder",
 		"/docs",
 		"/docs/",

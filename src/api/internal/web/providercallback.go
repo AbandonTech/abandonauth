@@ -87,6 +87,43 @@ func (s *Server) googleCallback() http.Handler {
 	})
 }
 
+// steamCallback finishes a login that was started with Steam.
+//
+// Every check that needs neither the login nor Steam comes first, so a
+// malformed or ambiguous callback spends no login and causes no request. The
+// login is then spent before Steam is asked to verify the assertion, so one
+// login causes at most one verification and a refused one cannot be retried.
+func (s *Server) steamCallback() http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		callback, err := s.steam.ReadCallback(request.URL.RawQuery)
+		if err != nil {
+			response.Error(writer, http.StatusForbidden, detailSignInValidationFailed)
+
+			return
+		}
+
+		login, consumed := s.consumeLogin(writer, request, oauth.Steam, callback.State)
+		if !consumed {
+			return
+		}
+
+		if callback.Cancelled() {
+			s.abandonLogin(writer, login)
+
+			return
+		}
+
+		identity, err := s.steam.Identify(request.Context(), callback)
+		if err != nil {
+			s.refuseProvider(writer, request, err)
+
+			return
+		}
+
+		s.completeLogin(writer, request, login, identity, urlpolicy.ExchangeCodeQueryKey)
+	})
+}
+
 // abandonLogin returns a browser that came back without an authorization code
 // to where it started. The person declined, or the provider sent them back; in
 // neither case is there anything to exchange.

@@ -31,6 +31,7 @@ func TestNothingIsAnsweredWhenDatabaseCannotBeReached(t *testing.T) {
 	application := service.RegisterApplication("an application", externalCallbackURI)
 
 	started := service.StartLogin(oauth.Discord, service.Site.ApplicationID, service.Site.CallbackURI)
+	startedWithSteam := service.StartLogin(oauth.Steam, service.Site.ApplicationID, service.Site.CallbackURI)
 
 	identifier := application.ID.String()
 
@@ -106,6 +107,21 @@ func TestNothingIsAnsweredWhenDatabaseCannotBeReached(t *testing.T) {
 
 		if returned.Cookie(service.SessionCookieName()) != nil {
 			t.Error("a browser was signed in by a callback the service could not record")
+		}
+	})
+
+	// The login cannot be spent, so Steam is never asked to verify anything.
+	t.Run("returning from Steam", func(t *testing.T) {
+		returned := service.FinishLogin(startedWithSteam, service.Providers.Someone(oauth.Steam, "someone"))
+
+		returned.ExpectStatus(http.StatusInternalServerError).ExpectDetail("Internal Server Error")
+
+		if returned.Cookie(service.SessionCookieName()) != nil {
+			t.Error("a browser was signed in by a Steam callback the service could not record")
+		}
+
+		if asked := service.Providers.SteamVerifications(); asked != 0 {
+			t.Errorf("Steam was asked to verify %d assertions for a login the service could not spend", asked)
 		}
 	})
 }

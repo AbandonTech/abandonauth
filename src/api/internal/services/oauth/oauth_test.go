@@ -1,11 +1,15 @@
 package oauth_test
 
 import (
+	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
 )
@@ -24,10 +28,78 @@ func TestOnlyProvidersThisServiceOffersAreNamed(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"", "Discord", "facebook", "discord "} {
+	for _, name := range []string{"", "Discord", "Steam", "facebook", "discord ", "steam "} {
 		if _, known := oauth.ParseProvider(name); known {
 			t.Errorf("%q was recognised as a provider", name)
 		}
+	}
+
+	if !slices.Equal(oauth.Providers, []oauth.Provider{oauth.Discord, oauth.GitHub, oauth.Google, oauth.Steam}) {
+		t.Errorf("providers = %v, want Discord, GitHub, Google and Steam, in that order", oauth.Providers)
+	}
+}
+
+// acceptingDatabase accepts every write and answers no read, so starting a
+// login can be driven without a database.
+type acceptingDatabase struct{}
+
+func (acceptingDatabase) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, nil
+}
+
+func (acceptingDatabase) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return nil, errors.New("acceptingDatabase answers no read")
+}
+
+func (acceptingDatabase) QueryRow(context.Context, string, ...any) pgx.Row {
+	return refusingRow{}
+}
+
+type refusingRow struct{}
+
+func (refusingRow) Scan(...any) error {
+	return errors.New("acceptingDatabase answers no read")
+}
+
+// The three OAuth providers are sent a PKCE challenge and Google alone a nonce.
+// Steam's OpenID 2.0 sign-in carries neither, so nothing it is sent claims a
+// proof this service does not hold.
+func TestLoginCarriesProtocolMaterialItsProviderUses(t *testing.T) {
+	t.Parallel()
+
+	store, err := oauth.NewStore(acceptingDatabase{}, verifierKey)
+	if err != nil {
+		t.Fatalf("building the store: %v", err)
+	}
+
+	tests := map[oauth.Provider]struct{ challenge, nonce bool }{
+		oauth.Discord: {challenge: true},
+		oauth.GitHub:  {challenge: true},
+		oauth.Google:  {challenge: true, nonce: true},
+		oauth.Steam:   {},
+	}
+
+	for provider, want := range tests {
+		t.Run(string(provider), func(t *testing.T) {
+			t.Parallel()
+
+			started, err := store.Begin(t.Context(), provider, uuid.New(), "https://relying.example.test/return", "")
+			if err != nil {
+				t.Fatalf("starting a login: %v", err)
+			}
+
+			if started.State == "" || started.BrowserBinding == "" {
+				t.Error("the login has no state or no browser binding")
+			}
+
+			if (started.Challenge != "") != want.challenge {
+				t.Errorf("challenge present = %v, want %v", started.Challenge != "", want.challenge)
+			}
+
+			if (started.Nonce != "") != want.nonce {
+				t.Errorf("nonce present = %v, want %v", started.Nonce != "", want.nonce)
+			}
+		})
 	}
 }
 

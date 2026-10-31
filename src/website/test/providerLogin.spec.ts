@@ -32,15 +32,25 @@ describe("providerLoginUrl", () => {
     expect(new URLSearchParams(url.split("?")[1]).get("callback_uri")).toBe("https://example.test/return");
   });
 
+  it("names Steam in the path like every other provider", () => {
+    expect(providerLoginUrl("steam", "00000000-0000-0000-0000-000000000001", "https://example.test/return")).toBe(
+      "/api/ui/steam/authorize" +
+        "?application_id=00000000-0000-0000-0000-000000000001" +
+        "&callback_uri=https%3A%2F%2Fexample.test%2Freturn",
+    );
+  });
+
   it("builds no provider address of its own", () => {
-    for (const provider of ["discord", "github", "google"] as const) {
+    for (const provider of ["discord", "github", "google", "steam"] as const) {
       const url = providerLoginUrl(provider, "an-application", "https://example.test/return");
 
       expect(url.startsWith("/api/")).toBe(true);
       expect(url).not.toContain("discord.com");
       expect(url).not.toContain("github.com");
       expect(url).not.toContain("accounts.google.com");
+      expect(url).not.toContain("steamcommunity.com");
       expect(url).not.toContain("state=");
+      expect(url).not.toContain("openid");
     }
   });
 });

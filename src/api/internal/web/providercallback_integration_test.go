@@ -45,10 +45,162 @@ func TestSigningInWithProviderCreatesAccount(t *testing.T) {
 
 			service.GET("/me").ExpectStatus(http.StatusOK).DecodeInto(&person)
 
-			if person.Username != identity.Username {
-				t.Errorf("signed in as %q, want %q", person.Username, identity.Username)
+			// Steam tells this service nothing but the Steam ID, so that is
+			// what the account is named after.
+			want := identity.Username
+			if provider == oauth.Steam {
+				want = "steam:" + identity.ID
+			}
+
+			if person.Username != want {
+				t.Errorf("signed in as %q, want %q", person.Username, want)
 			}
 		})
+	}
+}
+
+// A Steam account is the canonical Steam ID, across the whole unsigned 64-bit
+// range. The account is named for it once, signing in again with it is the
+// same person, and the public description of a person gains nothing.
+func TestSteamAccountIsNamedForItsSteamIDAndFoundByIt(t *testing.T) {
+	t.Parallel()
+
+	for _, steamID := range []string{"76561197960287930", "18446744073709551615"} {
+		t.Run(steamID, func(t *testing.T) {
+			t.Parallel()
+
+			service := servertest.New(t)
+			identity := providertest.Identity{ID: steamID, Username: "a name Steam never sends"}
+
+			started := service.StartLogin(oauth.Steam, service.Site.ApplicationID, service.Site.CallbackURI)
+			service.FinishLogin(started, identity).
+				ExpectStatus(http.StatusTemporaryRedirect).
+				ExpectRedirectTo(service.Site.CallbackURI)
+
+			var described map[string]any
+
+			service.GET("/me").ExpectStatus(http.StatusOK).DecodeInto(&described)
+
+			if len(described) != 2 || described["username"] != "steam:"+steamID || described["id"] == "" {
+				t.Errorf("/me = %v, want exactly an id and the username steam:%s", described, steamID)
+			}
+
+			var held int
+			if err := service.Pool.QueryRow(t.Context(),
+				`SELECT count(*) FROM "SteamAccount" WHERE "id" = $1 AND "user_id"::text = $2`, steamID, described["id"],
+			).Scan(&held); err != nil {
+				t.Fatalf("reading the Steam account: %v", err)
+			}
+
+			if held != 1 {
+				t.Error("the person is not held as the account for their Steam ID")
+			}
+
+			again := service.StartLogin(oauth.Steam, service.Site.ApplicationID, service.Site.CallbackURI)
+			service.FinishLogin(again, identity).ExpectStatus(http.StatusTemporaryRedirect)
+
+			if second := currentPerson(t, service); second != described["id"] {
+				t.Errorf("the same Steam ID signed in as %v and then as %s", described["id"], second)
+			}
+		})
+	}
+}
+
+// An application that is not the site gets the same one-time code from a Steam
+// sign-in as from any other, under the code key, spendable by it alone.
+func TestSteamSignInToApplicationEndsInOneTimeCode(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	service.SignIn(service.Providers.Someone(oauth.Discord, "the owner"))
+
+	application := service.RegisterApplication("a relying application", externalCallbackURI)
+	other := service.RegisterApplication("another application", "https://another.example.test/return")
+	person := service.Providers.Someone(oauth.Steam, "someone signing in with Steam")
+
+	started := service.StartLogin(oauth.Steam, application.ID, externalCallbackURI)
+	response := service.FinishLogin(started, person).ExpectStatus(http.StatusTemporaryRedirect)
+
+	if response.Cookie(service.SessionCookieName()) != nil {
+		t.Error("signing in to another application with Steam signed the browser in here")
+	}
+
+	location := response.Header.Get("Location")
+
+	code, found := strings.CutPrefix(location, externalCallbackURI+"?code=")
+	if !found || code == "" || strings.ContainsAny(code, "&?#") {
+		t.Fatal("the browser was not returned to the exact callback with only a code appended")
+	}
+
+	code, err := url.QueryUnescape(code)
+	if err != nil {
+		t.Fatalf("the code is not query-encoded: %v", err)
+	}
+
+	service.POSTJSON("/login",
+		map[string]string{"id": other.ID.String(), "refresh_token": other.RefreshToken},
+		servertest.Header("exchange-token", code),
+	).ExpectStatus(http.StatusUnauthorized).ExpectDetail("Invalid exchange code")
+
+	var granted struct {
+		Token string `json:"token"`
+	}
+
+	service.POSTJSON("/login",
+		map[string]string{"id": application.ID.String(), "refresh_token": application.RefreshToken},
+		servertest.Header("exchange-token", code),
+	).ExpectStatus(http.StatusOK).DecodeInto(&granted)
+
+	var identified struct {
+		Username string `json:"username"`
+	}
+
+	service.GET("/me", servertest.Bearer(granted.Token)).ExpectStatus(http.StatusOK).DecodeInto(&identified)
+
+	if identified.Username != "steam:"+person.ID {
+		t.Errorf("the token identifies %q, want the Steam account", identified.Username)
+	}
+}
+
+// Nothing a Steam sign-in handles reaches the log: not the state, the
+// assertion's signature or nonce, and not the session the browser was given.
+func TestSigningInWithSteamWritesNoCredentialToLog(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+
+	started := service.StartLogin(oauth.Steam, service.Site.ApplicationID, service.Site.CallbackURI)
+	assertion := service.Providers.Issue(oauth.Steam, providertest.Grant{
+		Identity: service.Providers.Someone(oauth.Steam, "a person"),
+		ReturnTo: started.ReturnTo,
+	})
+
+	response := service.ReturnFromProvider(oauth.Steam, assertion, started.State).
+		ExpectStatus(http.StatusTemporaryRedirect)
+
+	session := response.Cookie(service.SessionCookieName())
+	if session == nil {
+		t.Fatal("the browser was not signed in")
+	}
+
+	fields, err := url.ParseQuery(assertion)
+	if err != nil {
+		t.Fatalf("reading the assertion: %v", err)
+	}
+
+	written := service.Logs.String()
+
+	for name, value := range map[string]string{
+		"the state value":        started.State,
+		"the signature":          fields.Get("openid.sig"),
+		"the response nonce":     fields.Get("openid.response_nonce"),
+		"the association":        fields.Get("openid.assoc_handle"),
+		"the session value":      session.Value,
+		"the claimed identifier": fields.Get("openid.claimed_id"),
+	} {
+		if value != "" && strings.Contains(written, value) {
+			t.Errorf("%s reached the log", name)
+		}
 	}
 }
 

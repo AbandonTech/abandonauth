@@ -3,8 +3,8 @@ SELECT epoch, updated_at
 FROM auth_epoch
 WHERE singleton;
 
--- Serialises everything that replaces authority-bound state: a rotation holds
--- this row until it commits, and so must a migration changing that state.
+-- Serialises everything that replaces the epoch: a rotation holds this row
+-- until it commits, and so must a migration replacing it.
 -- name: LockAuthEpoch :one
 SELECT epoch
 FROM auth_epoch

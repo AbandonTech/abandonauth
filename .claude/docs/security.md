@@ -14,7 +14,8 @@ by `abandonauth-security-reviewer` before implementation.
   call or cryptographic boundary that needs the value.
 - `DATABASE_URL`, `JWT_SECRET` and the three provider client secrets are read
   from the environment only. Give none of them a command-line flag: an argument
-  is readable by every process on the machine.
+  is readable by every process on the machine. Steam's sign-in has no secret
+  and no Web API key; never add one to reach it.
 - Goose gets the database password only as `PGPASSWORD`. `GOOSE_DBSTRING` holds
   none, because Goose quotes it when a connection fails.
 - Redact authorization headers, cookies, query strings, and provider response
@@ -85,9 +86,12 @@ the work was about.
 | Exactly `HS512`, checked rather than obeyed; per-purpose keys derived from the signing root under fixed key identifiers | `internal/config`, `internal/services/keyring`, `internal/services/tokens` |
 | Two access token classes, never interchangeable, each accepted only as the exact shape this service issues: its own key and key identifier, issuer, type, canonical non-nil identifiers, the one scope string for its class and audience, an application token's audience being the site and carrying a positive credential version, and a validity interval of exactly the access lifetime from the moment of issue | `internal/services/tokens`, `internal/web/authentication.go` |
 | A developer application's credential version, refusing every token issued before its credential was reset | `internal/services/applications`, `internal/web/authentication.go` |
-| The auth epoch every check is measured against, replaced transactionally to withdraw everything at once, after its row is locked `FOR UPDATE`; a migration changing authority-bound state takes the same row lock first | `internal/services/authority`, `internal/database/authorityrotation.go`, `internal/database/queries/credentials.sql`, `src/api/migrations/` |
+| The auth epoch every check is measured against, replaced transactionally to withdraw everything at once, after its row is locked `FOR UPDATE`; a migration replacing the epoch takes the same row lock first, and one changing login state, codes, sessions or revocations locks those tables in rotation's order | `internal/services/authority`, `internal/database/authorityrotation.go`, `internal/database/queries/credentials.sql`, `src/api/migrations/` |
 | Login state that is opaque, single-use, browser-bound, application-bound, callback-exact and expiring, consumed by one `DELETE ... RETURNING` | `internal/services/oauth` |
-| PKCE on every provider, with the verifier encrypted at rest | `internal/services/oauth` |
+| PKCE on every OAuth provider (Discord, GitHub, Google), with the verifier encrypted at rest; a Steam login holds no verifier | `internal/services/oauth` |
+| Steam's OpenID 2.0 assertion checked before the login is spent: no repeated parameter; Steam's endpoint as `op_endpoint`; `return_to` the site's origin plus `/api/ui/steam-callback` with this request's state; `identity` equal to `claimed_id`, which is Steam's prefix and a non-zero unsigned 64-bit Steam ID in decimal; a signature covering `op_endpoint`, `claimed_id`, `identity`, `return_to` and `response_nonce`; and a `response_nonce` no more than thirty seconds ahead or the login lifetime plus thirty seconds behind. The realm is the site's origin plus `/` | `internal/services/providers/steam.go` |
+| Steam's assertion then verified by Steam itself, once the login is spent: every returned `openid.*` field with only the mode replaced, posted to `https://steamcommunity.com/openid/login`, a constant no setting can move, through the bounded, non-redirecting client, accepted only on `is_valid:true`; no assertion or answer in an error or log | `internal/services/providers/steam.go`, `internal/web/providercallback.go` |
+| A Steam account keyed by its Steam ID as decimal text, created with the username `steam:` plus that ID | `internal/services/accounts` |
 | Google's exact issuer, an audience containing the client identifier, RS256 only, signature, nonce, and mandatory `exp` and `iat` within the clock skew; a non-empty `azp` equal to the client identifier when there are several audiences, and any other non-empty `azp` equal to it; a non-empty `at_hash` bound to the provider access token; `nbf` enforced whenever present; all against compiled-in endpoints a discovery document cannot move | `internal/services/providers/google.go` |
 | Callback URI policy: absolute, HTTPS except on loopback where a port is required, no userinfo, no fragment, no control characters, reserved response keys refused at registration | `internal/urlpolicy` |
 | A browser returned to the exact registered spelling, one encoded response parameter appended and no existing byte rewritten | `internal/urlpolicy`, `internal/web/providerlogin.go`, `providercallback.go` |
@@ -124,7 +128,18 @@ A change to a control above extends these rather than replacing them:
   `providercallback_integration_test.go` — state missing, altered, replayed,
   from another browser, for another provider or another application; the site's
   application accepting only its exact registered callback; and refused target
-  spellings spending neither the login nor the one-time code they carry.
+  spellings spending neither the login nor the one-time code they carry. For
+  Steam besides: the OpenID request, an assertion moved to another login,
+  malformed callbacks spending no login and asking Steam nothing, a refused
+  assertion spending the login after one verification, and no assertion value
+  in the log.
+- `internal/services/providers/steam_test.go` — every binding, signed-field,
+  Steam ID and nonce refusal with its boundaries, every unacceptable
+  verification answer, redirects, unreachable and stalled verification, and
+  the address and form Steam is asked with, extension fields included, with a
+  genuine assertion as the positive control.
+- `internal/web/provideridentity_integration_test.go` — Steam IDs that are
+  zero, signed, padded, overflowing or not decimal signing nobody in.
 - `internal/web/unavailable_integration_test.go` — every endpoint refusing when
   the database cannot be reached, a genuine token refused rather than
   accepted on its signature alone, and genuine sessions, tokens, codes, logins
@@ -157,8 +172,9 @@ A change to a control above extends these rather than replacing them:
   or without a trailing slash, changing nothing when run again, carrying no
   database connection in its arguments, and held to its own allowlist.
 - `scripts/containercheck.sh` — the migration lifecycle on the template: a
-  no-op second up, one down removing exactly the auth-state layer, `down-to 0`
-  removing the baseline, and up rebuilding the schema every test is cloned from.
+  no-op second up, one down removing the Steam layer and its accounts, the next
+  removing exactly the auth-state layer, `down-to 0` removing the baseline, and
+  up rebuilding the schema every test is cloned from.
 - `internal/web/requestlimit_integration_test.go` — the developer application
   budget stated as the number the service promises and shared across every
   change, one user's spent budget leaving another served, a forwarding header
@@ -199,7 +215,8 @@ A change to a control above extends these rather than replacing them:
 - `internal/web/apischema_test.go` — the schema agreeing with the route table
   in both directions, user and application token schemes never swapped, Origin
   and CSRF never unconditionally required where a token is accepted, the
-  sign-in, session and Google wording, references resolving, and no credential,
+  sign-in, session, Google and Steam wording, PKCE claimed only for the OAuth
+  providers, references resolving, and no credential,
   example or default in either representation.
 - `internal/web/apidocumentation_test.go` — malformed, multi-document,
   incomplete and example-bearing sources refused for both representations, with

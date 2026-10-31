@@ -5,10 +5,11 @@
 // provider that is slow, that points somewhere else, or that answers with
 // something enormous cannot hold or exhaust this service.
 //
-// The addresses of the real providers are constants. A test supplies its own
-// through the constructor; nothing at runtime can move a provider somewhere
-// else, so a configuration mistake cannot send an authorization code to a host
-// of someone else's choosing.
+// The addresses of the real providers are constants. A test may supply its own
+// for Discord, GitHub and Google through the constructor, and none for Steam;
+// nothing at runtime can move a provider somewhere else, so a configuration
+// mistake cannot send an authorization code or an assertion to a host of
+// someone else's choosing.
 package providers
 
 import (

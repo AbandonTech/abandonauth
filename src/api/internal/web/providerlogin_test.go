@@ -36,6 +36,10 @@ func authorizeQuery(applicationID, callback string) url.Values {
 func TestStartingLoginReadsProviderApplicationAndCallback(t *testing.T) {
 	t.Parallel()
 
+	if !slices.Contains(oauth.Providers, oauth.Steam) {
+		t.Fatal("Steam is not among the providers a login can name")
+	}
+
 	for _, provider := range oauth.Providers {
 		t.Run(string(provider), func(t *testing.T) {
 			t.Parallel()
@@ -96,7 +100,7 @@ func TestStartingLoginNamesOfferedProvidersWhenRefusingOne(t *testing.T) {
 		t.Fatalf("refusals = %v, want exactly one", refusals(given))
 	}
 
-	if failures[0].Message != "Input must be discord, github, or google" {
+	if failures[0].Message != "Input must be discord, github, google, or steam" {
 		t.Errorf("msg = %q", failures[0].Message)
 	}
 

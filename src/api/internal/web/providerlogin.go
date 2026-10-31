@@ -27,7 +27,7 @@ const (
 
 // messageUnknownProvider is the input refusal message for a provider path
 // value this service does not offer.
-const messageUnknownProvider = "Input must be discord, github, or google"
+const messageUnknownProvider = "Input must be discord, github, google, or steam"
 
 // providerAuthorize starts a login with a provider.
 //
@@ -110,38 +110,51 @@ func (s *Server) authorizationURL(provider oauth.Provider, started oauth.Start) 
 		return s.github.AuthorizationURL(started.State, started.Challenge)
 	case oauth.Google:
 		return s.google.AuthorizationURL(started.State, started.Challenge, started.Nonce)
+	case oauth.Steam:
+		return s.steam.AuthorizationURL(started.State)
 	default:
 		return ""
 	}
 }
 
 // resumeLogin reads the state and the browser's cookie and spends the login
-// they name.
+// they name, returning the authorization code the provider sent back.
+func (s *Server) resumeLogin(
+	writer http.ResponseWriter, request *http.Request, provider oauth.Provider,
+) (oauth.Login, string, bool) {
+	login, consumed := s.consumeLogin(writer, request, provider, request.URL.Query().Get("state"))
+	if !consumed {
+		return oauth.Login{}, "", false
+	}
+
+	return login, request.URL.Query().Get(urlpolicy.ExchangeCodeQueryKey), true
+}
+
+// consumeLogin spends the login a state and the browser's cookie name.
 //
 // It answers the request itself on every failure, always with the same detail:
 // a state that was never issued, that has expired, that has already been used,
 // that is bound to another browser and that was started with another provider
 // are indistinguishable from outside.
-func (s *Server) resumeLogin(
-	writer http.ResponseWriter, request *http.Request, provider oauth.Provider,
-) (oauth.Login, string, bool) {
-	state := request.URL.Query().Get("state")
+func (s *Server) consumeLogin(
+	writer http.ResponseWriter, request *http.Request, provider oauth.Provider, state string,
+) (oauth.Login, bool) {
 	binding := cookieValue(request, s.LoginCookieName())
 
 	login, err := s.logins.Consume(request.Context(), provider, state, binding)
 	if errors.Is(err, oauth.ErrNoSuchLogin) {
 		response.Error(writer, http.StatusForbidden, detailSignInValidationFailed)
 
-		return oauth.Login{}, "", false
+		return oauth.Login{}, false
 	}
 
 	if err != nil {
 		s.refuseUnavailable(writer, request, err)
 
-		return oauth.Login{}, "", false
+		return oauth.Login{}, false
 	}
 
-	return login, request.URL.Query().Get(urlpolicy.ExchangeCodeQueryKey), true
+	return login, true
 }
 
 // completeLogin returns the browser to where the login said it should go.

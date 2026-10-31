@@ -6,6 +6,7 @@ Currently supported:
 - Discord
 - GitHub
 - Google
+- Steam
 
 - [Integrating your application](#integrating-your-application): signing
   people in to your application with AbandonAuth.
@@ -84,7 +85,8 @@ setting that is missing or unusable stops the process with a message naming it.
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK` | | yes | see [Google](./docs/GOOGLE-OAUTH2.md) |
 
 Each `_CLIENT_SECRET` is environment only, alongside `DATABASE_URL` and
-`JWT_SECRET`. All three provider registrations are required.
+`JWT_SECRET`. All three provider registrations are required. Steam sign-in
+needs no settings: see [Steam](./docs/STEAM-OPENID.md).
 
 `ABANDON_AUTH_URL` and `ABANDON_AUTH_SITE_URL` are origins: scheme, host and an
 optional port, with no path. Every endpoint is under `/api`, which belongs to
@@ -201,13 +203,15 @@ backup. What each Down removes, with its data:
 
 | Down of | Removes |
 | --- | --- |
+| `20261030000100_steam_accounts` | every Steam account, and every Steam login in progress and one-time code issued for a Steam sign-in |
 | `20260827000200_auth_state_and_rate_limits` | every browser session, login in progress, one-time code, token revocation and request budget, the auth epoch, and every developer application's credential version |
 | `20260827000100_baseline_schema` | every user, Discord, GitHub, Google and password account, developer application and callback URI |
 
-`down` and `down-to 20260827000100` remove the first row; `down-to 0` and
-`reset` remove both. `redo` removes and reapplies the newest migration, so it
-empties that migration's tables. Applying the auth-state migration again creates
-a new auth epoch, so no credential issued before its Down is accepted afterwards.
+`down` removes the first row, `down-to 20260827000200` the same, and
+`down-to 20260827000100` the first two; `down-to 0` and `reset` remove all
+three. `redo` removes and reapplies the newest migration, so it empties that
+migration's tables. Applying the auth-state migration again creates a new auth
+epoch, so no credential issued before its Down is accepted afterwards.
 
 ## The site's application
 
@@ -219,8 +223,8 @@ UUID generator will do) and never change it: other applications may rely on it.
 service after the migration and before the API. When no application holds the
 identifier it creates, in one transaction:
 
-- an owner named `abandonauth` holding no Discord, GitHub, Google or password
-  account, so nobody can sign in as it;
+- an owner named `abandonauth` holding no Discord, GitHub, Google, Steam or
+  password account, so nobody can sign in as it;
 - an application named `AbandonAuth` under the identifier, whose credential is
   generated, stored only as a hash, and never printed or kept anywhere else;
 - the callback `ABANDON_AUTH_SITE_URL` followed by `/api/ui`, with one trailing
@@ -276,6 +280,7 @@ Set `ABANDON_AUTH_DEVELOPER_APP_ID` to a UUID of your own
 - [Discord](./docs/DISCORD-OAUTH2.md)
 - [GitHub](./docs/GITHUB-OAUTH2.md)
 - [Google](./docs/GOOGLE-OAUTH2.md)
+- [Steam](./docs/STEAM-OPENID.md), which needs nothing filled in
 
 Then:
 
@@ -337,18 +342,22 @@ go tool goose -env=none -dir migrations create <what_it_does> sql
 go tool goose -env=none -dir migrations validate
 ```
 
-An Up migration must work with the build already serving. One that changes the
-auth epoch, login state, one-time codes, browser sessions, revocations,
-developer credential versions or request budgets first locks the epoch row, as
-`abandonauth database rotate-auth-epoch` does:
+An Up migration must work with the build already serving. One that replaces the
+auth epoch first locks its row, as `abandonauth database rotate-auth-epoch` does:
 
 ```sql
 SELECT epoch FROM auth_epoch WHERE singleton FOR UPDATE;
 ```
 
+One that changes login state, one-time codes, browser sessions or revocations
+takes its locks on those tables before changing any row, in the order rotation
+does (login state, one-time codes, browser sessions, revocations), so a
+migration and a rotation cannot deadlock.
+
 The tests never build a schema themselves: `./scripts/check.sh --integration`
-migrates a template database with the image's Goose, runs it through up, down,
-`down-to 0` and up again, and every test database is a clone of the result.
+migrates a template database with the image's Goose, runs it through up, each
+down, `down-to 0` and up again, and every test database is a clone of the
+result.
 
 Queries live in
 [`src/api/internal/database/queries/`](./src/api/internal/database/queries);

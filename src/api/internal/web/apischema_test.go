@@ -534,6 +534,7 @@ func TestAPISchemaAuthenticationBoundaries(t *testing.T) {
 		"GET /api/ui/discord-callback":                                    public,
 		"GET /api/ui/github-callback":                                     public,
 		"GET /api/google":                                                 public,
+		"GET /api/ui/steam-callback":                                      public,
 		"POST /api/ui/logout":                                             {browser},
 		"POST /api/create_test_user":                                      public,
 		"POST /api/login_test_user":                                       public,
@@ -801,11 +802,25 @@ func TestAPISchemaProviderSignInContract(t *testing.T) {
 		"bound to the initiating browser",
 		"to the provider, the application and the exact registered callback",
 		"must exactly match one of the URIs the application registered",
-		"PKCE with the `S256` challenge method is used for every provider",
+		"PKCE with the `S256` challenge method is used for every OAuth provider, Discord, GitHub and Google",
+		"Steam signs in through OpenID 2.0, which has no PKCE",
+		"`https://steamcommunity.com/openid/login`",
+		"`openid.mode` `checkid_setup`",
+		"identifier selection for both `openid.claimed_id` and `openid.identity`",
+		"`openid.realm` the AbandonAuth site's origin followed by `/`",
+		"`openid.return_to` that origin followed by `/api/ui/steam-callback`, with the opaque state appended",
 		"No access token or session token is ever put in a redirect query string.",
 	) {
 		if !strings.Contains(authorize, statement) {
 			t.Errorf("GET /api/ui/{provider}/authorize does not state %q", statement)
+		}
+	}
+
+	// Steam's sign-in has no PKCE, so wording that claims it for every
+	// provider describes a check this service does not make.
+	for _, overstatement := range []string{"used for every provider", "every provider uses PKCE"} {
+		if strings.Contains(authorize, overstatement) {
+			t.Errorf("GET /api/ui/{provider}/authorize claims %q", overstatement)
 		}
 	}
 
@@ -870,12 +885,50 @@ func TestAPISchemaProviderSignInContract(t *testing.T) {
 		}
 	}
 
+	expectSteamSignInBindings(t, document)
+
 	for key, operation := range document.operations() {
 		description := strings.ToLower(operation.Description)
 		for _, claim := range []string{"openapi enforces", "enforced by openapi", "this document enforces"} {
 			if strings.Contains(description, claim) {
 				t.Errorf("%s claims the document itself enforces a guarantee", key)
 			}
+		}
+	}
+}
+
+// expectSteamSignInBindings requires the Steam callback to state what binds an
+// assertion to one sign-in, and never to claim PKCE.
+func expectSteamSignInBindings(t *testing.T, document openAPIDocument) {
+	t.Helper()
+
+	const key = "GET /api/ui/steam-callback"
+
+	steam := prose(document.operation(t, key).Description)
+
+	for _, statement := range []string{
+		"OpenID 2.0, not OAuth: it uses no PKCE verifier and no authorization code",
+		"signed over `op_endpoint`, `claimed_id`, `identity`, `return_to` and `response_nonce`",
+		"an assertion Steam returned for one sign-in cannot finish another",
+		"refused with the 403 below before the state is consumed, so it spends no sign-in and Steam is not contacted",
+		"opaque, unpredictable, expiring, single-use",
+		"presented by the same browser that started the sign-in",
+		"consumed by one atomic delete",
+		"`openid.mode` set to `check_authentication`",
+		"only if Steam answers `is_valid:true`",
+		"username is `steam:` followed by that Steam ID",
+		"returned to the exact registered callback spelling",
+		"appends only one parameter, the one-time code under the `code` query key",
+		"No access token or session token is ever put in a redirect query string.",
+	} {
+		if !strings.Contains(steam, statement) {
+			t.Errorf("%s does not state %q", key, statement)
+		}
+	}
+
+	for _, overstatement := range []string{"`S256`", "PKCE verifier held", "is exchanged with the PKCE", "nonce issued"} {
+		if strings.Contains(steam, overstatement) {
+			t.Errorf("%s claims %q", key, overstatement)
 		}
 	}
 }
@@ -1060,7 +1113,9 @@ func TestAPISchemaStatesRefusalContract(t *testing.T) {
 		}},
 	}
 
-	for _, key := range []string{"GET /api/ui/discord-callback", "GET /api/ui/github-callback", "GET /api/google"} {
+	for _, key := range []string{
+		"GET /api/ui/discord-callback", "GET /api/ui/github-callback", "GET /api/google", "GET /api/ui/steam-callback",
+	} {
 		statements[key] = struct {
 			description string
 			wanted      []string
