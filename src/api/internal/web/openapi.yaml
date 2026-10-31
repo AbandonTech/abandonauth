@@ -16,8 +16,8 @@ tags:
       exact callback URIs they may be returned to.
   - name: Provider Callbacks
     description: >-
-      The addresses Discord, GitHub and Google return a browser to. Only a
-      browser following a provider's redirect calls them.
+      The addresses Discord, GitHub, Google and Steam return a browser to. Only
+      a browser following a provider's redirect calls them.
   - name: Development Sign-In
     description: >-
       Password accounts for local development without a provider. A deployment
@@ -508,7 +508,7 @@ paths:
       tags: [Authentication]
       summary: Start a sign-in with a provider
       description: >-
-        Start a sign-in with Discord, GitHub or Google for a developer
+        Start a sign-in with Discord, GitHub, Google or Steam for a developer
         application. A browser navigates here; the answer is a redirect, not a
         JSON document.
 
@@ -524,9 +524,21 @@ paths:
         initiating browser by a short-lived cookie, and to the provider, the
         application and the exact registered callback, all held server-side.
         Only the opaque state travels through the browser. PKCE with the `S256`
-        challenge method is used for every provider, and a Google sign-in also
-        carries a nonce. The browser is redirected to the provider's own fixed
-        HTTPS authorization address.
+        challenge method is used for every OAuth provider, Discord, GitHub and
+        Google, and a Google sign-in also carries a nonce. The browser is
+        redirected to the provider's own fixed HTTPS authorization address.
+
+
+        Steam signs in through OpenID 2.0, which has no PKCE and no nonce of
+        this service's making. Its request is sent to
+        `https://steamcommunity.com/openid/login` with `openid.ns`
+        `http://specs.openid.net/auth/2.0`, `openid.mode` `checkid_setup`,
+        identifier selection for both `openid.claimed_id` and
+        `openid.identity`, `openid.realm` the AbandonAuth site's origin
+        followed by `/`, and `openid.return_to` that origin followed by
+        `/api/ui/steam-callback`, with the opaque state appended as its `state`
+        parameter. Steam signs that return address into its answer, which is
+        what binds the answer to this sign-in in place of PKCE.
 
 
         No access token or session token is ever put in a redirect query
@@ -701,6 +713,93 @@ paths:
       parameters:
         - $ref: "#/components/parameters/State"
         - $ref: "#/components/parameters/ProviderAuthorizationCode"
+      responses:
+        "307":
+          $ref: "#/components/responses/RedirectToCallback"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/ui/steam-callback:
+    get:
+      tags: [Provider Callbacks]
+      summary: Finish a sign-in with Steam
+      description: >-
+        The address Steam returns the browser to after a sign-in started at
+        `/api/ui/steam/authorize`. Steam signs in through OpenID 2.0, not
+        OAuth: it uses no PKCE verifier and no authorization code. Its answer
+        is a positive assertion, which this service checks and then has Steam
+        itself verify.
+
+
+        A positive assertion must be signed over `op_endpoint`, `claimed_id`,
+        `identity`, `return_to` and `response_nonce`. Its `openid.return_to`
+        must be this address with the request's `state` appended, so an
+        assertion Steam returned for one sign-in cannot finish another. Its
+        `openid.claimed_id` must be a Steam ID at
+        `https://steamcommunity.com/openid/id/`, and its
+        `openid.response_nonce` must be no older than the sign-in it answers.
+        A callback that fails these checks or repeats a parameter is refused
+        with the 403 below before the state is consumed, so it spends no
+        sign-in and Steam is not contacted.
+
+
+        The state must be the opaque, unpredictable, expiring, single-use value
+        this service issued, presented by the same browser that started the
+        sign-in, for Steam, and it is consumed by one atomic delete. A state
+        that was never issued, has expired, was already used, belongs to
+        another browser or was started with another provider is refused with
+        the same 403.
+
+
+        Once the state is consumed, every `openid.*` parameter Steam returned
+        is posted back to `https://steamcommunity.com/openid/login` with
+        `openid.mode` set to `check_authentication`, and the sign-in completes
+        only if Steam answers `is_valid:true`. An assertion Steam refuses
+        cannot be retried, because its sign-in is already spent.
+
+
+        Every failure after the state is consumed is refused with that same
+        403 response: a provider that does not authenticate the user, a
+        provider identity that is incomplete or cannot be stored, and a stored
+        callback that no longer passes the callback URI policy. Such a refusal
+        carries no redirect and issues no session or one-time code.
+
+
+        The Steam ID alone identifies the person. The first sign-in with a
+        Steam ID creates an account whose username is `steam:` followed by that
+        Steam ID; later sign-ins with it are the same account.
+
+
+        A cancellation (`openid.mode` `cancel`) consumes the state and sends
+        the browser to the callback with nothing appended.
+
+
+        The browser is returned to the exact registered callback spelling,
+        with no existing byte rewritten. A sign-in for any developer
+        application other than the AbandonAuth site appends only one
+        parameter, the one-time code under the `code` query key, which only
+        that application can spend at `POST /api/login`. A sign-in for the
+        AbandonAuth site itself receives a browser session cookie and nothing
+        is appended.
+
+
+        No access token or session token is ever put in a redirect query
+        string.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/State"
+        - $ref: "#/components/parameters/OpenIDNamespace"
+        - $ref: "#/components/parameters/OpenIDMode"
+        - $ref: "#/components/parameters/OpenIDProviderEndpoint"
+        - $ref: "#/components/parameters/OpenIDClaimedID"
+        - $ref: "#/components/parameters/OpenIDIdentity"
+        - $ref: "#/components/parameters/OpenIDReturnTo"
+        - $ref: "#/components/parameters/OpenIDResponseNonce"
+        - $ref: "#/components/parameters/OpenIDAssociationHandle"
+        - $ref: "#/components/parameters/OpenIDSigned"
+        - $ref: "#/components/parameters/OpenIDSignature"
       responses:
         "307":
           $ref: "#/components/responses/RedirectToCallback"
@@ -920,7 +1019,7 @@ components:
       description: The provider to sign in with.
       schema:
         type: string
-        enum: [discord, github, google]
+        enum: [discord, github, google, steam]
     State:
       name: state
       in: query
@@ -937,6 +1036,96 @@ components:
       description: >-
         The authorization code the provider issued. Absent when the person
         declined or the provider sent them back without one.
+      schema:
+        type: string
+    OpenIDNamespace:
+      name: openid.ns
+      in: query
+      required: true
+      description: Exactly `http://specs.openid.net/auth/2.0`.
+      schema:
+        type: string
+    OpenIDMode:
+      name: openid.mode
+      in: query
+      required: true
+      description: >-
+        `id_res` for a positive assertion, or `cancel` when the person declined
+        at Steam or Steam sent them back without signing them in. Any other
+        mode is refused with the 403 before the state is consumed.
+      schema:
+        type: string
+        enum: [id_res, cancel]
+    OpenIDProviderEndpoint:
+      name: openid.op_endpoint
+      in: query
+      required: false
+      description: >-
+        Required in a positive assertion and signed: exactly
+        `https://steamcommunity.com/openid/login`.
+      schema:
+        type: string
+    OpenIDClaimedID:
+      name: openid.claimed_id
+      in: query
+      required: false
+      description: >-
+        Required in a positive assertion and signed:
+        `https://steamcommunity.com/openid/id/` followed by the person's Steam
+        ID.
+      schema:
+        type: string
+    OpenIDIdentity:
+      name: openid.identity
+      in: query
+      required: false
+      description: >-
+        Required in a positive assertion and signed: equal to
+        `openid.claimed_id`.
+      schema:
+        type: string
+    OpenIDReturnTo:
+      name: openid.return_to
+      in: query
+      required: false
+      description: >-
+        Required in a positive assertion and signed: this address with the
+        request's `state` appended.
+      schema:
+        type: string
+    OpenIDResponseNonce:
+      name: openid.response_nonce
+      in: query
+      required: false
+      description: >-
+        Required in a positive assertion and signed: a UTC timestamp ending in
+        `Z`, then a non-empty uniqueness value.
+      schema:
+        type: string
+    OpenIDAssociationHandle:
+      name: openid.assoc_handle
+      in: query
+      required: false
+      description: Required, and non-empty, in a positive assertion.
+      schema:
+        type: string
+    OpenIDSigned:
+      name: openid.signed
+      in: query
+      required: false
+      description: >-
+        Required in a positive assertion: the comma-separated fields Steam
+        signed, covering at least `op_endpoint`, `claimed_id`, `identity`,
+        `return_to` and `response_nonce`.
+      schema:
+        type: string
+    OpenIDSignature:
+      name: openid.sig
+      in: query
+      required: false
+      description: >-
+        Required, and non-empty, in a positive assertion. This service does not
+        check it itself; Steam does, when asked to verify the assertion.
       schema:
         type: string
     ExchangeToken:
@@ -1226,8 +1415,9 @@ components:
       description: >-
         The browser is sent to the provider's fixed HTTPS authorization
         address. Of the login this service holds, only the opaque state, the
-        PKCE challenge and, for Google, the nonce travel in it. The response
-        has no body.
+        PKCE challenge for an OAuth provider and, for Google, the nonce travel
+        in it; Steam is sent only the opaque state, inside the return address.
+        The response has no body.
       headers:
         Location:
           $ref: "#/components/headers/Location"

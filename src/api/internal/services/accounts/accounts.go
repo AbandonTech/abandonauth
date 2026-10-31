@@ -143,6 +143,10 @@ func (a *Accounts) lookup(ctx context.Context, identity Identity) (User, error) 
 		var row query.GetUserByGoogleAccountRow
 		row, err = a.queries.GetUserByGoogleAccount(ctx, identity.ID)
 		id, username = row.ID, row.Username
+	case oauth.Steam:
+		var row query.GetUserBySteamAccountRow
+		row, err = a.queries.GetUserBySteamAccount(ctx, identity.ID)
+		id, username = row.ID, row.Username
 	default:
 		return User{}, ErrUnusableIdentity
 	}
@@ -204,6 +208,8 @@ func linkIdentity(ctx context.Context, queries *query.Queries, identity Identity
 		return queries.CreateGitHubAccount(ctx, query.CreateGitHubAccountParams{ID: number, UserID: userID})
 	case oauth.Google:
 		return queries.CreateGoogleAccount(ctx, query.CreateGoogleAccountParams{ID: identity.ID, UserID: userID})
+	case oauth.Steam:
+		return queries.CreateSteamAccount(ctx, query.CreateSteamAccountParams{ID: identity.ID, UserID: userID})
 	default:
 		return ErrUnusableIdentity
 	}

@@ -20,7 +20,8 @@ type Authorization struct {
 	// assert the whole address.
 	AuthorizationURL string
 
-	// State is the opaque value the provider will return unchanged.
+	// State is the opaque value the provider will return unchanged. Steam is
+	// given it inside the address it returns the browser to.
 	State string
 
 	// Challenge is the PKCE challenge the provider was given.
@@ -29,6 +30,10 @@ type Authorization struct {
 	// Nonce ties an identity token to this login, for the provider that issues
 	// one.
 	Nonce string
+
+	// ReturnTo is the address Steam was asked to return the browser to, which
+	// it signs into its assertion.
+	ReturnTo string
 
 	// Response is what the authorize endpoint answered, for the tests that
 	// assert the redirect and the cookie it set.
@@ -44,6 +49,8 @@ func CallbackPath(provider oauth.Provider) string {
 		return "/ui/github-callback"
 	case oauth.Google:
 		return "/google"
+	case oauth.Steam:
+		return "/ui/steam-callback"
 	default:
 		return ""
 	}
@@ -68,7 +75,7 @@ func (s *Service) StartLogin(provider oauth.Provider, applicationID uuid.UUID, c
 		s.t.Fatalf("the browser was sent to something that is not a URL: %v", err)
 	}
 
-	return Authorization{
+	started := Authorization{
 		Provider:         provider,
 		AuthorizationURL: sentTo,
 		State:            address.Query().Get("state"),
@@ -76,10 +83,23 @@ func (s *Service) StartLogin(provider oauth.Provider, applicationID uuid.UUID, c
 		Nonce:            address.Query().Get("nonce"),
 		Response:         response,
 	}
+
+	if provider == oauth.Steam {
+		started.ReturnTo = address.Query().Get("openid.return_to")
+
+		returnTo, err := url.Parse(started.ReturnTo)
+		if err != nil {
+			s.t.Fatalf("Steam was asked to return the browser to something that is not a URL: %v", err)
+		}
+
+		started.State = returnTo.Query().Get("state")
+	}
+
+	return started
 }
 
 // FinishLogin returns from the provider with an authorization code for a
-// person, as the browser does.
+// person, as the browser does. For Steam it is a signed assertion instead.
 func (s *Service) FinishLogin(
 	authorization Authorization, identity providertest.Identity, adjust ...func(*http.Request),
 ) *Response {
@@ -89,6 +109,7 @@ func (s *Service) FinishLogin(
 		Identity:  identity,
 		Challenge: authorization.Challenge,
 		Nonce:     authorization.Nonce,
+		ReturnTo:  authorization.ReturnTo,
 	})
 
 	return s.ReturnFromProvider(authorization.Provider, code, authorization.State, adjust...)
@@ -96,17 +117,36 @@ func (s *Service) FinishLogin(
 
 // ReturnFromProvider calls a provider callback with whatever a test wants the
 // browser to be carrying.
+//
+// For Steam the code is the assertion Steam appends to its return address, and
+// an empty one is the cancellation Steam returns a person who declined with.
 func (s *Service) ReturnFromProvider(
 	provider oauth.Provider, code, state string, adjust ...func(*http.Request),
 ) *Response {
 	s.t.Helper()
 
 	query := url.Values{"state": {state}}
+
+	if provider == oauth.Steam {
+		answer := code
+		if answer == "" {
+			answer = SteamCancellation()
+		}
+
+		return s.GET(CallbackPath(provider)+"?"+query.Encode()+"&"+answer, adjust...)
+	}
+
 	if code != "" {
 		query.Set("code", code)
 	}
 
 	return s.GET(CallbackPath(provider)+"?"+query.Encode(), adjust...)
+}
+
+// SteamCancellation is what Steam appends to its return address for a person
+// who declined to sign in.
+func SteamCancellation() string {
+	return url.Values{"openid.ns": {providertest.SteamNamespace}, "openid.mode": {"cancel"}}.Encode()
 }
 
 // SignIn signs a browser in to the site itself, the way a person does, and

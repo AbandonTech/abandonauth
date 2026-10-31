@@ -29,6 +29,7 @@ func (s *Server) handlers() map[RouteName]http.Handler {
 		RouteGoogleCallback:  s.googleCallback(),
 		RouteDiscordCallback: s.discordCallback(),
 		RouteGitHubCallback:  s.githubCallback(),
+		RouteSteamCallback:   s.steamCallback(),
 
 		RouteProviderAuthorize: s.providerAuthorize(),
 		RouteSiteEntry:         s.siteEntry(),

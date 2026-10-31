@@ -42,6 +42,8 @@ const (
 // The provider addresses and transport exist so a test can answer provider
 // requests locally. A deployment leaves them empty and gets the real providers,
 // which are constants in the provider clients and cannot be moved by a setting.
+// Steam's address cannot be given at all: only the transport carries its
+// requests elsewhere.
 type Dependencies struct {
 	Pool   *pgxpool.Pool
 	Logger zerolog.Logger
@@ -80,6 +82,7 @@ type Server struct {
 	discord *providers.Discord
 	github  *providers.GitHub
 	google  *providers.Google
+	steam   *providers.Steam
 }
 
 // NewServer builds the service from its validated configuration.
@@ -152,6 +155,7 @@ func NewServer(configuration config.Config, dependencies Dependencies) (*Server,
 		google: providers.NewGoogle(
 			configuration.Google, dependencies.GoogleEndpoints, dependencies.ProviderTransport, now,
 		),
+		steam: providers.NewSteam(configuration.Site, steamCallbackPath, dependencies.ProviderTransport, now),
 	}, nil
 }
 

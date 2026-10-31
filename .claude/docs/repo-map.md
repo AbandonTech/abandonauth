@@ -48,7 +48,8 @@ are relative to `src/api/`.
 
 - `migrations/` — the Goose SQL migrations, applied only by the standalone
   Goose CLI: the baseline schema, then auth state, sessions, revocation, rate
-  limits. The application never reads them; sqlc does
+  limits, then Steam accounts and the Steam provider in login state and codes.
+  The application never reads them; sqlc does
 - `internal/database/queries/` — the SQL source; edit this, never generated
   code; `rate_limits.sql` derives the budget window and the wait from the
   database clock, `developer_applications.sql` carries the application row lock
@@ -89,8 +90,8 @@ endpoints that stop accepting credentials in
 - `internal/services/siteapplication/` — `abandonauth provision`: the site's
   owner, application and callback created together where the identifier is
   absent, nothing changed where it is held
-- `internal/services/oauth/` — authorization state with PKCE, one-time exchange
-  codes
+- `internal/services/oauth/` — authorization state, with PKCE for the OAuth
+  providers and none for Steam, one-time exchange codes
 - `internal/services/sessions/` — browser sessions and their CSRF tokens
 - `internal/services/authority/` — the auth epoch every check is measured
   against
@@ -99,14 +100,17 @@ endpoints that stop accepting credentials in
 - `internal/services/housekeeping/` — expiry sweeps on a ticker `serve` owns:
   logins, codes, sessions, withdrawals, budget windows
 - `internal/services/providers/` — Discord, GitHub and Google clients against
-  fixed HTTPS endpoints
+  fixed HTTPS endpoints; `steam.go`, the Steam OpenID 2.0 client: the realm
+  and return address from the site origin, callback reading, and verification
+  with Steam at its fixed endpoint
 - `internal/services/providers/providertest/` — local servers answering as the
-  providers; no test leaves the machine
+  providers, Steam's signed assertions and `check_authentication` included,
+  over an HTTPS-only transport; no test leaves the machine
 
 ### Web
 
-- `internal/web/routes.go` — the route table: `APIRoot`, `SiteEntryPath` and
-  every URL, once
+- `internal/web/routes.go` — the route table: `APIRoot`, `SiteEntryPath`, the
+  Steam callback path and every URL, once
 - `internal/web/handlers.go` — binds each route name to its handler
 - `internal/web/server.go` — composition, middleware order, deadlines
 - `internal/web/requesttarget.go` — the one spelling of a target that is
@@ -120,7 +124,9 @@ endpoints that stop accepting credentials in
 - `internal/web/developerapplication.go` — the seven
   `/api/developer_application` routes
 - `internal/web/providerlogin.go` — `GET /api/ui/{provider}/authorize`
-- `internal/web/providercallback.go` — the Discord, GitHub, Google callbacks
+- `internal/web/providercallback.go` — the Discord, GitHub, Google callbacks,
+  and the Steam callback at `/api/ui/steam-callback`, which reads the assertion
+  before spending the login and spends it before Steam is asked
 - `internal/web/browsersession.go` — `/api/ui/`, `POST /api/ui/logout`, session
   and CSRF checks
 - `internal/web/authentication.go` — bearer and session authorization per route
@@ -181,7 +187,8 @@ Paths are relative to `src/website/`. Everything the browser runs is under
   sign-in
 - `app/utils/browserSession.ts` — CSRF header, session paths, signed-in check
 - `app/middleware/auth.global.ts` — route gate; asks `/api/me`
-- `app/pages/login.vue` — the provider sign-in buttons
+- `app/pages/login.vue` — the Discord, GitHub, Google and Steam sign-in
+  buttons, each mark drawn inline
 - `app/pages/developer-applications/` — developer application and callback URI
   administration
 - `app/layouts/dashboard.vue` — authenticated layout, including logout
@@ -199,7 +206,8 @@ address. `/api` is the API's route root, so a browser's path is forwarded whole.
 `migrations/` defines `User`, the provider accounts,
 `PasswordAccount`, `DeveloperApplication` and `CallbackUri`, then the auth
 epoch, OAuth state, exchange codes, browser sessions, JWT revocations and rate
-limit buckets. Provider accounts are one-to-one with users; users own developer
+limit buckets, then `SteamAccount`, a Steam ID as decimal text.
+Provider accounts are one-to-one with users; users own developer
 applications; callback URIs belong to applications. Passwords and developer
 credentials are stored only as hashes, every one-time credential only as a
 domain-separated hash.
@@ -225,8 +233,8 @@ rewrite live data for no functional gain and is deliberately out of scope.
   API is the service binary's `serve`, reports that it is serving, and publishes
   no host port
 - `./scripts/containercheck.sh` — what runs inside the container: the Goose
-  lifecycle on the template (no-op up, down, `down-to 0`, up), the tests, and
-  the coverage gate
+  lifecycle on the template (no-op up, a down for each layer, `down-to 0`, up),
+  the tests, and the coverage gate
 - `./scripts/db.sh up` / `down` — the throwaway database and its migrated
   template
 
@@ -301,4 +309,5 @@ Each subject has one owner; everything else links to it.
 - `src/api/README.md` — the API's commands, codegen, API documentation,
   migrations, builds
 - `docs/DISCORD-OAUTH2.md`, `GITHUB-OAUTH2.md`, `GOOGLE-OAUTH2.md` — registering
-  with each provider
+  with each provider; `docs/STEAM-OPENID.md` — Steam, which needs no
+  registration or setting

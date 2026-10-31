@@ -246,7 +246,8 @@ provisioning_order() {
         die "provisioning did not create the site's owner, application and exact callback"
 
     accounts=$(history_query 'SELECT (SELECT count(*) FROM "DiscordAccount") + (SELECT count(*) FROM "GitHubAccount") +
-        (SELECT count(*) FROM "GoogleAccount") + (SELECT count(*) FROM "PasswordAccount")')
+        (SELECT count(*) FROM "GoogleAccount") + (SELECT count(*) FROM "SteamAccount") +
+        (SELECT count(*) FROM "PasswordAccount")')
     [ "$accounts" = 0 ] || die "provisioning created an account someone can sign in with"
 
     arguments=$(docker inspect -f '{{.Path}} {{join .Args " "}} {{join .Config.Entrypoint " "}} {{join .Config.Cmd " "}}' "$provisioning")

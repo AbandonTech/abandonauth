@@ -49,8 +49,21 @@ migration_lifecycle() {
         INSERT INTO jwt_revocation (jti, auth_epoch, expires_at)
             SELECT gen_random_uuid(), epoch, now() + interval '1 hour' FROM auth_epoch;
         INSERT INTO rate_limit_bucket (bucket_key, endpoint_group, window_start, expires_at, count)
-            VALUES (decode(repeat('ab', 32), 'hex'), 'burn_token', now(), now() + interval '1 minute', 1);" \
+            VALUES (decode(repeat('ab', 32), 'hex'), 'burn_token', now(), now() + interval '1 minute', 1);
+        INSERT INTO \"SteamAccount\" (id, user_id)
+            VALUES ('76561197960287930', '00000000-0000-4000-8000-000000000001');" \
         >/dev/null || die "migration lifecycle: seeding failed"
+
+    goose_run down
+    expect_sql "SELECT to_regclass('\"SteamAccount\"') IS NULL" t "down left the Steam account table behind"
+    expect_sql "SELECT (SELECT count(*) FROM pg_constraint WHERE conname IN
+            ('oauth_authorization_state_provider_check', 'oauth_exchange_code_provider_check')
+            AND pg_get_constraintdef(oid) LIKE '%google%' AND pg_get_constraintdef(oid) NOT LIKE '%steam%')
+        || ',' || (SELECT string_agg(is_nullable, ',' ORDER BY column_name) FROM information_schema.columns
+            WHERE table_name = 'oauth_authorization_state'
+            AND column_name IN ('pkce_verifier_nonce', 'pkce_verifier_ciphertext'))" "2,NO,NO" \
+        "down did not restore the three-provider checks and the required PKCE verifier"
+    expect_sql "SELECT count(*) FROM \"User\"" 1 "down removed the user who held a Steam account"
 
     goose_run down
     expect_sql "SELECT concat_ws(',', to_regclass('auth_epoch'), to_regclass('jwt_revocation'),
@@ -74,7 +87,7 @@ migration_lifecycle() {
         "the rebuilt template is not a fresh schema"
 }
 
-stream_stage "migration lifecycle (up, no-op up, down, down-to 0, up)" migration_lifecycle
+stream_stage "migration lifecycle (up, no-op up, down, down, down-to 0, up)" migration_lifecycle
 
 # The deployment integration files are constrained to `integration && !devtools`,
 # so this run carries the development unit and integration packages without

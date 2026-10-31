@@ -12,11 +12,14 @@ async function loginPageFor(query: string) {
 }
 
 describe("the login page", () => {
-  it("offers both providers", async () => {
+  it("offers all four providers", async () => {
     const page = await loginPageFor(`?application_id=${applicationId}&callback_uri=${encodeURIComponent(callbackUri)}`);
 
     expect(page.text()).toContain("Login with Discord");
     expect(page.text()).toContain("Login with Github");
+    expect(page.text()).toContain("Login with Google");
+    expect(page.text()).toContain("Login with Steam");
+    expect(page.findAll("a")).toHaveLength(4);
   });
 
   it("asks the API to start the sign-in, carrying the application and callback it was given", async () => {
@@ -32,6 +35,9 @@ describe("the login page", () => {
     );
     expect(addresses).toContain(
       `/api/ui/google/authorize?application_id=${applicationId}&callback_uri=${encodeURIComponent(callbackUri)}`,
+    );
+    expect(addresses).toContain(
+      `/api/ui/steam/authorize?application_id=${applicationId}&callback_uri=${encodeURIComponent(callbackUri)}`,
     );
   });
 

@@ -1,23 +1,26 @@
 // Package providertest answers the identity providers locally.
 //
 // The addresses the service calls are constants in the provider clients, so the
-// double does not move them: it supplies a transport that carries a request
-// addressed to Discord, GitHub or Google to a local server instead. A test
-// therefore proves that the service asked the real provider's address, and no
-// test reaches the internet.
+// double does not move them: it supplies a transport that carries an HTTPS
+// request addressed to Discord, GitHub, Google or Steam to a local server
+// instead. A test therefore proves that the service asked the real provider's
+// address, and no test reaches the internet.
 package providertest
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -50,7 +53,24 @@ const (
 
 	googleIssuer    = "https://accounts.google.com"
 	googleAuthorize = "https://accounts.google.com/o/oauth2/v2/auth"
+
+	steamHost            = "steamcommunity.com"
+	steamOpenID          = "/openid/login"
+	steamEndpoint        = "https://steamcommunity.com/openid/login"
+	steamClaimedIDPrefix = "https://steamcommunity.com/openid/id/"
 )
+
+// SteamNamespace is the OpenID 2.0 namespace every Steam message carries.
+const SteamNamespace = "http://specs.openid.net/auth/2.0"
+
+// steamSignedFields are the fields Steam signs, in the order it lists them.
+var steamSignedFields = []string{
+	"signed", "op_endpoint", "claimed_id", "identity", "return_to", "response_nonce", "assoc_handle",
+}
+
+// steamFirstAccountID is the lowest Steam ID an individual account is issued,
+// so the identities the double invents look like the ones Steam issues.
+const steamFirstAccountID = 76561197960265728
 
 // identityTokenLifetime is how long the identity token Google issues is valid
 // for. It only has to outlast the request that verifies it.
@@ -61,8 +81,8 @@ const signingKeyIdentifier = "providertest-rs256"
 
 // Identity is a person as a provider describes them.
 type Identity struct {
-	// ID is the identifier in the provider's own spelling: decimal for Discord
-	// and GitHub, and an opaque subject for Google.
+	// ID is the identifier in the provider's own spelling: decimal for Discord,
+	// GitHub and Steam, and an opaque subject for Google.
 	ID string
 
 	Username string
@@ -80,6 +100,10 @@ type Grant struct {
 	// Nonce is the value the identity token carries, for the provider that
 	// issues one.
 	Nonce string
+
+	// ReturnTo is the address a Steam sign-in asked to be returned to, which
+	// Steam signs into its assertion.
+	ReturnTo string
 }
 
 // Providers is a set of identity providers answering on the loopback interface.
@@ -96,9 +120,13 @@ type Providers struct {
 	// the service must refuse.
 	anotherKey *rsa.PrivateKey
 
-	held    sync.Mutex
-	grants  map[string]Grant
-	granted map[string]Identity
+	// steamKey signs the assertions the double issues, so only those verify.
+	steamKey []byte
+
+	held               sync.Mutex
+	grants             map[string]Grant
+	granted            map[string]Identity
+	steamVerifications int
 }
 
 // Options are the registrations the double has to agree with.
@@ -135,12 +163,18 @@ func New(t *testing.T, choices Options) *Providers {
 		t.Fatalf("generating a second provider signing key: %v", err)
 	}
 
+	steamKey := make([]byte, 32)
+	if _, err := rand.Read(steamKey); err != nil {
+		t.Fatalf("generating the Steam signing key: %v", err)
+	}
+
 	providers := &Providers{
 		t:              t,
 		googleClientID: choices.GoogleClientID,
 		faults:         choices,
 		key:            key,
 		anotherKey:     another,
+		steamKey:       steamKey,
 		grants:         make(map[string]Grant),
 		granted:        make(map[string]Identity),
 	}
@@ -157,8 +191,15 @@ func (p *Providers) Transport() http.RoundTripper {
 }
 
 // Issue records an authorization code a provider will honour.
+//
+// For Steam it returns instead the signed assertion Steam appends to the
+// return address, as the query that follows the login state there.
 func (p *Providers) Issue(provider oauth.Provider, grant Grant) string {
 	p.t.Helper()
+
+	if provider == oauth.Steam {
+		return p.assertSteamIdentity(grant)
+	}
 
 	code := codeFor(provider, p.random())
 
@@ -185,15 +226,29 @@ func (p *Providers) Someone(provider oauth.Provider, username string) Identity {
 		number = 1
 	}
 
-	if provider == oauth.Google {
+	switch provider {
+	case oauth.Google:
 		return Identity{ID: fmt.Sprintf("google-subject-%d", number), Username: username}
+	case oauth.Steam:
+		return Identity{ID: fmt.Sprintf("%d", steamFirstAccountID+number), Username: username}
+	default:
+		return Identity{ID: fmt.Sprintf("%d", number), Username: username}
 	}
+}
 
-	return Identity{ID: fmt.Sprintf("%d", number), Username: username}
+// SteamVerifications is how many requests to verify a Steam assertion have
+// reached the double.
+func (p *Providers) SteamVerifications() int {
+	p.held.Lock()
+	defer p.held.Unlock()
+
+	return p.steamVerifications
 }
 
 func (p *Providers) answer(writer http.ResponseWriter, request *http.Request) {
 	switch request.Host + request.URL.Path {
+	case steamHost + steamOpenID:
+		p.verifySteamAssertion(writer, request)
 	case discordHost + discordToken, gitHubHost + gitHubToken:
 		p.exchange(writer, request, false)
 	case googleTokenHost + googleToken:
@@ -357,6 +412,75 @@ func (p *Providers) identityToken(grant Grant, accessToken string) string {
 	return signed
 }
 
+// assertSteamIdentity builds the positive assertion Steam returns for a person,
+// signed over the fields Steam signs and bound to the address it was asked to
+// return to.
+func (p *Providers) assertSteamIdentity(grant Grant) string {
+	p.t.Helper()
+
+	claimed := steamClaimedIDPrefix + grant.Identity.ID
+
+	assertion := url.Values{
+		"openid.ns":             {SteamNamespace},
+		"openid.mode":           {"id_res"},
+		"openid.op_endpoint":    {steamEndpoint},
+		"openid.claimed_id":     {claimed},
+		"openid.identity":       {claimed},
+		"openid.return_to":      {grant.ReturnTo},
+		"openid.response_nonce": {time.Now().UTC().Format("2006-01-02T15:04:05Z") + p.random()},
+		"openid.assoc_handle":   {p.random()},
+		"openid.signed":         {strings.Join(steamSignedFields, ",")},
+	}
+
+	assertion.Set("openid.sig", p.steamSignature(assertion))
+
+	return assertion.Encode()
+}
+
+func (p *Providers) steamSignature(assertion url.Values) string {
+	signer := hmac.New(sha256.New, p.steamKey)
+
+	for _, field := range strings.Split(assertion.Get("openid.signed"), ",") {
+		_, _ = signer.Write([]byte(field + ":" + assertion.Get("openid."+field) + "\n"))
+	}
+
+	return base64.StdEncoding.EncodeToString(signer.Sum(nil))
+}
+
+// verifySteamAssertion answers a direct verification as Steam does: valid only
+// for an assertion this double signed, presented unaltered, with the mode
+// replaced, in a form posted to the endpoint itself.
+func (p *Providers) verifySteamAssertion(writer http.ResponseWriter, request *http.Request) {
+	p.held.Lock()
+	p.steamVerifications++
+	p.held.Unlock()
+
+	if request.Method != http.MethodPost || request.URL.RawQuery != "" {
+		http.Error(writer, "verification is a form posted to the endpoint", http.StatusBadRequest)
+
+		return
+	}
+
+	if err := request.ParseForm(); err != nil {
+		http.Error(writer, "the request is not a form", http.StatusBadRequest)
+
+		return
+	}
+
+	form := request.PostForm
+
+	valid := form.Get("openid.mode") == "check_authentication" &&
+		hmac.Equal([]byte(form.Get("openid.sig")), []byte(p.steamSignature(form)))
+
+	for _, values := range form {
+		valid = valid && len(values) == 1
+	}
+
+	writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
+
+	_, _ = fmt.Fprintf(writer, "ns:%s\nis_valid:%t\n", SteamNamespace, valid)
+}
+
 func (p *Providers) random() string {
 	p.t.Helper()
 
@@ -375,6 +499,10 @@ type transport struct {
 }
 
 func (t *transport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.URL.Scheme != "https" {
+		return nil, errors.New("every provider is reached over HTTPS")
+	}
+
 	routed := request.Clone(request.Context())
 	routed.URL.Scheme = "http"
 	routed.URL.Host = t.host

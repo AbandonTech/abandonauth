@@ -98,6 +98,60 @@ func TestIdentityResolvesToOneAccountThatCanBeFoundAgain(t *testing.T) {
 	}
 }
 
+// A Steam ID is the whole unsigned 64-bit range. The same ID is the same person
+// whatever name arrives with it, and two IDs are two people.
+func TestSteamIdentityResolvesBySteamID(t *testing.T) {
+	t.Parallel()
+
+	people := accounts.New(testdatabase.NewMigrated(t))
+
+	for _, id := range []string{"1", "76561197960287930", "18446744073709551615"} {
+		t.Run(id, func(t *testing.T) {
+			t.Parallel()
+
+			created, err := people.Resolve(t.Context(), accounts.Identity{
+				Provider: oauth.Steam, ID: id, Username: "steam:" + id,
+			})
+			if err != nil {
+				t.Fatalf("resolving a Steam identity nobody has used: %v", err)
+			}
+
+			again, err := people.Resolve(t.Context(), accounts.Identity{
+				Provider: oauth.Steam, ID: id, Username: "a different display name",
+			})
+			if err != nil {
+				t.Fatalf("resolving the same Steam identity again: %v", err)
+			}
+
+			if again.ID != created.ID {
+				t.Errorf("the same Steam ID resolved to %s and then %s", created.ID, again.ID)
+			}
+
+			if again.Username != "steam:"+id {
+				t.Errorf("username = %q, want the one the account was created with", again.Username)
+			}
+		})
+	}
+
+	first, err := people.Resolve(t.Context(), accounts.Identity{
+		Provider: oauth.Steam, ID: "76561197960287931", Username: "steam:76561197960287931",
+	})
+	if err != nil {
+		t.Fatalf("resolving a Steam identity: %v", err)
+	}
+
+	second, err := people.Resolve(t.Context(), accounts.Identity{
+		Provider: oauth.Steam, ID: "76561197960287932", Username: "steam:76561197960287931",
+	})
+	if err != nil {
+		t.Fatalf("resolving another Steam identity: %v", err)
+	}
+
+	if first.ID == second.ID {
+		t.Error("two Steam IDs sharing a display name resolved to one account")
+	}
+}
+
 // A request cancelled while an account is half created leaves nothing behind:
 // not the account without its provider identity, and not a lock that would
 // stop the same person signing in next time.

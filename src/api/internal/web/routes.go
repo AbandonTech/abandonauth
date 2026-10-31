@@ -21,6 +21,9 @@ const APIRoot = "/api"
 // site's origin.
 const SiteEntryPath = APIRoot + "/ui"
 
+// steamCallbackPath is where Steam returns a browser, below the site's origin.
+const steamCallbackPath = APIRoot + "/ui/steam-callback"
+
 // OpenAPIYAMLPath is where the API's OpenAPI document is served in the YAML it
 // is written in, which the documentation page reads.
 const OpenAPIYAMLPath = APIRoot + "/openapi.yaml"
@@ -52,6 +55,7 @@ const (
 	RouteSiteEntryBare       RouteName = "site-entry-bare"
 	RouteDiscordCallback     RouteName = "discord-callback"
 	RouteGitHubCallback      RouteName = "github-callback"
+	RouteSteamCallback       RouteName = "steam-callback"
 	RouteProviderAuthorize   RouteName = "provider-authorize"
 	RouteLogout              RouteName = "logout"
 	RouteSwaggerUI           RouteName = "swagger-ui"
@@ -134,6 +138,7 @@ var baseRoutes = []Route{
 	{Name: RouteSiteEntry, Method: "GET", Pattern: SiteEntryPath + "/{$}"},
 	{Name: RouteDiscordCallback, Method: "GET", Pattern: APIRoot + "/ui/discord-callback", Documented: true},
 	{Name: RouteGitHubCallback, Method: "GET", Pattern: APIRoot + "/ui/github-callback", Documented: true},
+	{Name: RouteSteamCallback, Method: "GET", Pattern: steamCallbackPath, Documented: true},
 	{Name: RouteProviderAuthorize, Method: "GET", Pattern: APIRoot + "/ui/{provider}/authorize", Documented: true},
 	{Name: RouteLogout, Method: "POST", Pattern: APIRoot + "/ui/logout", Documented: true},
 

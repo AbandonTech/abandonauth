@@ -185,7 +185,7 @@ func TestRotatingAuthorityWithdrawsEverythingOutstanding(t *testing.T) {
 	issued.expectNothingHonoured(t, before)
 }
 
-// Anything else replacing authority-bound state holds the auth epoch's row, so
+// Anything else replacing the epoch holds the auth epoch's row, so
 // a rotation waits for it rather than interleaving; a rotation abandoned while
 // waiting changes nothing, and one waiting when the row is released completes.
 func TestRotatingAuthorityWaitsForAuthorityRowLock(t *testing.T) {

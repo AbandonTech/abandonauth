@@ -38,6 +38,21 @@ func TestPersonDescribedUnusablyByProviderIsNotSignedIn(t *testing.T) {
 		"a GitHub account with no name": {
 			oauth.GitHub, providertest.Identity{ID: "12345", Username: ""},
 		},
+		"a Steam ID of zero": {
+			oauth.Steam, providertest.Identity{ID: "0", Username: "someone"},
+		},
+		"a Steam ID with a leading zero": {
+			oauth.Steam, providertest.Identity{ID: "076561197960287930", Username: "someone"},
+		},
+		"a Steam ID past the unsigned 64-bit range": {
+			oauth.Steam, providertest.Identity{ID: "18446744073709551616", Username: "someone"},
+		},
+		"a Steam ID with a sign": {
+			oauth.Steam, providertest.Identity{ID: "+76561197960287930", Username: "someone"},
+		},
+		"a Steam ID that is not a number": {
+			oauth.Steam, providertest.Identity{ID: "not-a-number", Username: "someone"},
+		},
 	}
 
 	for what, given := range unusable {
@@ -54,6 +69,15 @@ func TestPersonDescribedUnusablyByProviderIsNotSignedIn(t *testing.T) {
 			}
 
 			service.GET("/me").ExpectStatus(http.StatusForbidden)
+
+			var steamAccounts int
+			if err := service.Pool.QueryRow(t.Context(), `SELECT count(*) FROM "SteamAccount"`).Scan(&steamAccounts); err != nil {
+				t.Fatalf("counting Steam accounts: %v", err)
+			}
+
+			if steamAccounts != 0 {
+				t.Error("a Steam account was created")
+			}
 		})
 	}
 }
@@ -64,13 +88,30 @@ func TestPersonDescribedUnusablyByProviderIsNotSignedIn(t *testing.T) {
 func TestArrivingTwiceAtOnceCreatesOneAccount(t *testing.T) {
 	t.Parallel()
 
+	for _, provider := range []oauth.Provider{oauth.Discord, oauth.Steam} {
+		t.Run(string(provider), func(t *testing.T) {
+			t.Parallel()
+
+			expectOneAccountFromTwoArrivals(t, provider)
+		})
+	}
+}
+
+func expectOneAccountFromTwoArrivals(t *testing.T, provider oauth.Provider) {
+	t.Helper()
+
 	service := servertest.New(t)
-	identity := service.Providers.Someone(oauth.Discord, "someone arriving twice at once")
+	identity := service.Providers.Someone(provider, "someone arriving twice at once")
+
+	username := identity.Username
+	if provider == oauth.Steam {
+		username = "steam:" + identity.ID
+	}
 
 	// Both logins are started before either is finished, so the two callbacks
 	// reach the account lookup together.
-	first := service.StartLogin(oauth.Discord, service.Site.ApplicationID, service.Site.CallbackURI)
-	second := service.StartLogin(oauth.Discord, service.Site.ApplicationID, service.Site.CallbackURI)
+	first := service.StartLogin(provider, service.Site.ApplicationID, service.Site.CallbackURI)
+	second := service.StartLogin(provider, service.Site.ApplicationID, service.Site.CallbackURI)
 
 	var wait sync.WaitGroup
 
@@ -90,7 +131,7 @@ func TestArrivingTwiceAtOnceCreatesOneAccount(t *testing.T) {
 	// when the service starts, and that account is not what this is about.
 	var people int64
 	if err := service.Pool.QueryRow(t.Context(),
-		`SELECT count(*) FROM "User" WHERE username = $1`, identity.Username).Scan(&people); err != nil {
+		`SELECT count(*) FROM "User" WHERE username = $1`, username).Scan(&people); err != nil {
 		t.Fatalf("counting the accounts the callbacks left behind: %v", err)
 	}
 
