@@ -252,3 +252,65 @@ func TestEqualComparesWholeValues(t *testing.T) {
 		t.Error("two absent values compared equal, which would accept a missing credential")
 	}
 }
+
+// Only a value with the exact shape this service hands out reaches a digest or
+// a lookup; everything else is refused before either.
+func TestOnlyOpaqueValuesOfIssuedShapeAreRecognised(t *testing.T) {
+	t.Parallel()
+
+	issued, err := credentials.NewOpaqueValue()
+	if err != nil {
+		t.Fatalf("generating a value: %v", err)
+	}
+
+	if !credentials.IsOpaqueValue(issued) {
+		t.Fatal("an issued value is not recognised, so the refusals below prove nothing")
+	}
+
+	// The last of 43 characters carries two bits that must be zero; B sets one.
+	trailingBits := issued[:42] + "B"
+
+	for name, value := range map[string]string{
+		"empty":                  "",
+		"one character":          "A",
+		"42 characters":          issued[:42],
+		"44 characters":          issued + "A",
+		"padded":                 issued[:42] + "=",
+		"non-zero trailing bits": trailingBits,
+		"standard base64":        "+" + issued[1:],
+		"a slash":                "/" + issued[1:],
+		"whitespace":             " " + issued[1:],
+		"a control character":    "\x00" + issued[1:],
+		"unicode":                "é" + issued[2:],
+		"a URL delimiter":        "?" + issued[1:],
+		"SQL text":               "'; DROP TABLE x; --" + issued[19:],
+		"a JWT-looking value":    "eyJ" + issued[3:42] + ".",
+		"a large body":           strings.Repeat(issued, 100),
+	} {
+		if credentials.IsOpaqueValue(value) {
+			t.Errorf("%s was recognised", name)
+		}
+	}
+}
+
+func TestDigestDomainsAreDistinct(t *testing.T) {
+	t.Parallel()
+
+	domains := []credentials.Domain{
+		credentials.DomainAuthorizationState, credentials.DomainBrowserBinding, credentials.DomainExchangeCode,
+		credentials.DomainBrowserSession, credentials.DomainCSRFToken, credentials.DomainIdentityNonce,
+		credentials.DomainAuthorizationPage, credentials.DomainNativeBrowserBinding,
+		credentials.DomainNativeAuthorizationCode, credentials.DomainRefreshToken,
+	}
+
+	seen := make(map[string]credentials.Domain, len(domains))
+
+	for _, domain := range domains {
+		digest := string(credentials.Digest(domain, "one value"))
+		if earlier, repeated := seen[digest]; repeated {
+			t.Errorf("%s and %s digest a value alike", earlier, domain)
+		}
+
+		seen[digest] = domain
+	}
+}

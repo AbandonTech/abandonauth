@@ -143,6 +143,29 @@ func decoderIndependent(value any) any {
 	}
 }
 
+// unservedOperations lists "METHOD /path" for every operation a served document
+// marks with x-abandonauth-served false.
+func unservedOperations(t *testing.T, document map[string]any) []string {
+	t.Helper()
+
+	paths, _ := document["paths"].(map[string]any)
+
+	var unserved []string
+
+	for path, methods := range paths {
+		for method, operation := range methods.(map[string]any) {
+			described, _ := operation.(map[string]any)
+			if served, marked := described["x-abandonauth-served"]; marked && served == false {
+				unserved = append(unserved, fmt.Sprintf("%s %s", strings.ToUpper(method), path))
+			}
+		}
+	}
+
+	slices.Sort(unserved)
+
+	return unserved
+}
+
 // servedOperations lists "METHOD /path" for every operation in a served document,
 // with whether it is labelled development-only.
 func servedOperations(t *testing.T, document map[string]any) map[string]bool {
@@ -184,6 +207,12 @@ func TestServedRepresentationsMatch(t *testing.T) {
 		t.Errorf("the documents describe different operations\nYAML: %v\nJSON: %v", yamlOperations, jsonOperations)
 	}
 
+	if yamlUnserved, jsonUnserved := unservedOperations(t, fromYAML), unservedOperations(t, fromJSON); !slices.Equal(
+		yamlUnserved, jsonUnserved,
+	) {
+		t.Errorf("the documents mark different operations unserved\nYAML: %v\nJSON: %v", yamlUnserved, jsonUnserved)
+	}
+
 	if fromYAML["openapi"] != "3.1.0" {
 		t.Errorf("openapi = %v, want 3.1.0", fromYAML["openapi"])
 	}
@@ -196,14 +225,15 @@ func TestServedRepresentationsMatch(t *testing.T) {
 	}
 }
 
-// Every operation the schema does not label development-only is one this
-// deployment declares, and the two it does label answer 404 here, asked for
-// with no body and no credential.
+// Every operation the schema does not label development-only or mark unserved is
+// one this deployment declares, and each one it does label or mark answers 404
+// here, asked for with no body and no credential.
 func TestServedSchemaDescribesWhatThisBuildServes(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
 	fromYAML, _ := servedSchemas(t, service)
+	unserved := unservedOperations(t, fromYAML)
 
 	var development []string
 
@@ -212,6 +242,12 @@ func TestServedSchemaDescribesWhatThisBuildServes(t *testing.T) {
 
 		if !strings.HasPrefix(path, "/api/") {
 			t.Errorf("the served schema names %q, which is not an address of this API", path)
+		}
+
+		if slices.Contains(unserved, key) {
+			service.AtExactTarget(method, addressable(t, path)).ExpectStatus(http.StatusNotFound)
+
+			continue
 		}
 
 		if labelled {
@@ -252,6 +288,8 @@ func addressable(t *testing.T, path string) string {
 			segments[index] = "discord"
 		case "{application_id}":
 			segments[index] = "00000000-0000-0000-0000-000000000001"
+		case "{request}":
+			segments[index] = strings.Repeat("A", 43)
 		default:
 			t.Fatalf("%s carries %s, which no test knows a value for", path, segment)
 		}

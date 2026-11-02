@@ -72,6 +72,8 @@ func New(t *testing.T, choices ...Option) *Service {
 	chosen := options{settings: placeholderSettings()}
 	chosen.dependencies.CredentialHasher = testHasher{}
 
+	SigningKeyFiles(t).Apply(&chosen.settings)
+
 	for _, choose := range choices {
 		choose(&chosen)
 	}

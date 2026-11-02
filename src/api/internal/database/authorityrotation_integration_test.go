@@ -18,6 +18,7 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/services/authority"
 	"github.com/abandontech/abandonauth/src/api/internal/services/keyring"
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
+	"github.com/abandontech/abandonauth/src/api/internal/services/oidc"
 	"github.com/abandontech/abandonauth/src/api/internal/services/sessions"
 )
 
@@ -70,7 +71,7 @@ func issueOutstanding(t *testing.T, pool *pgxpool.Pool) outstanding {
 		t.Fatalf("registering an account: %v", err)
 	}
 
-	application, _, err := applications.New(pool, nil).Create(ctx, person.ID, "an application")
+	application, _, err := applications.New(pool, nil).Create(ctx, person.ID, "an application", applications.Confidential)
 	if err != nil {
 		t.Fatalf("registering an application: %v", err)
 	}
@@ -255,6 +256,76 @@ func TestRotatingAuthorityWaitsForAuthorityRowLock(t *testing.T) {
 	issued.expectNothingHonoured(t, before)
 }
 
+// A rotation is one transaction: one that fails at any step, after others have
+// already deleted their rows, changes nothing, and everything it would have
+// withdrawn is still honoured.
+func TestRotationFailingPartwayChangesNothing(t *testing.T) {
+	t.Parallel()
+
+	for _, table := range []string{
+		"oauth_authorization_state", "oauth_exchange_code", "browser_session", "jwt_revocation",
+		"oauth_native_authorization", "oauth_refresh_family", "oauth_access_token_revocation",
+	} {
+		t.Run(table, func(t *testing.T) {
+			t.Parallel()
+
+			pool := testdatabase.NewMigrated(t)
+			issued := issueOutstanding(t, pool)
+			before := issued.current(t)
+
+			testdatabase.Execute(t, pool, `ALTER TABLE `+table+` RENAME TO unreachable`)
+
+			if rotation, err := database.RotateAuthority(t.Context(), pool); err == nil {
+				t.Fatalf("a rotation unable to withdraw %s reported success: %+v", table, rotation)
+			}
+
+			testdatabase.Execute(t, pool, `ALTER TABLE unreachable RENAME TO `+table)
+
+			issued.expectEverythingHonoured(t, before)
+		})
+	}
+}
+
+// A rotation that cannot reach the database reports it and claims nothing.
+func TestRotationReportsUnreachableDatabase(t *testing.T) {
+	t.Parallel()
+
+	pool := testdatabase.NewMigrated(t)
+	pool.Close()
+
+	if rotation, err := database.RotateAuthority(t.Context(), pool); err == nil {
+		t.Fatalf("a rotation without a database reported success: %+v", rotation)
+	}
+}
+
+// expectEverythingHonoured states that nothing was withdrawn: the authority is
+// the one every credential was stamped with, and each credential still works.
+func (o outstanding) expectEverythingHonoured(t *testing.T, before uuid.UUID) {
+	t.Helper()
+
+	ctx := t.Context()
+
+	if o.current(t) != before {
+		t.Error("the authority changed")
+	}
+
+	if _, err := o.sessions.Lookup(ctx, o.session); err != nil {
+		t.Errorf("a browser session was ended: %v", err)
+	}
+
+	if withdrawn, err := o.register.IsWithdrawn(ctx, o.withdrawn); err != nil || !withdrawn {
+		t.Errorf("a withdrawal was cleared: %v", err)
+	}
+
+	if _, err := o.codes.Redeem(ctx, o.code, o.application); err != nil {
+		t.Errorf("a one-time code was withdrawn: %v", err)
+	}
+
+	if _, err := o.logins.Consume(ctx, oauth.Discord, o.login.State, o.login.BrowserBinding); err != nil {
+		t.Errorf("a login in progress was abandoned: %v", err)
+	}
+}
+
 type rotationResult struct {
 	rotation database.AuthorityRotation
 	err      error
@@ -281,5 +352,92 @@ func awaitRotation(t *testing.T, finished <-chan rotationResult) rotationResult 
 		t.Fatal("the rotation never reported")
 
 		return rotationResult{}
+	}
+}
+
+// Rotation withdraws every public client's authorization at each of its
+// stages, every code, offline session and revocation, and keeps the pairwise
+// subjects, which name a person to an application rather than an authority.
+func TestRotatingAuthorityWithdrawsNativeAuthorityAndKeepsSubjects(t *testing.T) {
+	t.Parallel()
+
+	pool := testdatabase.NewMigrated(t)
+	services := newNativeServices(t, pool)
+	ctx := t.Context()
+
+	offline := services.signIn(t, oidc.ScopeOpenID|oidc.ScopeOfflineAccess, services.person)
+	subject := services.subjectOf(t, offline)
+
+	if err := services.subjects.RevokeAccessToken(ctx, oauth.AccessRevocation{
+		ClientID: services.client.ID, Subject: subject, TokenID: uuid.New(), ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("revoking an access token: %v", err)
+	}
+
+	atPage := services.begin(t, oidc.ScopeOpenID, "")
+
+	atProvider := services.begin(t, oidc.ScopeOpenID, "")
+
+	started, err := services.requests.BeginProvider(ctx, atProvider.PageHandle, atProvider.BrowserBinding, oauth.Discord)
+	if err != nil {
+		t.Fatalf("choosing a provider: %v", err)
+	}
+
+	atCode := services.begin(t, oidc.ScopeOpenID, "")
+	code := services.authorize(t, atCode, services.person)
+
+	rotation, err := database.RotateAuthority(ctx, pool)
+	if err != nil {
+		t.Fatalf("rotating the authority: %v", err)
+	}
+
+	want := database.AuthorityRotation{
+		AbandonedLogins:               1,
+		AbandonedNativeAuthorizations: 3,
+		RevokedRefreshFamilies:        1,
+		ClearedAccessTokenRevocations: 1,
+	}
+
+	if rotation != want {
+		t.Errorf("the rotation reported %+v, want %+v", rotation, want)
+	}
+
+	if _, err := services.requests.View(ctx, atPage.PageHandle, atPage.BrowserBinding); !errors.Is(
+		err, oauth.ErrNoSuchAuthorization,
+	) {
+		t.Errorf("an authorization page outlived the rotation: %v", err)
+	}
+
+	if _, err := services.requests.ConsumeProvider(ctx, oauth.Discord, started.State, atProvider.BrowserBinding); !errors.Is(
+		err, oauth.ErrNoSuchLogin,
+	) {
+		t.Errorf("a provider sign-in outlived the rotation: %v", err)
+	}
+
+	if _, err := services.codes.Redeem(ctx, oauth.Redemption{
+		ClientID: services.client.ID, Code: code, RedirectURI: nativeRedirect, Verifier: atCode.verifier,
+	}, services.sign); !errors.Is(err, oauth.ErrInvalidGrant) {
+		t.Errorf("a code outlived the rotation: %v", err)
+	}
+
+	if _, err := services.refresh.Rotate(ctx, oauth.Refresh{
+		ClientID: services.client.ID, Token: offline.RefreshToken,
+	}, services.sign); !errors.Is(err, oauth.ErrInvalidGrant) {
+		t.Errorf("an offline session outlived the rotation: %v", err)
+	}
+
+	claims, err := services.verifier.Verify(offline.AccessToken)
+	if err != nil {
+		t.Fatalf("the access token's signature is refused: %v", err)
+	}
+
+	if _, err := services.subjects.Holder(
+		ctx, services.client.ID, subject, claims.Identifier(), uuid.MustParse(claims.AuthEpoch),
+	); !errors.Is(err, oauth.ErrAccessNotGranted) {
+		t.Errorf("an access token of the replaced authority was honoured: %v", err)
+	}
+
+	if services.subjectOf(t, services.signIn(t, oidc.ScopeOpenID, services.person)) != subject {
+		t.Error("the rotation changed a pairwise subject")
 	}
 }

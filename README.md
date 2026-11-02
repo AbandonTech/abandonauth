@@ -83,6 +83,7 @@ setting that is missing or unusable stops the process with a message naming it.
 | `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `ABANDON_AUTH_DISCORD_CALLBACK` | | yes | see [Discord](./docs/DISCORD-OAUTH2.md) |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `ABANDON_AUTH_GITHUB_CALLBACK` | | yes | see [GitHub](./docs/GITHUB-OAUTH2.md) |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK` | | yes | see [Google](./docs/GOOGLE-OAUTH2.md) |
+| `OIDC_ID_SIGNING_KEY_FILE`, `OAUTH_ACCESS_SIGNING_KEY_FILE` | | yes | host paths of the two RSA private key PEM files `compose.yml` mounts into the API. **See below** |
 
 Each `_CLIENT_SECRET` is environment only, alongside `DATABASE_URL` and
 `JWT_SECRET`. All three provider registrations are required. Steam sign-in
@@ -105,6 +106,40 @@ abandonauth database rotate-auth-epoch
 That withdraws every access token, login in progress, one-time code and browser
 session: every browser must sign in again, and every login in progress must
 start over.
+
+## Signing keys
+
+ID tokens and access tokens are signed with two separate RSA keys, one PEM
+file each, made with OpenSSL the same way for local development and for a
+deployment. For local development, run this from the repository root:
+
+```shell
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out oidc-id-signing-key.pem
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out oauth-access-signing-key.pem
+```
+
+That writes the two files `.env.sample` already names in
+`OIDC_ID_SIGNING_KEY_FILE` and `OAUTH_ACCESS_SIGNING_KEY_FILE`. Git ignores
+`*.pem`, and no image build context includes the repository root, so neither
+file is committed or copied into an image. Each file holds exactly one PKCS #8
+private key of at least 2048 bits, which is what that command writes, and the
+two must differ. The API publishes each key's public half under its RFC 7638
+thumbprint, so there is no key identifier to configure.
+
+A deployment runs the same commands elsewhere and sets both variables to the
+files' absolute paths. It keeps the files outside its backups, owned
+`root:65532` with mode 0440 in a directory only root can open; 65532 is the
+account the image runs as. Check them before rolling out:
+
+```shell
+abandonauth validate-config
+```
+
+Compose reads a secret file only when it creates a container, so recreate the
+API container after replacing a key. Replacing a key is how it is rotated:
+until clients fetch the published keys again, up to five minutes later, they
+reject tokens the new key signs, and tokens the old key signed stop being
+accepted at once.
 
 ## Request limits
 

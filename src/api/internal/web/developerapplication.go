@@ -91,7 +91,7 @@ func (s *Server) createApplication() http.Handler {
 			return
 		}
 
-		created, token, err := s.applications.Create(request.Context(), caller.UserID, name)
+		created, token, err := s.applications.Create(request.Context(), caller.UserID, name, applications.Confidential)
 		if err != nil {
 			s.refuseUnavailable(writer, request, err)
 
@@ -285,7 +285,7 @@ func (s *Server) replaceCallbackURIs() http.Handler {
 			return
 		}
 
-		err := s.applications.ReplaceCallbackURIs(request.Context(), application.ID, uris)
+		err := s.applications.ReplaceCallbackURIs(request.Context(), application, uris)
 
 		var unsafe applications.UnsafeCallbackError
 		if errors.As(err, &unsafe) {

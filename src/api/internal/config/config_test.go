@@ -4,11 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/abandontech/abandonauth/src/api/internal/config"
+	"github.com/abandontech/abandonauth/src/api/internal/services/oidc"
+	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
 )
 
 const (
@@ -17,10 +21,13 @@ const (
 	placeholderApplicationID = "00000000-0000-0000-0000-000000000001"
 )
 
-// productionSettings returns a complete, valid set of production settings.
-// Individual tests change one field to show which rule rejects it.
-func productionSettings() config.Settings {
-	return config.Settings{
+// productionSettings returns a complete, valid set of production settings,
+// naming signing key files written for this test. Individual tests change one
+// field to show which rule rejects it.
+func productionSettings(t testing.TB) config.Settings {
+	t.Helper()
+
+	settings := config.Settings{
 		DatabaseURL:           "postgresql://abandonauth:placeholder@database:5432/abandonauth",
 		SigningSecret:         placeholderSigningSecret,
 		SigningAlgorithm:      "HS512",
@@ -28,21 +35,27 @@ func productionSettings() config.Settings {
 		BrowserSessionSeconds: config.DefaultBrowserSessionSeconds,
 		InternalApplicationID: placeholderApplicationID,
 		SiteURL:               "https://auth.example.test",
-		APIURL:                "https://api.example.test",
+		APIURL:                "https://auth.example.test:8443",
 		DiscordClientID:       "1002632179794329630",
 		DiscordClientSecret:   "placeholder-discord-secret",
-		DiscordCallback:       "https://api.example.test/api/ui/discord-callback",
+		DiscordCallback:       "https://auth.example.test/api/ui/discord-callback",
 		GitHubClientID:        "e2e4eac6e97af84d9f69",
 		GitHubClientSecret:    "placeholder-github-secret",
-		GitHubCallback:        "https://api.example.test/api/ui/github-callback",
+		GitHubCallback:        "https://auth.example.test/api/ui/github-callback",
 		GoogleClientID:        "placeholder.apps.googleusercontent.com",
 		GoogleClientSecret:    "placeholder-google-secret",
-		GoogleCallback:        "https://api.example.test/api/google",
+		GoogleCallback:        "https://auth.example.test/api/google",
 	}
+
+	servertest.SigningKeyFiles(t).Apply(&settings)
+
+	return settings
 }
 
-func developmentSettings() config.Settings {
-	settings := productionSettings()
+func developmentSettings(t testing.TB) config.Settings {
+	t.Helper()
+
+	settings := productionSettings(t)
 	settings.DevelopmentBuild = true
 	settings.Debug = true
 	settings.SiteURL = "http://localhost:3000"
@@ -57,7 +70,7 @@ func developmentSettings() config.Settings {
 func TestLoadAcceptsProductionSettings(t *testing.T) {
 	t.Parallel()
 
-	loaded, err := config.Load(productionSettings())
+	loaded, err := config.Load(productionSettings(t))
 	if err != nil {
 		t.Fatalf("Load() = %v, want no error", err)
 	}
@@ -70,8 +83,16 @@ func TestLoadAcceptsProductionSettings(t *testing.T) {
 		t.Errorf("Site = %q", loaded.Site)
 	}
 
-	if loaded.API.String() != "https://api.example.test" {
+	if loaded.API.String() != "https://auth.example.test:8443" {
 		t.Errorf("API = %q", loaded.API)
+	}
+
+	if loaded.OpenIDIssuer != "https://auth.example.test:8443/api" {
+		t.Errorf("OpenIDIssuer = %q", loaded.OpenIDIssuer)
+	}
+
+	if loaded.SiteAddress != "https://auth.example.test" {
+		t.Errorf("SiteAddress = %q", loaded.SiteAddress)
 	}
 
 	if loaded.InternalApplicationID.String() != placeholderApplicationID {
@@ -234,7 +255,7 @@ func TestLoadRejects(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			settings := productionSettings()
+			settings := productionSettings(t)
 			testCase.change(&settings)
 
 			_, err := config.Load(settings)
@@ -254,7 +275,7 @@ func TestLoadRejects(t *testing.T) {
 func TestLoadDevelopmentBuild(t *testing.T) {
 	t.Parallel()
 
-	loaded, err := config.Load(developmentSettings())
+	loaded, err := config.Load(developmentSettings(t))
 	if err != nil {
 		t.Fatalf("Load() = %v, want no error", err)
 	}
@@ -267,7 +288,7 @@ func TestLoadDevelopmentBuild(t *testing.T) {
 		t.Error("RequireSecureCookies() = true for a loopback site, cookies would never be sent")
 	}
 
-	remoteSite := developmentSettings()
+	remoteSite := developmentSettings(t)
 	remoteSite.SiteURL = "http://auth.example.test"
 
 	if _, err := config.Load(remoteSite); err == nil {
@@ -280,7 +301,7 @@ func TestLoadDevelopmentBuild(t *testing.T) {
 func TestDevelopmentBuildWithoutDebugIsStrict(t *testing.T) {
 	t.Parallel()
 
-	settings := developmentSettings()
+	settings := developmentSettings(t)
 	settings.Debug = false
 
 	if _, err := config.Load(settings); err == nil {
@@ -309,7 +330,7 @@ func TestPasswordSignInRequiresLoopbackBind(t *testing.T) {
 		t.Run(testCase.bind, func(t *testing.T) {
 			t.Parallel()
 
-			settings := developmentSettings()
+			settings := developmentSettings(t)
 			settings.BindAddress = testCase.bind
 
 			loaded, err := config.Load(settings)
@@ -327,14 +348,14 @@ func TestPasswordSignInRequiresLoopbackBind(t *testing.T) {
 func TestPasswordSignInNeedsDebugAndDevelopmentBuild(t *testing.T) {
 	t.Parallel()
 
-	settings := developmentSettings()
+	settings := developmentSettings(t)
 	settings.BindAddress = "127.0.0.1:8000"
 	settings.Debug = false
 	settings.SiteURL = "https://auth.example.test"
-	settings.APIURL = "https://api.example.test"
-	settings.DiscordCallback = "https://api.example.test/ui/discord-callback"
-	settings.GitHubCallback = "https://api.example.test/ui/github-callback"
-	settings.GoogleCallback = "https://api.example.test/google"
+	settings.APIURL = "https://auth.example.test:8443"
+	settings.DiscordCallback = "https://auth.example.test/ui/discord-callback"
+	settings.GitHubCallback = "https://auth.example.test/ui/github-callback"
+	settings.GoogleCallback = "https://auth.example.test/google"
 
 	loaded, err := config.Load(settings)
 	if err != nil {
@@ -455,7 +476,7 @@ func TestParseSiteOrigin(t *testing.T) {
 func TestSecretsAreNotPrintable(t *testing.T) {
 	t.Parallel()
 
-	loaded, err := config.Load(productionSettings())
+	loaded, err := config.Load(productionSettings(t))
 	if err != nil {
 		t.Fatalf("Load() = %v", err)
 	}
@@ -507,5 +528,186 @@ func TestZeroSecretRevealsNothing(t *testing.T) {
 
 	if empty.String() == "" {
 		t.Error("zero Secret should still render a redaction marker")
+	}
+}
+
+// The OpenID issuer and the site's pages are addressed from each origin exactly
+// as the deployment spells it, less one trailing slash.
+func TestOpenIDIssuerKeepsConfiguredSpelling(t *testing.T) {
+	t.Parallel()
+
+	settings := productionSettings(t)
+	settings.APIURL = "https://Auth.Example.test:8443/"
+	settings.SiteURL = "https://AUTH.example.test/"
+
+	loaded, err := config.Load(settings)
+	if err != nil {
+		t.Fatalf("Load() = %v", err)
+	}
+
+	if loaded.OpenIDIssuer != "https://Auth.Example.test:8443/api" {
+		t.Errorf("OpenIDIssuer = %q, want the configured spelling followed by /api", loaded.OpenIDIssuer)
+	}
+
+	if loaded.SiteAddress != "https://AUTH.example.test" {
+		t.Errorf("SiteAddress = %q, want the configured spelling", loaded.SiteAddress)
+	}
+}
+
+// The browser binding a public client's authorization is set on the API's host
+// and read again from the site's, so the two must share a host name; only the
+// port may differ.
+func TestAPIAndSiteMustShareHostName(t *testing.T) {
+	t.Parallel()
+
+	for _, accepted := range []string{"https://auth.example.test", "https://auth.example.test:9443", "https://AUTH.example.test"} {
+		settings := productionSettings(t)
+		settings.APIURL = accepted
+
+		if _, err := config.Load(settings); err != nil {
+			t.Errorf("Load() refused API origin %q: %v", accepted, err)
+		}
+	}
+
+	for _, refused := range []string{"https://api.auth.example.test", "https://example.test", "https://auth.example.test.evil.test"} {
+		settings := productionSettings(t)
+		settings.APIURL = refused
+
+		_, err := config.Load(settings)
+		if err == nil {
+			t.Errorf("Load() accepted API origin %q on another host", refused)
+
+			continue
+		}
+
+		if !strings.Contains(err.Error(), "ABANDON_AUTH_URL") || strings.Contains(err.Error(), refused) {
+			t.Errorf("the refusal does not name the setting, or repeats the value: %v", err)
+		}
+	}
+}
+
+// Cookies lose Secure and the __Host- prefix only for a development build in
+// debug mode with the site on plain HTTP loopback. A deployment build keeps
+// them on a loopback HTTPS origin too.
+func TestSecureCookiesAreDroppedOnlyForDevelopmentHTTPLoopback(t *testing.T) {
+	t.Parallel()
+
+	for _, scenario := range []struct {
+		name        string
+		development bool
+		debug       bool
+		site, api   string
+		secure      bool
+	}{
+		{"deployment on a public origin", false, false, "https://auth.example.test", "https://auth.example.test:8443", true},
+		{"deployment on loopback HTTPS", false, false, "https://localhost:3000", "https://localhost:8000", true},
+		{"development without debug on loopback HTTPS", true, false, "https://127.0.0.1:3000", "https://127.0.0.1:8000", true},
+		{"development in debug on loopback HTTPS", true, true, "https://localhost:3000", "https://localhost:8000", true},
+		{"development in debug on loopback HTTP", true, true, "http://localhost:3000", "http://localhost:8000", false},
+	} {
+		settings := productionSettings(t)
+		settings.DevelopmentBuild = scenario.development
+		settings.Debug = scenario.debug
+		settings.SiteURL = scenario.site
+		settings.APIURL = scenario.api
+
+		loaded, err := config.Load(settings)
+		if err != nil {
+			t.Errorf("%s: Load() = %v", scenario.name, err)
+
+			continue
+		}
+
+		if loaded.RequireSecureCookies() != scenario.secure {
+			t.Errorf("%s: RequireSecureCookies() = %v, want %v", scenario.name, !scenario.secure, scenario.secure)
+		}
+	}
+}
+
+// A key file is read through a bound, every refusal names the file to correct,
+// and none repeats a file's contents or a key.
+func TestSigningKeyFilesAreBoundedAndNeverEchoed(t *testing.T) {
+	t.Parallel()
+
+	const sentinel = "AbandonAuthKeyFileSentinel4Hw8Qn"
+
+	valid := productionSettings(t)
+
+	original, err := os.ReadFile(valid.IDTokenSigningKeysFile)
+	if err != nil {
+		t.Fatalf("reading the test key file: %v", err)
+	}
+
+	padded := func(size int) []byte {
+		return append(append([]byte{}, original...), []byte(strings.Repeat(" ", size-len(original)))...)
+	}
+
+	write := func(contents []byte) string {
+		path := filepath.Join(t.TempDir(), "key.pem")
+		if err := os.WriteFile(path, contents, 0o600); err != nil {
+			t.Fatalf("writing a key file: %v", err)
+		}
+
+		return path
+	}
+
+	atLimit := valid
+	atLimit.IDTokenSigningKeysFile = write(padded(oidc.MaxKeyFileBytes))
+
+	if _, err := config.Load(atLimit); err != nil {
+		t.Errorf("Load() refused a key file of exactly %d bytes: %v", oidc.MaxKeyFileBytes, err)
+	}
+
+	for name, change := range map[string]func(*config.Settings){
+		"a file one byte over the limit": func(s *config.Settings) {
+			s.IDTokenSigningKeysFile = write(append(padded(oidc.MaxKeyFileBytes), []byte(sentinel)...))
+		},
+		"a missing file":     func(s *config.Settings) { s.AccessTokenSigningKeysFile = filepath.Join(t.TempDir(), "absent") },
+		"a directory":        func(s *config.Settings) { s.IDTokenSigningKeysFile = t.TempDir() },
+		"malformed contents": func(s *config.Settings) { s.IDTokenSigningKeysFile = write([]byte(`{"keys":[` + sentinel)) },
+		"one key for both purposes": func(s *config.Settings) {
+			s.AccessTokenSigningKeysFile = s.IDTokenSigningKeysFile
+		},
+	} {
+		settings := valid
+		change(&settings)
+
+		_, err := config.Load(settings)
+		if err == nil {
+			t.Errorf("Load() accepted %s", name)
+
+			continue
+		}
+
+		if !strings.Contains(err.Error(), settings.IDTokenSigningKeysFile) &&
+			!strings.Contains(err.Error(), settings.AccessTokenSigningKeysFile) {
+			t.Errorf("%s: the refusal names no key file: %v", name, err)
+		}
+
+		if strings.Contains(err.Error(), sentinel) || strings.Contains(err.Error(), `"keys"`) {
+			t.Errorf("%s: the refusal repeats what it refused: %v", name, err)
+		}
+	}
+}
+
+// A configuration printed in any form names no private key value.
+func TestLoadedSigningKeysAreNotPrintable(t *testing.T) {
+	t.Parallel()
+
+	loaded, err := config.Load(productionSettings(t))
+	if err != nil {
+		t.Fatalf("Load() = %v", err)
+	}
+
+	material := servertest.SigningKeyFiles(t)
+	private := material.IDTokenPrivate.D.String()[:24]
+
+	for _, rendered := range []string{
+		fmt.Sprintf("%v", loaded), fmt.Sprintf("%+v", loaded), fmt.Sprintf("%#v", loaded),
+		fmt.Sprintf("%v", loaded.SigningKeys.IDToken()), fmt.Sprintf("%#v", loaded.SigningKeys.AccessToken()),
+	} {
+		if strings.Contains(rendered, private) {
+			t.Error("a rendered configuration carries private key material")
+		}
 	}
 }

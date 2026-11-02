@@ -8,15 +8,18 @@ package config
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/abandontech/abandonauth/src/api/internal/services/oidc"
 	"github.com/abandontech/abandonauth/src/api/internal/urlpolicy"
 )
 
@@ -43,6 +46,10 @@ const (
 	settingDebug                 = "DEBUG"
 	settingBindAddress           = "BIND_ADDRESS"
 )
+
+// OpenIDIssuerPath is what the API's origin is followed by to make the OpenID
+// issuer identifier, which every public client pins.
+const OpenIDIssuerPath = "/api"
 
 // Limits the service places on configured lifetimes, and the lifetimes a
 // deployment that sets none gets.
@@ -110,6 +117,11 @@ type Settings struct {
 	GoogleClientID     string
 	GoogleClientSecret string
 	GoogleCallback     string
+
+	// The PEM files holding the two purposes' private keys. The paths are not
+	// secret; the files are.
+	IDTokenSigningKeysFile     string
+	AccessTokenSigningKeysFile string
 }
 
 // Provider is the registration AbandonAuth holds with one OAuth provider.
@@ -146,6 +158,19 @@ type Config struct {
 
 	Site urlpolicy.Origin
 	API  urlpolicy.Origin
+
+	// SiteAddress is the site's origin as the deployment spells it, without a
+	// trailing slash, which the site's own pages are addressed below.
+	SiteAddress string
+
+	// OpenIDIssuer is the API's origin as the deployment spells it, without a
+	// trailing slash, followed by OpenIDIssuerPath. Public clients compare it
+	// byte for byte.
+	OpenIDIssuer string
+
+	// SigningKeys are the RS256 key rings ID tokens and access tokens are
+	// signed with, read once at start-up.
+	SigningKeys oidc.SigningKeys
 
 	Discord Provider
 	GitHub  Provider
@@ -211,6 +236,20 @@ func Load(settings Settings) (Config, error) {
 		return Config{}, err
 	}
 
+	// The browser binding a public client's authorization is set by the API
+	// and read again when the site's page submits it, so both must be served
+	// under one host name.
+	if loaded.API.Hostname() != loaded.Site.Hostname() {
+		return Config{}, settingError(settingAPIURL, "must have the same host name as "+settingSiteURL)
+	}
+
+	loaded.SiteAddress = strings.TrimSuffix(settings.SiteURL, "/")
+	loaded.OpenIDIssuer = strings.TrimSuffix(settings.APIURL, "/") + OpenIDIssuerPath
+
+	if loaded.SigningKeys, err = signingKeys(settings); err != nil {
+		return Config{}, err
+	}
+
 	if loaded.Discord, err = provider(
 		settingDiscordClientID, settings.DiscordClientID,
 		settingDiscordClientSecret, settings.DiscordClientSecret,
@@ -239,10 +278,11 @@ func Load(settings Settings) (Config, error) {
 }
 
 // RequireSecureCookies reports whether cookies must carry the Secure attribute
-// and the __Host- prefix. Loopback development runs without TLS, where such a
-// cookie would never be sent back.
+// and the __Host- prefix. Only a development build in debug mode with the site
+// on plain HTTP loopback, where such a cookie would never be sent back, does
+// without; a deployment build always sets them, on a loopback HTTPS origin too.
 func (c Config) RequireSecureCookies() bool {
-	return !c.Site.IsLoopback()
+	return !(c.developmentBuild && c.Debug && c.Site.Scheme() == "http" && c.Site.IsLoopback())
 }
 
 // PasswordSignInEnabled reports whether the password routes may serve requests.
@@ -408,4 +448,56 @@ func provider(
 	}
 
 	return Provider{ClientID: id, ClientSecret: NewSecret(secret), Callback: parsed}, nil
+}
+
+// signingKeys reads both purposes' key files. Every refusal names the file to
+// correct and never a key.
+func signingKeys(settings Settings) (oidc.SigningKeys, error) {
+	idTokenFile, err := readKeyFile(settings.IDTokenSigningKeysFile)
+	if err != nil {
+		return oidc.SigningKeys{}, err
+	}
+
+	accessTokenFile, err := readKeyFile(settings.AccessTokenSigningKeysFile)
+	if err != nil {
+		return oidc.SigningKeys{}, err
+	}
+
+	keys, err := oidc.ParseSigningKeys(idTokenFile, accessTokenFile)
+	clear(idTokenFile)
+	clear(accessTokenFile)
+
+	if err != nil {
+		return oidc.SigningKeys{}, fmt.Errorf(
+			"%s, %s: %w", settings.IDTokenSigningKeysFile, settings.AccessTokenSigningKeysFile, err,
+		)
+	}
+
+	return keys, nil
+}
+
+// readKeyFile reads one key file through a reader that stops one byte past the
+// largest accepted, so an oversized file is refused without being read whole.
+// The operating system's error is not repeated: it names nothing an operator
+// needs beyond the path.
+func readKeyFile(path string) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("%s: cannot be opened", path)
+	}
+
+	defer func() { _ = file.Close() }()
+
+	contents, err := io.ReadAll(io.LimitReader(file, oidc.MaxKeyFileBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("%s: cannot be read", path)
+	}
+
+	if len(contents) > oidc.MaxKeyFileBytes {
+		clear(contents)
+
+		return nil, fmt.Errorf("%s: is larger than %d bytes", path, oidc.MaxKeyFileBytes)
+	}
+
+	return contents, nil
 }

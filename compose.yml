@@ -40,6 +40,9 @@ services:
     build: *api-build
     env_file:
       - ".env"
+    secrets:
+      - abandonauth_oidc_id_signing_keys
+      - abandonauth_oauth_access_signing_keys
     ports:
       - "${API_PORT:-8000}:8000"
     networks:
@@ -87,6 +90,14 @@ services:
 networks:
   db_access:
     internal: true
+
+# Captured when a container is created: a changed file reaches the API only
+# once its container is recreated.
+secrets:
+  abandonauth_oidc_id_signing_keys:
+    file: ${OIDC_ID_SIGNING_KEY_FILE}
+  abandonauth_oauth_access_signing_keys:
+    file: ${OAUTH_ACCESS_SIGNING_KEY_FILE}
 
 volumes:
   postgres_data:

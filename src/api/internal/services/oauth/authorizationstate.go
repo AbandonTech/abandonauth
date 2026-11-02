@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/abandontech/abandonauth/src/api/internal/database/query"
 	"github.com/abandontech/abandonauth/src/api/internal/services/credentials"
@@ -103,9 +104,15 @@ type Login struct {
 	Provider      Provider
 	ApplicationID uuid.UUID
 
-	// CallbackURI is exactly the string the application registered, which is
-	// where the person is returned and nowhere else.
+	// CallbackURI is exactly the string a confidential application registered,
+	// which is where the person is returned and nowhere else. It is empty when
+	// the login continues a public client's authorization.
 	CallbackURI string
+
+	// Native is the public client's authorization the login continues, or nil
+	// for a confidential application's login. A caller branches on this and
+	// nothing else.
+	Native *NativeContinuation
 
 	// Verifier is the PKCE verifier, decrypted, to be sent to the provider with
 	// the authorization code. It is empty for Steam.
@@ -113,6 +120,15 @@ type Login struct {
 
 	// NonceDigest is what the identity token's nonce must digest to.
 	NonceDigest []byte
+}
+
+// NativeContinuation is the public client's authorization a provider sign-in
+// continues: where it ends and the state its client is returned with, both as
+// stored when the authorization began.
+type NativeContinuation struct {
+	AuthorizationID uuid.UUID
+	RedirectURI     string
+	ClientState     string
 }
 
 // Store records and consumes logins in progress.
@@ -182,7 +198,7 @@ func (s *Store) Begin(
 		BrowserBindingHash:     credentials.Digest(credentials.DomainBrowserBinding, binding),
 		Provider:               string(provider),
 		ApplicationID:          applicationID,
-		CallbackUri:            callbackURI,
+		CallbackUri:            pgtype.Text{String: callbackURI, Valid: true},
 		PkceVerifierNonce:      sealNonce,
 		PkceVerifierCiphertext: sealed,
 		GoogleNonceHash:        nonceDigest,
@@ -255,9 +271,104 @@ func (s *Store) Consume(ctx context.Context, provider Provider, state, browserBi
 	return Login{
 		Provider:      provider,
 		ApplicationID: consumed.ApplicationID,
-		CallbackURI:   consumed.CallbackUri,
+		CallbackURI:   consumed.CallbackUri.String,
 		Verifier:      verifier,
 		NonceDigest:   consumed.GoogleNonceHash,
+	}, nil
+}
+
+// beginNative records a provider sign-in continuing a public client's
+// authorization, inside the transaction that spent the authorization's page.
+//
+// The browser binding is the one the authorization was begun with, so the
+// callback is bound to the same browser, and the state is never a value the
+// client chose.
+func (s *Store) beginNative(
+	ctx context.Context, queries *query.Queries, provider Provider, authorizationID uuid.UUID, binding string,
+) (Start, error) {
+	state, err := credentials.NewOpaqueValue()
+	if err != nil {
+		return Start{}, err
+	}
+
+	verifier, sealed, sealNonce, err := s.proofKeyFor(provider)
+	if err != nil {
+		return Start{}, err
+	}
+
+	nonce, nonceDigest, err := nonceFor(provider)
+	if err != nil {
+		return Start{}, err
+	}
+
+	recorded, err := queries.CreateNativeAuthorizationState(ctx, query.CreateNativeAuthorizationStateParams{
+		StateHash:              credentials.Digest(credentials.DomainAuthorizationState, state),
+		BrowserBindingHash:     credentials.Digest(credentials.DomainNativeBrowserBinding, binding),
+		Provider:               string(provider),
+		PkceVerifierNonce:      sealNonce,
+		PkceVerifierCiphertext: sealed,
+		GoogleNonceHash:        nonceDigest,
+		LifetimeSeconds:        StateLifetime.Seconds(),
+		AuthorizationID:        authorizationID,
+	})
+	if err != nil {
+		return Start{}, fmt.Errorf("recording a provider sign-in for an authorization: %w", err)
+	}
+
+	if recorded != 1 {
+		return Start{}, ErrNoSuchAuthorization
+	}
+
+	started := Start{State: state, BrowserBinding: binding, Nonce: nonce}
+	if verifier != "" {
+		started.Challenge = challengeFor(verifier)
+	}
+
+	return started, nil
+}
+
+// consumeNative spends a provider sign-in that continues a public client's
+// authorization, which must still be waiting for it under the current
+// authority. It is a single statement, so it succeeds at most once.
+func (s *Store) consumeNative(
+	ctx context.Context, provider Provider, state, browserBinding string,
+) (Login, error) {
+	if !credentials.IsOpaqueValue(state) || !credentials.IsOpaqueValue(browserBinding) {
+		return Login{}, ErrNoSuchLogin
+	}
+
+	consumed, err := s.queries.ConsumeNativeAuthorizationState(ctx, query.ConsumeNativeAuthorizationStateParams{
+		StateHash:          credentials.Digest(credentials.DomainAuthorizationState, state),
+		BrowserBindingHash: credentials.Digest(credentials.DomainNativeBrowserBinding, browserBinding),
+		Provider:           string(provider),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Login{}, ErrNoSuchLogin
+	}
+
+	if err != nil {
+		return Login{}, fmt.Errorf("consuming a provider sign-in for an authorization: %w", err)
+	}
+
+	var verifier string
+
+	if provider.usesProofKey() {
+		verifier, err = s.open(consumed.PkceVerifierNonce, consumed.PkceVerifierCiphertext)
+		if err != nil {
+			return Login{}, err
+		}
+	}
+
+	return Login{
+		Provider:      provider,
+		ApplicationID: consumed.ApplicationID,
+		Native: &NativeContinuation{
+			AuthorizationID: consumed.AuthorizationID,
+			RedirectURI:     consumed.RedirectUri,
+			ClientState:     consumed.ClientState,
+		},
+		Verifier:    verifier,
+		NonceDigest: consumed.GoogleNonceHash,
 	}, nil
 }
 

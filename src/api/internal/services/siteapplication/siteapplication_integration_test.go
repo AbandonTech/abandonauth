@@ -102,6 +102,11 @@ func TestProvisioningCreatesSiteApplication(t *testing.T) {
 		t.Errorf("application name = %q, want AbandonAuth", application.Name)
 	}
 
+	// The site authenticates with its own credential, so it is confidential.
+	if application.ClientType != applications.Confidential {
+		t.Errorf("client type = %q, want confidential", application.ClientType)
+	}
+
 	owner, err := accounts.New(pool).Get(t.Context(), application.OwnerID)
 	if err != nil {
 		t.Fatalf("reading the application's owner: %v", err)
@@ -193,13 +198,13 @@ func TestApplicationOwnedByLoginAccountIsLeftUnchanged(t *testing.T) {
 
 	registry := applications.New(pool, nil)
 
-	application, token, err := registry.Create(t.Context(), owner.ID, "A developer's application")
+	application, token, err := registry.Create(t.Context(), owner.ID, "A developer's application", applications.Confidential)
 	if err != nil {
 		t.Fatalf("creating the developer's application: %v", err)
 	}
 
 	const registered = "https://app.example.test/callback"
-	if err := registry.ReplaceCallbackURIs(t.Context(), application.ID, []string{registered}); err != nil {
+	if err := registry.ReplaceCallbackURIs(t.Context(), application, []string{registered}); err != nil {
 		t.Fatalf("registering the developer's callback: %v", err)
 	}
 
@@ -232,7 +237,7 @@ func TestApplicationOwnedByLoginAccountIsLeftUnchanged(t *testing.T) {
 	}
 
 	if err := registry.ReplaceCallbackURIs(
-		t.Context(), application.ID, []string{"https://app.example.test/other"},
+		t.Context(), application, []string{"https://app.example.test/other"},
 	); err != nil {
 		t.Errorf("the developer can no longer replace the callbacks: %v", err)
 	}

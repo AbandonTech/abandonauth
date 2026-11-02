@@ -2,7 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/rsa"
+	"encoding/base64"
 	"errors"
+	"math/big"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -11,7 +16,9 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"github.com/abandontech/abandonauth/src/api/internal/config"
+	"github.com/abandontech/abandonauth/src/api/internal/services/oidc"
 	"github.com/abandontech/abandonauth/src/api/internal/services/siteapplication"
+	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
 )
 
 // placeholders are settings that pass validation. None of them is a real
@@ -21,9 +28,17 @@ const (
 	placeholderDatabaseURL   = "postgres://abandonauth:abandonauth@127.0.0.1:5432/abandonauth"
 	placeholderSigningSecret = "placeholder-signing-secret-placeholder-signing-secret-placeholder"
 	placeholderApplicationID = "00000000-0000-0000-0000-000000000001"
+	placeholderAPIOrigin     = "https://auth.example.test:8443"
 )
 
-func placeholderEnvironment() map[string]string {
+// placeholderEnvironment is a complete valid environment, with the command
+// reading signing key files written for this test at run time.
+func placeholderEnvironment(t *testing.T) map[string]string {
+	t.Helper()
+
+	keys := servertest.SigningKeyFiles(t)
+	useSigningKeyFiles(t, keys.IDTokenFile, keys.AccessTokenFile)
+
 	return map[string]string{
 		"DATABASE_URL":                       placeholderDatabaseURL,
 		"JWT_SECRET":                         placeholderSigningSecret,
@@ -32,17 +47,35 @@ func placeholderEnvironment() map[string]string {
 		"JWT_EXPIRES_IN_SECONDS_LONG_LIVED":  "2592000",
 		"ABANDON_AUTH_DEVELOPER_APP_ID":      placeholderApplicationID,
 		"ABANDON_AUTH_SITE_URL":              "https://auth.example.test",
-		"ABANDON_AUTH_URL":                   "https://api.auth.example.test",
+		"ABANDON_AUTH_URL":                   placeholderAPIOrigin,
 		"DISCORD_CLIENT_ID":                  "discord-client-id",
 		"DISCORD_CLIENT_SECRET":              "discord-client-secret-placeholder",
-		"ABANDON_AUTH_DISCORD_CALLBACK":      "https://api.auth.example.test/ui/discord-callback",
+		"ABANDON_AUTH_DISCORD_CALLBACK":      placeholderAPIOrigin + "/ui/discord-callback",
 		"GITHUB_CLIENT_ID":                   "github-client-id",
 		"GITHUB_CLIENT_SECRET":               "github-client-secret-placeholder",
-		"ABANDON_AUTH_GITHUB_CALLBACK":       "https://api.auth.example.test/ui/github-callback",
+		"ABANDON_AUTH_GITHUB_CALLBACK":       placeholderAPIOrigin + "/ui/github-callback",
 		"GOOGLE_CLIENT_ID":                   "google-client-id",
 		"GOOGLE_CLIENT_SECRET":               "google-client-secret-placeholder",
-		"GOOGLE_CALLBACK":                    "https://api.auth.example.test/google",
+		"GOOGLE_CALLBACK":                    placeholderAPIOrigin + "/google",
 	}
+}
+
+// useSigningKeyFiles points the command at the given key files until the test
+// ends.
+func useSigningKeyFiles(t *testing.T, idToken, accessToken string) {
+	t.Helper()
+
+	mounted := signingKeyFiles
+	signingKeyFiles.idToken, signingKeyFiles.accessToken = idToken, accessToken
+
+	t.Cleanup(func() { signingKeyFiles = mounted })
+}
+
+func thumbprintOf(key *rsa.PrivateKey) string {
+	return oidc.Thumbprint(
+		base64.RawURLEncoding.EncodeToString(key.N.Bytes()),
+		base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes()),
+	)
 }
 
 func applyEnvironment(t *testing.T, environment map[string]string) {
@@ -107,7 +140,8 @@ func runCommand(t *testing.T, arguments ...string) (*recorder, error) {
 }
 
 func TestServeReadsEverySettingFromItsEnvironmentName(t *testing.T) {
-	applyEnvironment(t, placeholderEnvironment())
+	environment := placeholderEnvironment(t)
+	applyEnvironment(t, environment)
 
 	perform, err := runCommand(t, "serve")
 	if err != nil {
@@ -136,8 +170,22 @@ func TestServeReadsEverySettingFromItsEnvironmentName(t *testing.T) {
 		t.Errorf("ABANDON_AUTH_SITE_URL reached the configuration as %q", loaded.Site)
 	}
 
-	if loaded.API.String() != "https://api.auth.example.test" {
+	if loaded.API.String() != placeholderAPIOrigin {
 		t.Errorf("ABANDON_AUTH_URL reached the configuration as %q", loaded.API)
+	}
+
+	if loaded.OpenIDIssuer != placeholderAPIOrigin+"/api" {
+		t.Errorf("the OpenID issuer is %q, want ABANDON_AUTH_URL followed by /api", loaded.OpenIDIssuer)
+	}
+
+	keys := servertest.SigningKeyFiles(t)
+
+	if loaded.SigningKeys.IDToken().ActiveKeyID() != thumbprintOf(keys.IDTokenPrivate) {
+		t.Error("the ID token signing key file did not reach the configuration")
+	}
+
+	if loaded.SigningKeys.AccessToken().ActiveKeyID() != thumbprintOf(keys.AccessTokenPrivate) {
+		t.Error("the access token signing key file did not reach the configuration")
 	}
 
 	if loaded.ExchangeCodeLifetime.Seconds() != 120 {
@@ -162,7 +210,7 @@ func TestServeReadsEverySettingFromItsEnvironmentName(t *testing.T) {
 }
 
 func TestServeBindsToPortEightThousandByDefault(t *testing.T) {
-	applyEnvironment(t, placeholderEnvironment())
+	applyEnvironment(t, placeholderEnvironment(t))
 
 	perform, err := runCommand(t, "serve")
 	if err != nil {
@@ -175,7 +223,7 @@ func TestServeBindsToPortEightThousandByDefault(t *testing.T) {
 }
 
 func TestSettingsAreAlsoAcceptedOnCommandLine(t *testing.T) {
-	applyEnvironment(t, placeholderEnvironment())
+	applyEnvironment(t, placeholderEnvironment(t))
 
 	perform, err := runCommand(t, "--bind-address", "127.0.0.1:9000", "serve")
 	if err != nil {
@@ -188,7 +236,7 @@ func TestSettingsAreAlsoAcceptedOnCommandLine(t *testing.T) {
 }
 
 func TestMissingRequiredSettingStopsCommandWithoutRevealingIt(t *testing.T) {
-	environment := placeholderEnvironment()
+	environment := placeholderEnvironment(t)
 	delete(environment, "JWT_SECRET")
 
 	applyEnvironment(t, environment)
@@ -209,7 +257,7 @@ func TestMissingRequiredSettingStopsCommandWithoutRevealingIt(t *testing.T) {
 }
 
 func TestInvalidSettingValueIsNotRepeatedInError(t *testing.T) {
-	environment := placeholderEnvironment()
+	environment := placeholderEnvironment(t)
 	environment["JWT_SECRET"] = "too-short"
 
 	applyEnvironment(t, environment)
@@ -225,7 +273,7 @@ func TestInvalidSettingValueIsNotRepeatedInError(t *testing.T) {
 }
 
 func TestDatabaseCommands(t *testing.T) {
-	applyEnvironment(t, placeholderEnvironment())
+	applyEnvironment(t, placeholderEnvironment(t))
 
 	perform, err := runCommand(t, "database", "rotate-auth-epoch")
 	if err != nil {
@@ -238,7 +286,7 @@ func TestDatabaseCommands(t *testing.T) {
 }
 
 func TestUnknownCommandIsRefused(t *testing.T) {
-	applyEnvironment(t, placeholderEnvironment())
+	applyEnvironment(t, placeholderEnvironment(t))
 
 	perform, err := runCommand(t, "migrate-everything")
 	if err == nil {
@@ -253,7 +301,7 @@ func TestUnknownCommandIsRefused(t *testing.T) {
 // Every top-level command is one this service supports; anything else that
 // opened a listener would bypass the checks serving applies.
 func TestOnlySupportedCommandsAreRegistered(t *testing.T) {
-	want := []string{"serve", "database", "provision"}
+	want := []string{"serve", "database", "provision", "validate-config"}
 
 	var registered []string
 	for _, command := range newCommand(&recorder{}).Commands {
@@ -262,6 +310,93 @@ func TestOnlySupportedCommandsAreRegistered(t *testing.T) {
 
 	if !slices.Equal(registered, want) {
 		t.Errorf("registered commands = %v, want exactly %v", registered, want)
+	}
+}
+
+// validate-config checks exactly what serving would and then says so, and
+// nothing else: it opens no database or listener and prints no setting or key.
+func TestValidateConfigReportsOnlyThatConfigurationIsValid(t *testing.T) {
+	environment := placeholderEnvironment(t)
+	applyEnvironment(t, environment)
+
+	var output, diagnostics strings.Builder
+
+	perform := &recorder{}
+	command := newCommand(perform)
+	command.Writer = &output
+	command.ErrWriter = &diagnostics
+
+	if err := command.Run(t.Context(), []string{"abandonauth", "validate-config"}); err != nil {
+		t.Fatalf("validate-config refused a valid configuration: %v", err)
+	}
+
+	if output.String() != "configuration valid\n" {
+		t.Errorf("validate-config printed %q, want exactly the fixed line", output.String())
+	}
+
+	if diagnostics.Len() != 0 {
+		t.Errorf("validate-config wrote %q to the error stream", diagnostics.String())
+	}
+
+	if perform.served || perform.rotated || perform.provisioned {
+		t.Error("validate-config did work beyond checking the configuration")
+	}
+
+	keyFile, err := os.ReadFile(signingKeyFiles.idToken)
+	if err != nil {
+		t.Fatalf("reading the test key file: %v", err)
+	}
+
+	if strings.Contains(output.String(), string(keyFile[200:240])) {
+		t.Error("validate-config printed key material")
+	}
+}
+
+// Every way a signing key file can be wrong stops validate-config and serve
+// alike, repeating neither a file's contents nor a key.
+func TestSigningKeyFilesAreRequiredAndNeverEchoed(t *testing.T) {
+	const keySentinel = "AbandonAuthKeySentinel6Vq2Lp9Xz3Rt"
+
+	for name, adjust := range map[string]func(*testing.T, map[string]string){
+		"a missing ID token key file": func(t *testing.T, _ map[string]string) {
+			useSigningKeyFiles(t, filepath.Join(t.TempDir(), "absent"), signingKeyFiles.accessToken)
+		},
+		"a missing access token key file": func(t *testing.T, _ map[string]string) {
+			useSigningKeyFiles(t, signingKeyFiles.idToken, filepath.Join(t.TempDir(), "absent"))
+		},
+		"one key for both purposes": func(t *testing.T, _ map[string]string) {
+			useSigningKeyFiles(t, signingKeyFiles.idToken, signingKeyFiles.idToken)
+		},
+		"different API and site hosts": func(_ *testing.T, e map[string]string) {
+			e["ABANDON_AUTH_URL"] = "https://" + keySentinel + ".example.test"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			environment := placeholderEnvironment(t)
+			adjust(t, environment)
+			applyEnvironment(t, environment)
+
+			for _, commandName := range []string{"validate-config", "serve"} {
+				var output strings.Builder
+
+				perform := &recorder{}
+				command := newCommand(perform)
+				command.Writer = &output
+
+				err := command.Run(t.Context(), []string{"abandonauth", commandName})
+				if err == nil {
+					t.Fatalf("%s accepted %s", commandName, name)
+				}
+
+				if perform.served || output.Len() != 0 {
+					t.Errorf("%s did work or printed despite %s", commandName, name)
+				}
+
+				if strings.Contains(err.Error(), keySentinel) || strings.Contains(err.Error(), "BEGIN PRIVATE KEY") {
+					t.Errorf("%s repeated what it refused: %v", commandName, err)
+				}
+			}
+		})
 	}
 }
 
@@ -285,7 +420,7 @@ func TestVersionFlagReportsBuildVersion(t *testing.T) {
 }
 
 func TestCommandFailuresAreReported(t *testing.T) {
-	applyEnvironment(t, placeholderEnvironment())
+	applyEnvironment(t, placeholderEnvironment(t))
 
 	perform := &recorder{errorToReturnOnCall: errors.New("the database did not answer")}
 
@@ -300,7 +435,7 @@ func TestDebugModeIsRefusedByBuildThatCannotServeIt(t *testing.T) {
 		t.Skip("this build compiles the development routes in")
 	}
 
-	environment := placeholderEnvironment()
+	environment := placeholderEnvironment(t)
 	environment["DEBUG"] = "true"
 
 	applyEnvironment(t, environment)

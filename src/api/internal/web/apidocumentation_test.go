@@ -119,6 +119,52 @@ func TestSchemaRepresentationsMatch(t *testing.T) {
 	}
 }
 
+// The served marker and the closed-object and exact-value declarations are
+// booleans and numbers. Rendered as JSON they must stay the same values, or a
+// reader of one representation would see a contract the other does not state.
+func TestSchemaRepresentationsKeepTypedDeclarations(t *testing.T) {
+	t.Parallel()
+
+	published := publishedRepresentations(t)
+
+	for name, document := range map[string]map[string]any{
+		"YAML": decodeYAMLValue(t, published.YAML),
+		"JSON": decodeJSONValue(t, published.JSON),
+	} {
+		paths, _ := document["paths"].(map[string]any)
+
+		for path, methods := range paths {
+			for method, operation := range methods.(map[string]any) {
+				described, _ := operation.(map[string]any)
+
+				marker, marked := described["x-abandonauth-served"]
+				if !marked {
+					continue
+				}
+
+				if marker != false {
+					t.Errorf("%s: %s %s marks x-abandonauth-served %v, want the boolean false", name, method, path, marker)
+				}
+			}
+		}
+
+		components, _ := document["components"].(map[string]any)
+		schemas, _ := components["schemas"].(map[string]any)
+
+		tokens, _ := schemas["TokenSet"].(map[string]any)
+		if tokens["additionalProperties"] != false {
+			t.Errorf("%s: TokenSet is not a closed object", name)
+		}
+
+		properties, _ := tokens["properties"].(map[string]any)
+		expiry, _ := properties["expires_in"].(map[string]any)
+
+		if values, _ := expiry["enum"].([]any); len(values) != 1 || decoderIndependent(values[0]) != float64(900) {
+			t.Errorf("%s: expires_in is not exactly 900", name)
+		}
+	}
+}
+
 func TestSchemaHandlersServeRepresentations(t *testing.T) {
 	t.Parallel()
 

@@ -51,8 +51,36 @@ migration_lifecycle() {
         INSERT INTO rate_limit_bucket (bucket_key, endpoint_group, window_start, expires_at, count)
             VALUES (decode(repeat('ab', 32), 'hex'), 'burn_token', now(), now() + interval '1 minute', 1);
         INSERT INTO \"SteamAccount\" (id, user_id)
-            VALUES ('76561197960287930', '00000000-0000-4000-8000-000000000001');" \
+            VALUES ('76561197960287930', '00000000-0000-4000-8000-000000000001');
+        INSERT INTO \"DeveloperApplication\" (id, owner_id, refresh_token, client_type)
+            VALUES ('00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000001', NULL, 'public');
+        INSERT INTO oauth_pairwise_subject (application_id, user_id, subject)
+            VALUES ('00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000001', repeat('s', 43));" \
         >/dev/null || die "migration lifecycle: seeding failed"
+
+    expect_sql "SELECT count(*) FROM pg_extension WHERE extname <> 'plpgsql'" 0 \
+        "the schema relies on an extension the declared PostgreSQL image does not carry"
+
+    goose_run down
+    expect_sql "SELECT concat_ws(',', to_regclass('oauth_native_authorization'),
+        to_regclass('oauth_native_authorization_code'), to_regclass('oauth_native_authorization_capacity'),
+        to_regclass('oauth_pairwise_subject'), to_regclass('oauth_refresh_family'), to_regclass('oauth_refresh_token'),
+        to_regclass('oauth_access_token_revocation'))" "" "down left native authorization tables behind"
+    expect_sql "SELECT count(*) FROM information_schema.columns
+        WHERE (table_name = 'DeveloperApplication' AND column_name = 'client_type')
+           OR (table_name = 'oauth_authorization_state' AND column_name = 'native_authorization_id')" 0 \
+        "down left the client type or the native continuation behind"
+    expect_sql "SELECT string_agg(is_nullable, ',' ORDER BY table_name) FROM information_schema.columns
+        WHERE (table_name = 'DeveloperApplication' AND column_name = 'refresh_token')
+           OR (table_name = 'oauth_authorization_state' AND column_name = 'callback_uri')" "NO,NO" \
+        "down did not make the credential and the callback required again"
+    expect_sql "SELECT \"refresh_token\" FROM \"DeveloperApplication\" WHERE id = '00000000-0000-4000-8000-000000000003'" \
+        '$2a$12$Epl.aE1qIpIPTsDatQIlSe8YOp8mvzZhmGyXxQKKB5malsIxE7Zje' \
+        "down did not give the public client the migration's credential hash"
+    expect_sql "SELECT \"refresh_token\" FROM \"DeveloperApplication\" WHERE id = '00000000-0000-4000-8000-000000000002'" \
+        placeholder "down changed a confidential application's credential"
+    expect_sql "SELECT count(*) FROM pg_extension WHERE extname <> 'plpgsql'" 0 \
+        "down relied on an extension"
 
     goose_run down
     expect_sql "SELECT to_regclass('\"SteamAccount\"') IS NULL" t "down left the Steam account table behind"
@@ -73,7 +101,7 @@ migration_lifecycle() {
         WHERE table_name = 'DeveloperApplication' AND column_name = 'credential_version'" 0 \
         "down left the developer credential version behind"
     expect_sql "SELECT (SELECT count(*) FROM \"User\") || ',' || (SELECT count(*) FROM \"DeveloperApplication\")
-        || ',' || (SELECT count(*) FROM \"CallbackUri\")" "1,1,1" "down removed baseline data"
+        || ',' || (SELECT count(*) FROM \"CallbackUri\")" "1,2,1" "down removed baseline data"
 
     goose_run down-to 0
     expect_sql "SELECT concat_ws(',', to_regclass('\"User\"'), to_regclass('\"DeveloperApplication\"'),
@@ -87,7 +115,7 @@ migration_lifecycle() {
         "the rebuilt template is not a fresh schema"
 }
 
-stream_stage "migration lifecycle (up, no-op up, down, down, down-to 0, up)" migration_lifecycle
+stream_stage "migration lifecycle (up, no-op up, down, down, down, down-to 0, up)" migration_lifecycle
 
 # The deployment integration files are constrained to `integration && !devtools`,
 # so this run carries the development unit and integration packages without

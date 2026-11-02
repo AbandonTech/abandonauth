@@ -53,12 +53,12 @@ func registerSite(t *testing.T, pool *pgxpool.Pool, hasher applications.Credenti
 
 	registry := applications.New(pool, hasher)
 
-	application, token, err := registry.Create(t.Context(), owner.ID, "AbandonAuth")
+	application, token, err := registry.Create(t.Context(), owner.ID, "AbandonAuth", applications.Confidential)
 	if err != nil {
 		t.Fatalf("registering the site's application: %v", err)
 	}
 
-	if err := registry.ReplaceCallbackURIs(t.Context(), application.ID, []string{SiteCallbackURI}); err != nil {
+	if err := registry.ReplaceCallbackURIs(t.Context(), application, []string{SiteCallbackURI}); err != nil {
 		t.Fatalf("registering the site's callback: %v", err)
 	}
 

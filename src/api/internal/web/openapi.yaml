@@ -18,6 +18,17 @@ tags:
     description: >-
       The addresses Discord, GitHub, Google and Steam return a browser to. Only
       a browser following a provider's redirect calls them.
+  - name: OpenID Connect
+    description: >-
+      Installed public clients signing a person in through the system browser
+      with OpenID Connect Authorization Code flow and PKCE `S256`: discovery,
+      the two purpose-specific key sets, authorization, token, UserInfo and
+      revocation. No public client holds a secret.
+  - name: Authorization Page
+    description: >-
+      What the AbandonAuth site's authorization page reads and submits for a
+      public client's pending authorization: the sanitized request, the
+      provider choice and cancellation.
   - name: Development Sign-In
     description: >-
       Password accounts for local development without a provider. A deployment
@@ -120,6 +131,12 @@ paths:
         replayed code, an expired code, a code issued to another application
         and a code never issued are all refused with the same 401, whether the
         second attempt arrives later or at the same instant on another worker.
+
+
+        Only a confidential application spends a code here. A public client
+        has no credential, so its identifier is refused with the same 403 as a
+        wrong refresh token, and it is never issued a code this operation
+        accepts.
       security:
         - DeveloperApplicationAccessToken: []
       parameters:
@@ -184,10 +201,18 @@ paths:
       tags: [Developer Applications]
       summary: Register a developer application
       description: >-
-        Register a developer application owned by the signed-in person. The
-        answer carries the application's refresh token, which is returned only
-        here: it is stored as a hash and cannot be read back. It stays valid
-        until it is replaced through the reset_token operation.
+        Register a developer application owned by the signed-in person.
+
+
+        `client_type` is `confidential` or `public` and can never be changed;
+        an omitted `client_type` registers a `confidential` application. A
+        confidential application is a server-side application that can protect
+        a credential: the answer carries its refresh token, which is returned
+        only here: it is stored as a hash and cannot be read back. It stays
+        valid until it is replaced through the reset_token operation. A public
+        client is an installed application that cannot protect a shared
+        credential: it signs in only through `GET /api/oauth/authorize` with
+        PKCE, receives no credential, and its answer carries no `token`.
 
 
         With `UserAccessToken`, the token must have been issued to the
@@ -214,14 +239,16 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/DeveloperApplicationName"
+              $ref: "#/components/schemas/DeveloperApplicationRegistration"
       responses:
         "200":
-          description: The new application and its refresh token, returned once.
+          description: >-
+            The new application, with its refresh token, returned once, only
+            when it is confidential.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DeveloperApplicationWithCredential"
+                $ref: "#/components/schemas/RegisteredDeveloperApplication"
         "403":
           $ref: "#/components/responses/Forbidden"
         "422":
@@ -244,7 +271,9 @@ paths:
 
         A refresh token that is not the application's and an application that
         does not exist are refused with the same 401, after the same amount of
-        work, so the refusal does not reveal which applications exist.
+        work, so the refusal does not reveal which applications exist. A public
+        client has no refresh token, and its identifier is refused with that
+        same 401 whatever is presented with it.
       security: []
       requestBody:
         required: true
@@ -387,6 +416,11 @@ paths:
         as one that does not exist.
 
 
+        Only a confidential application has a refresh token. A public client
+        has none to replace: the request is answered 409 and changes nothing,
+        and no credential is ever issued to a public client.
+
+
         With `UserAccessToken`, the token must have been issued to the
         AbandonAuth site itself and carry the `abandonauth` scope; a token any
         other application holds, and a developer application access token, are
@@ -418,6 +452,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/ApplicationNotFound"
+        "409":
+          $ref: "#/components/responses/PublicClientHasNoCredential"
         "422":
           $ref: "#/components/responses/InvalidInput"
         "429":
@@ -448,10 +484,23 @@ paths:
         replaced, is answered 404, exactly as one that does not exist.
 
 
-        A callback URI must be absolute and use HTTPS, except on a loopback
-        host where a port is required; it carries no user information, no
-        fragment, no control characters, and no `code` or `authentication`
-        query key, which this service appends itself.
+        Which URIs are accepted depends on the application's `client_type`.
+        A confidential application's callback URI must be absolute and use
+        HTTPS, except on a loopback host where a port is required; it carries
+        no user information, no fragment, no control characters, and no `code`
+        or `authentication` query key, which this service appends itself.
+
+
+        A public client's callback is a portless loopback template: scheme
+        `http`, a host that is exactly an IPv4 literal in `127.0.0.0/8` or the
+        IPv6 literal `[::1]`, no port, a non-empty absolute path, no user
+        information, no fragment, no control characters, and none of the
+        query keys `code`, `state`, `error`, `error_description` or `iss` in
+        any letter case or encoding. A host name such as `localhost` is
+        refused. For instance `http://127.0.0.1/oauth/callback` and
+        `http://[::1]/oauth/callback` are accepted. An authorization request
+        names one of these templates with exactly one port, chosen by the
+        client at run time, added.
 
 
         With `UserAccessToken`, the token must have been issued to the
@@ -516,7 +565,9 @@ paths:
         The `callback_uri` must exactly match one of the URIs the application
         registered, compared by its exact spelling; anything else is refused
         with 403 before anything is stored, with the same response whether the
-        application or the callback is unknown.
+        application or the callback is unknown. A public client is refused with
+        that same 403 before anything is stored: it signs in only through
+        `GET /api/oauth/authorize`.
 
 
         This service then creates login state that is opaque, unpredictable,
@@ -576,8 +627,8 @@ paths:
         verifier held for that sign-in.
 
 
-        Every failure after the state is consumed is refused with that same
-        403 response: a provider that does not authenticate the user, a
+        For a confidential application's sign-in, every failure after the
+        state is consumed is refused with that same 403 response: a provider that does not authenticate the user, a
         provider identity that is incomplete or cannot be stored, and a stored
         callback that no longer passes the callback URI policy, whether or not
         the browser returned with an authorization code. Such a refusal
@@ -594,6 +645,28 @@ paths:
         to the callback with nothing appended.
 
 
+        A sign-in started from a public client's authorization page never
+        ends in a browser session or in a one-time code for `POST /api/login`.
+        Every provider check above applies unchanged. A state that cannot be
+        trusted is refused with the same 403. Once the state, the browser and
+        the pending authorization are proven, the browser is sent with 303 to
+        the client's validated loopback redirect, built from the exact
+        spelling stored when the authorization began: with `code`, the
+        client's `state` and `iss` on success; with `error` `access_denied`,
+        `state` and `iss` when the provider does not authenticate the person,
+        the person declines, or the identity cannot be used; and with `error`
+        `server_error`, `state` and `iss` on an internal failure. The native
+        authorization code lives at most 120 seconds and never beyond the
+        authorization's five-minute deadline.
+
+
+        Every worker serves at most 64 public-protocol requests at once,
+        provider callbacks among them. A callback arriving when they are all
+        in use is answered 503 before its parameters are read or its state is
+        consumed: the provider is not contacted, and the same callback can be
+        retried within the sign-in's lifetime.
+
+
         No access token or session token is ever put in a redirect query
         string.
       security: []
@@ -601,12 +674,16 @@ paths:
         - $ref: "#/components/parameters/State"
         - $ref: "#/components/parameters/ProviderAuthorizationCode"
       responses:
+        "303":
+          $ref: "#/components/responses/RedirectToPublicClient"
         "307":
           $ref: "#/components/responses/RedirectToCallback"
         "403":
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/Unavailable"
+        "503":
+          $ref: "#/components/responses/ServiceTemporarilyUnavailable"
 
   /api/ui/github-callback:
     get:
@@ -626,8 +703,8 @@ paths:
         verifier held for that sign-in.
 
 
-        Every failure after the state is consumed is refused with that same
-        403 response: a provider that does not authenticate the user, a
+        For a confidential application's sign-in, every failure after the
+        state is consumed is refused with that same 403 response: a provider that does not authenticate the user, a
         provider identity that is incomplete or cannot be stored, and a stored
         callback that no longer passes the callback URI policy, whether or not
         the browser returned with an authorization code. Such a refusal
@@ -644,6 +721,28 @@ paths:
         to the callback with nothing appended.
 
 
+        A sign-in started from a public client's authorization page never
+        ends in a browser session or in a one-time code for `POST /api/login`.
+        Every provider check above applies unchanged. A state that cannot be
+        trusted is refused with the same 403. Once the state, the browser and
+        the pending authorization are proven, the browser is sent with 303 to
+        the client's validated loopback redirect, built from the exact
+        spelling stored when the authorization began: with `code`, the
+        client's `state` and `iss` on success; with `error` `access_denied`,
+        `state` and `iss` when the provider does not authenticate the person,
+        the person declines, or the identity cannot be used; and with `error`
+        `server_error`, `state` and `iss` on an internal failure. The native
+        authorization code lives at most 120 seconds and never beyond the
+        authorization's five-minute deadline.
+
+
+        Every worker serves at most 64 public-protocol requests at once,
+        provider callbacks among them. A callback arriving when they are all
+        in use is answered 503 before its parameters are read or its state is
+        consumed: the provider is not contacted, and the same callback can be
+        retried within the sign-in's lifetime.
+
+
         No access token or session token is ever put in a redirect query
         string.
       security: []
@@ -651,12 +750,16 @@ paths:
         - $ref: "#/components/parameters/State"
         - $ref: "#/components/parameters/ProviderAuthorizationCode"
       responses:
+        "303":
+          $ref: "#/components/responses/RedirectToPublicClient"
         "307":
           $ref: "#/components/responses/RedirectToCallback"
         "403":
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/Unavailable"
+        "503":
+          $ref: "#/components/responses/ServiceTemporarilyUnavailable"
 
   /api/google:
     get:
@@ -676,8 +779,8 @@ paths:
         verifier held for that sign-in.
 
 
-        Every failure after the state is consumed is refused with that same
-        403 response: a provider that does not authenticate the user, a
+        For a confidential application's sign-in, every failure after the
+        state is consumed is refused with that same 403 response: a provider that does not authenticate the user, a
         provider identity that is incomplete or cannot be stored, and a stored
         callback that no longer passes the callback URI policy, whether or not
         the browser returned with an authorization code. Such a refusal
@@ -707,6 +810,28 @@ paths:
         is sent to the callback with nothing appended.
 
 
+        A sign-in started from a public client's authorization page never
+        ends in a browser session or in a one-time code for `POST /api/login`.
+        Every provider check above applies unchanged. A state that cannot be
+        trusted is refused with the same 403. Once the state, the browser and
+        the pending authorization are proven, the browser is sent with 303 to
+        the client's validated loopback redirect, built from the exact
+        spelling stored when the authorization began: with `code`, the
+        client's `state` and `iss` on success; with `error` `access_denied`,
+        `state` and `iss` when the provider does not authenticate the person,
+        the person declines, or the identity cannot be used; and with `error`
+        `server_error`, `state` and `iss` on an internal failure. The native
+        authorization code lives at most 120 seconds and never beyond the
+        authorization's five-minute deadline.
+
+
+        Every worker serves at most 64 public-protocol requests at once,
+        provider callbacks among them. A callback arriving when they are all
+        in use is answered 503 before its parameters are read or its state is
+        consumed: the provider is not contacted, and the same callback can be
+        retried within the sign-in's lifetime.
+
+
         No access token or session token is ever put in a redirect query
         string.
       security: []
@@ -714,12 +839,16 @@ paths:
         - $ref: "#/components/parameters/State"
         - $ref: "#/components/parameters/ProviderAuthorizationCode"
       responses:
+        "303":
+          $ref: "#/components/responses/RedirectToPublicClient"
         "307":
           $ref: "#/components/responses/RedirectToCallback"
         "403":
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/Unavailable"
+        "503":
+          $ref: "#/components/responses/ServiceTemporarilyUnavailable"
 
   /api/ui/steam-callback:
     get:
@@ -760,8 +889,8 @@ paths:
         cannot be retried, because its sign-in is already spent.
 
 
-        Every failure after the state is consumed is refused with that same
-        403 response: a provider that does not authenticate the user, a
+        For a confidential application's sign-in, every failure after the
+        state is consumed is refused with that same 403 response: a provider that does not authenticate the user, a
         provider identity that is incomplete or cannot be stored, and a stored
         callback that no longer passes the callback URI policy. Such a refusal
         carries no redirect and issues no session or one-time code.
@@ -785,6 +914,28 @@ paths:
         is appended.
 
 
+        A sign-in started from a public client's authorization page never
+        ends in a browser session or in a one-time code for `POST /api/login`.
+        Every provider check above applies unchanged. A state that cannot be
+        trusted is refused with the same 403. Once the state, the browser and
+        the pending authorization are proven, the browser is sent with 303 to
+        the client's validated loopback redirect, built from the exact
+        spelling stored when the authorization began: with `code`, the
+        client's `state` and `iss` on success; with `error` `access_denied`,
+        `state` and `iss` when the provider does not authenticate the person,
+        the person declines, or the identity cannot be used; and with `error`
+        `server_error`, `state` and `iss` on an internal failure. The native
+        authorization code lives at most 120 seconds and never beyond the
+        authorization's five-minute deadline.
+
+
+        Every worker serves at most 64 public-protocol requests at once,
+        provider callbacks among them. A callback arriving when they are all
+        in use is answered 503 before its parameters are read or its state is
+        consumed: the provider is not contacted, and the same callback can be
+        retried within the sign-in's lifetime.
+
+
         No access token or session token is ever put in a redirect query
         string.
       security: []
@@ -801,12 +952,16 @@ paths:
         - $ref: "#/components/parameters/OpenIDSigned"
         - $ref: "#/components/parameters/OpenIDSignature"
       responses:
+        "303":
+          $ref: "#/components/responses/RedirectToPublicClient"
         "307":
           $ref: "#/components/responses/RedirectToCallback"
         "403":
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/Unavailable"
+        "503":
+          $ref: "#/components/responses/ServiceTemporarilyUnavailable"
 
   /api/ui/logout:
     post:
@@ -839,6 +994,617 @@ paths:
           $ref: "#/components/responses/InvalidInput"
         "500":
           $ref: "#/components/responses/Unavailable"
+
+  /api/.well-known/openid-configuration:
+    get:
+      tags: [OpenID Connect]
+      summary: Describe this OpenID Provider
+      description: >-
+        OpenID Connect Discovery metadata. The issuer is exactly
+        `ABANDON_AUTH_URL` followed by `/api`, in the origin's registered
+        spelling and with no trailing slash; it is not the issuer of the
+        `UserAccessToken` or `DeveloperApplicationAccessToken` classes. A
+        client pins that expected issuer, fetches this document only from the
+        location derived from it, and requires its `issuer` to equal the
+        expected issuer byte for byte before trusting any endpoint or key it
+        names.
+
+
+        The document advertises only the implemented profile: response type
+        `code`, response mode `query`, grant types `authorization_code` and
+        `refresh_token`, token and revocation endpoint authentication method
+        `none`, scopes `openid`, `profile` and `offline_access`, subject type
+        `pairwise`, ID token signing algorithm `RS256`, PKCE method `S256`,
+        and RFC 9207 issuer identification in the authorization response. It
+        publishes no dynamic registration, introspection, DPoP, device
+        authorization or logout capability.
+
+
+        Standard `jwks_uri` names only the ID token key set. The extension
+        member `access_token_jwks_uri` names only the access token key set. A
+        validator trusts only the set for the token class it validates and
+        never tries a key from one set against the other class.
+      x-abandonauth-served: false
+      security: []
+      responses:
+        "200":
+          description: The provider metadata, cacheable for five minutes.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlFiveMinutes"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenIDProviderMetadata"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/oidc/jwks:
+    get:
+      tags: [OpenID Connect]
+      summary: Publish the ID token verification keys
+      description: >-
+        The public RSA keys that verify ID tokens, and only those; this is the
+        discovery document's `jwks_uri`. An access token is never verified
+        with a key from this set.
+
+
+        Each key carries exactly `kid`, `kty` `RSA`, `use` `sig`, `alg`
+        `RS256`, `n` and `e`, and no private member. Every `kid` is the
+        43-character RFC 7638 thumbprint of its key's public members, and no
+        `kid` appears in both key sets. The set holds one to eight keys.
+
+
+        The answer is cacheable for five minutes. A key is advertised here for
+        at least five minutes before it signs, and stays for at least twenty
+        minutes after its last possible signature before it is removed. A key
+        whose private part is suspected compromised may be removed at once; a
+        validator holding a cached copy can keep trusting it for at most that
+        five-minute cache lifetime.
+      x-abandonauth-served: false
+      security: []
+      responses:
+        "200":
+          description: The ID token verification keys, cacheable for five minutes.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlFiveMinutes"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JSONWebKeySet"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/oauth/access-jwks:
+    get:
+      tags: [OpenID Connect]
+      summary: Publish the access token verification keys
+      description: >-
+        The public RSA keys that verify OIDC access tokens, and only those;
+        this is the discovery document's `access_token_jwks_uri`. An ID token
+        is never verified with a key from this set, so compromise of one
+        purpose's signing key never lets a validator of the other class accept
+        a forged token.
+
+
+        Each key carries exactly `kid`, `kty` `RSA`, `use` `sig`, `alg`
+        `RS256`, `n` and `e`, and no private member. Every `kid` is the
+        43-character RFC 7638 thumbprint of its key's public members, and no
+        `kid` appears in both key sets. The set holds one to eight keys.
+
+
+        The answer is cacheable for five minutes. A key is advertised here for
+        at least five minutes before it signs, and stays for at least twenty
+        minutes after its last possible signature before it is removed. A key
+        whose private part is suspected compromised may be removed at once; a
+        validator holding a cached copy can keep trusting it for at most that
+        five-minute cache lifetime.
+      x-abandonauth-served: false
+      security: []
+      responses:
+        "200":
+          description: The access token verification keys, cacheable for five minutes.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlFiveMinutes"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JSONWebKeySet"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/oauth/authorize:
+    get:
+      tags: [OpenID Connect]
+      summary: Begin a public client's authorization
+      description: >-
+        Begin an installed public client's OpenID Connect authorization. The
+        client opens the system browser here; the answer is always a 303
+        redirect or a direct refusal, never a page.
+
+
+        Each parameter must appear exactly once: `response_type` `code`,
+        `client_id`, `redirect_uri`, `scope`, `state`, `nonce`,
+        `code_challenge` and `code_challenge_method` `S256`. `response_mode`
+        is optional and must be `query` when present. Unknown parameters are
+        ignored. The raw query is at most 8,192 bytes and 32 fields, unknown
+        fields included, and every parameter name at most 64 bytes. A query
+        with a malformed percent escape, invalid UTF-8, a control character,
+        an encoded or differently cased parameter name, a `;` separator, or a
+        parameter repeated before or after decoding is refused whole, and no
+        part of it is used. A request body is never read.
+
+
+        The client and the redirect are validated before the redirect is used
+        for anything. The client must be a registered public client. The
+        redirect must equal one of its registered loopback templates in
+        scheme, loopback address, path and query spelling, with exactly one
+        numeric port from 1 through 65535 added; the port is the only
+        difference accepted. A missing, malformed, repeated, unknown, deleted
+        or confidential client, or a missing, malformed, repeated or
+        unmatched redirect, is refused with a direct 400 `invalid_request` and
+        no `Location`. A query that cannot be read at all is refused the same
+        way.
+
+
+        Once the client and the redirect are proven, every refusal is a 303 to
+        that exact redirect: a malformed or repeated remaining parameter with
+        `error` `invalid_request`; a response type other than `code` with
+        `unsupported_response_type`; a scope outside `openid`, `profile` and
+        `offline_access`, a repeated scope or one without `openid` with
+        `invalid_scope`; ten thousand authorizations already in progress
+        across the whole service with `temporarily_unavailable`; and an
+        internal failure with `server_error`. An error redirect carries only
+        `error`, `state` when exactly one syntactically valid state was
+        supplied, and `iss`. No refusal carries `error_description`.
+
+
+        On success an authorization is created and bound to the client, the
+        exact redirect including its port, the canonical granted scopes, the
+        client's `state`, `nonce` and PKCE challenge, this browser and the
+        current auth epoch. It expires five minutes after creation and nothing
+        that happens to it later extends it. The browser is bound by the
+        `NativeAuthorizationBinding` cookie: a syntactically valid one it
+        already holds is reused and only its five-minute expiry renewed;
+        otherwise a new one is issued. The answer is an empty 303 to the
+        AbandonAuth site's origin followed by `/authorize#request=` and an
+        opaque 43-character page handle. The handle travels only in the
+        fragment, and no client value appears anywhere in that address.
+
+
+        Nothing is approved silently. The page always names the registered
+        application, describes `profile` and the offline session when they are
+        requested, and requires the person to choose Discord, GitHub, Google
+        or Steam; the client cannot choose a provider for them.
+
+
+        Every worker serves at most 64 public-protocol requests at once. A
+        request arriving when they are all in use is refused with a direct 503
+        `temporarily_unavailable` before anything is read. An internal failure
+        before the redirect is proven is a direct 500 `server_error`.
+
+
+        Every answer carries `Cache-Control: no-store`, `Referrer-Policy:
+        no-referrer`, `X-Frame-Options: DENY` and `Content-Security-Policy:
+        frame-ancestors 'none'`. No cross-origin request is permitted.
+      x-abandonauth-served: false
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/AuthorizationResponseType"
+        - $ref: "#/components/parameters/AuthorizationClientID"
+        - $ref: "#/components/parameters/AuthorizationRedirectURI"
+        - $ref: "#/components/parameters/AuthorizationScope"
+        - $ref: "#/components/parameters/AuthorizationState"
+        - $ref: "#/components/parameters/AuthorizationNonce"
+        - $ref: "#/components/parameters/AuthorizationCodeChallenge"
+        - $ref: "#/components/parameters/AuthorizationCodeChallengeMethod"
+        - $ref: "#/components/parameters/AuthorizationResponseMode"
+        - $ref: "#/components/parameters/NativeAuthorizationBindingOptional"
+      responses:
+        "303":
+          $ref: "#/components/responses/AuthorizationStarted"
+        "400":
+          $ref: "#/components/responses/OAuthInvalidRequest"
+        "500":
+          $ref: "#/components/responses/OAuthServerError"
+        "503":
+          $ref: "#/components/responses/OAuthTemporarilyUnavailable"
+
+  /api/oauth/authorization/{request}:
+    get:
+      tags: [Authorization Page]
+      summary: Read a pending authorization request
+      description: >-
+        Read what the authorization page displays for a public client's
+        pending request. The handle is the one the site read from its address
+        fragment, and it must be presented by the browser holding the
+        `NativeAuthorizationBinding` cookie the request was bound to.
+
+
+        The answer holds exactly `application_name`, the canonical requested
+        `scopes`, `expires_at` and the `providers` to choose from. It never
+        carries the redirect URI, the client's state, nonce or challenge, a
+        user identifier or anything a provider returned. Reading consumes
+        nothing and extends nothing.
+
+
+        An unknown, expired, consumed or malformed handle, or one presented
+        without the binding cookie it was bound to, is answered with the same
+        404 `Authorization request unavailable`.
+
+
+        Every worker serves at most 64 public-protocol requests at once. A
+        request arriving when they are all in use is answered 503 `Service
+        temporarily unavailable` and changes nothing.
+
+
+        Every answer carries `Cache-Control: no-store`, `Referrer-Policy:
+        no-referrer`, `X-Frame-Options: DENY` and `Content-Security-Policy:
+        frame-ancestors 'none'`.
+      x-abandonauth-served: false
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/AuthorizationRequestHandle"
+        - $ref: "#/components/parameters/NativeAuthorizationBinding"
+      responses:
+        "200":
+          description: >-
+            The sanitized request. The page renders the application name and
+            every other value as text, never as markup.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+            Referrer-Policy:
+              $ref: "#/components/headers/ReferrerPolicyNoReferrer"
+            X-Frame-Options:
+              $ref: "#/components/headers/FrameOptionsDeny"
+            Content-Security-Policy:
+              $ref: "#/components/headers/ContentSecurityPolicyNoFraming"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PendingAuthorization"
+        "404":
+          $ref: "#/components/responses/AuthorizationRequestUnavailable"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+        "503":
+          $ref: "#/components/responses/ServiceTemporarilyUnavailable"
+
+  /api/oauth/authorization/{request}/{provider}:
+    post:
+      tags: [Authorization Page]
+      summary: Choose the provider for a pending authorization request
+      description: >-
+        Spend a public client's pending authorization request on the chosen
+        provider and start that provider's sign-in. The request must carry the
+        exact site `Origin`, the `NativeAuthorizationBinding` cookie and the
+        handle. A missing or wrong `Origin` is answered 403 `Authorization
+        request forbidden`. An unknown, expired, consumed or malformed handle,
+        or one presented without the binding cookie it was bound to, is
+        answered with the same 404 `Authorization request unavailable`. The
+        handle is consumed atomically, so of concurrent choices and
+        cancellations for one request exactly one succeeds. The form body
+        carries nothing and is never read, so the browser's empty form
+        submission is accepted.
+
+
+        The browser is sent with 303 to the provider exactly as a confidential
+        sign-in is, with every provider control unchanged: browser-bound,
+        single-use provider state; PKCE with the `S256` challenge method for
+        Discord, GitHub and Google; a nonce for Google; and Steam's signed
+        return address. The provider state expires at the earlier of five
+        minutes and the authorization's own deadline.
+
+
+        Every worker serves at most 64 public-protocol requests at once. A
+        request arriving when they are all in use is answered 503 `Service
+        temporarily unavailable` and consumes nothing.
+
+
+        Every answer carries `Cache-Control: no-store`, `Referrer-Policy:
+        no-referrer`, `X-Frame-Options: DENY` and `Content-Security-Policy:
+        frame-ancestors 'none'`.
+      x-abandonauth-served: false
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/AuthorizationRequestHandle"
+        - $ref: "#/components/parameters/Provider"
+        - $ref: "#/components/parameters/NativeAuthorizationBinding"
+        - $ref: "#/components/parameters/RequiredOrigin"
+      requestBody:
+        required: false
+        description: The browser's empty form submission. Nothing in it is read.
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+      responses:
+        "303":
+          $ref: "#/components/responses/RedirectFromPageToProvider"
+        "403":
+          $ref: "#/components/responses/AuthorizationRequestForbidden"
+        "404":
+          $ref: "#/components/responses/AuthorizationRequestUnavailable"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+        "503":
+          $ref: "#/components/responses/ServiceTemporarilyUnavailable"
+
+  /api/oauth/authorization/{request}/cancel:
+    post:
+      tags: [Authorization Page]
+      summary: Cancel a pending authorization request
+      description: >-
+        Spend a public client's pending authorization request without signing
+        in. The same exact site `Origin`, `NativeAuthorizationBinding` cookie
+        and handle checks apply, with the same 403 `Authorization request
+        forbidden` and 404 `Authorization request unavailable` refusals, and
+        the handle is consumed atomically, so of concurrent choices and
+        cancellations for one request exactly one succeeds. The form body
+        carries nothing and is never read.
+
+
+        The browser is sent with 303 to the client's validated loopback
+        redirect, built from the exact spelling stored when the authorization
+        began, with `error` `access_denied`, the client's `state` and `iss`.
+
+
+        Every worker serves at most 64 public-protocol requests at once. A
+        request arriving when they are all in use is answered 503 `Service
+        temporarily unavailable` and consumes nothing.
+
+
+        Every answer carries `Cache-Control: no-store`, `Referrer-Policy:
+        no-referrer`, `X-Frame-Options: DENY` and `Content-Security-Policy:
+        frame-ancestors 'none'`.
+      x-abandonauth-served: false
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/AuthorizationRequestHandle"
+        - $ref: "#/components/parameters/NativeAuthorizationBinding"
+        - $ref: "#/components/parameters/RequiredOrigin"
+      requestBody:
+        required: false
+        description: The browser's empty form submission. Nothing in it is read.
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+      responses:
+        "303":
+          $ref: "#/components/responses/RedirectToPublicClient"
+        "403":
+          $ref: "#/components/responses/AuthorizationRequestForbidden"
+        "404":
+          $ref: "#/components/responses/AuthorizationRequestUnavailable"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+        "503":
+          $ref: "#/components/responses/ServiceTemporarilyUnavailable"
+
+  /api/oauth/token:
+    post:
+      tags: [OpenID Connect]
+      summary: Exchange an authorization code or a refresh token
+      description: >-
+        The token endpoint for public clients. Client authentication is
+        `none`: an `Authorization` header, a `client_secret` member or any
+        other attempt to authenticate the client is refused with 400
+        `invalid_request`.
+
+
+        The body must be `application/x-www-form-urlencoded` with no other
+        media type or parameter, at most 16,384 bytes and 16 fields, unknown
+        fields included, with every field name at most 64 bytes. Unknown
+        fields are ignored; every recognized field appears at most once. A
+        body with a malformed percent escape, invalid UTF-8, a control
+        character, an encoded or differently cased field name, a `;`
+        separator, or a field repeated before or after decoding is refused
+        whole. Parameters in the query are never read.
+
+
+        An authorization code grant carries `grant_type`
+        `authorization_code`, `client_id`, `code`, `redirect_uri` and
+        `code_verifier`. The code is redeemed by one atomic delete only when it
+        was issued to this client for this exact redirect, port included, is
+        unexpired, belongs to the current auth epoch, and the unpadded
+        base64url SHA-256 of the verifier equals the challenge. Every miss is
+        the same 400 `invalid_grant`, and a wrong verifier, client or redirect
+        does not consume the code. Of concurrent redemptions of one code
+        exactly one succeeds.
+
+
+        A refresh grant carries `grant_type` `refresh_token`, `client_id`,
+        `refresh_token` and optionally `scope`. Refresh tokens rotate: each use
+        consumes the presented token and returns its replacement. A consumed
+        token presented again revokes its whole family and is refused
+        `invalid_grant`, so a client must serialize refreshes and store the
+        replacement before discarding the token it presented. A refresh never
+        adds scope. Omitted, the grant is kept; supplied, it must be a subset
+        that still contains `openid`, and the access token, ID token and
+        replacement refresh token are narrowed together. Narrowing away
+        `offline_access` ends the family without a replacement. A refresh
+        token expires 30 days after it is issued or when its family reaches
+        90 days after the code was redeemed, whichever is first. A family holds at most 10,000 tokens; a
+        refresh beyond that revokes the family and is refused `invalid_grant`.
+        One person holds at most ten active families per application, and
+        another offline grant revokes the least recently created one.
+
+
+        A refresh, like UserInfo, stops working at once when the family is
+        revoked, the application or user is deleted, or authority is rotated.
+        An access token already issued is not recalled: a resource server
+        validating it locally accepts it until it expires fifteen minutes
+        after issue.
+
+
+        A successful answer carries `access_token`, `token_type` `Bearer`,
+        `expires_in` 900, `id_token` and the canonical granted `scope`, and,
+        exactly when `offline_access` is granted, `refresh_token` and
+        `refresh_token_expires_in`. Every answer, success or refusal, carries
+        `Cache-Control: no-store` and `Pragma: no-cache`.
+
+
+        Refusals are 400 `invalid_request` for a missing, malformed, repeated
+        or oversized field, a wrong content type, an `Authorization` header or
+        a `client_secret`; 400 `unsupported_grant_type` for any other grant;
+        400 `invalid_client`, without `WWW-Authenticate`, for a well-formed
+        client identifier that is unknown, deleted or not a public client; 400
+        `invalid_grant` for a code or refresh token that is unknown, expired,
+        replayed, revoked or bound to anything else; 400 `invalid_scope` for a
+        narrowing that is not a subset containing `openid`; 503
+        `temporarily_unavailable` when the worker already has 64
+        public-protocol requests in progress; and 500 `server_error` for an
+        internal failure.
+      x-abandonauth-served: false
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              anyOf:
+                - $ref: "#/components/schemas/AuthorizationCodeGrant"
+                - $ref: "#/components/schemas/RefreshTokenGrant"
+      responses:
+        "200":
+          description: The issued tokens.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+            Pragma:
+              $ref: "#/components/headers/PragmaNoCache"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenSet"
+        "400":
+          $ref: "#/components/responses/OAuthTokenRefused"
+        "500":
+          $ref: "#/components/responses/OAuthServerError"
+        "503":
+          $ref: "#/components/responses/OAuthTemporarilyUnavailable"
+
+  /api/oauth/userinfo:
+    get:
+      tags: [OpenID Connect]
+      summary: Describe the person an OIDC access token was issued for
+      description: >-
+        Return `sub`, the pairwise subject for the token's client, and
+        `preferred_username` only when `profile` was granted. No other claim
+        is ever returned. A username can be the same at every application, so
+        it can be correlated across them; the pairwise subject cannot.
+
+
+        Only an `OIDCAccessToken` is accepted. Its signature is checked against
+        the access token key set, and its issuer, audience, `typ` `at+jwt`,
+        exact fifteen-minute validity, the `openid` scope, auth epoch,
+        revocation, its public client, its user and the pairwise subject
+        mapping are all checked before anything is returned. An ID token, a
+        `UserAccessToken` and a `DeveloperApplicationAccessToken` are refused.
+        AbandonAuth refuses a token at once after it is revoked, its family or
+        application or user is deleted, or authority is rotated.
+
+
+        A missing, malformed, expired, revoked, wrong-class, wrong-client or
+        otherwise invalid token is answered 401 `invalid_token` with the fixed
+        challenge `WWW-Authenticate: Bearer error="invalid_token"`; a token
+        without the `openid` scope is answered 403 `insufficient_scope` with
+        its own fixed challenge. Neither challenge quotes the token or a
+        claim. When the worker already has 64 public-protocol requests in
+        progress the answer is 503 `temporarily_unavailable`, and an internal
+        failure is 500 `server_error`.
+      x-abandonauth-served: false
+      security:
+        - OIDCAccessToken: []
+      responses:
+        "200":
+          description: The claims the token's grant releases.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+            Pragma:
+              $ref: "#/components/headers/PragmaNoCache"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserInfo"
+        "401":
+          $ref: "#/components/responses/OAuthInvalidToken"
+        "403":
+          $ref: "#/components/responses/OAuthInsufficientScope"
+        "500":
+          $ref: "#/components/responses/OAuthServerError"
+        "503":
+          $ref: "#/components/responses/OAuthTemporarilyUnavailable"
+
+  /api/oauth/revoke:
+    post:
+      tags: [OpenID Connect]
+      summary: Revoke a refresh token or an OIDC access token
+      description: >-
+        Revoke a token a public client holds. Client authentication is
+        `none`. The body carries `client_id`, `token` and any number of
+        `token_type_hint` fields, under the same form rules as
+        `POST /api/oauth/token`: `application/x-www-form-urlencoded`, at most
+        16,384 bytes and 16 fields, names of at most 64 bytes, unknown fields
+        ignored, recognized fields at most once, a malformed body refused
+        whole, and the query never read.
+
+
+        `token_type_hint` is accepted and completely ignored: omitted, empty,
+        repeated, unknown, encoded or differently cased hints all behave
+        exactly as no hint, though they count toward the size and field
+        limits. Both supported token classes are always checked.
+
+
+        A refresh token revokes its whole family at once. An OIDC access
+        token's identifier is recorded so that UserInfo refuses it at once; a
+        resource server validating it locally still accepts it until it
+        expires fifteen minutes after issue.
+
+
+        A well-formed request is answered with the same empty 200 when the
+        token was revoked, was already revoked, was never issued, belongs to
+        another application or class, or names an unknown, deleted or
+        confidential application. The single exception: one person and one
+        application hold at most 1,000 revoked access tokens that have not yet
+        expired, a deliberately high fixed ceiling against abuse. Revoking a
+        genuine, unexpired access token beyond it is answered 503
+        `temporarily_unavailable` and the token is not recorded as revoked;
+        only a caller already holding that valid token can observe this.
+
+
+        A malformed field, body or content type is answered 400
+        `invalid_request`; more than 64 public-protocol requests in progress
+        on the worker 503 `temporarily_unavailable`; and an internal failure
+        500 `server_error`. Every answer carries `Cache-Control: no-store` and
+        `Pragma: no-cache`.
+      x-abandonauth-served: false
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/TokenRevocation"
+      responses:
+        "200":
+          description: The token is no longer accepted by AbandonAuth. The response has no body.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+            Pragma:
+              $ref: "#/components/headers/PragmaNoCache"
+        "400":
+          $ref: "#/components/responses/OAuthInvalidRequest"
+        "500":
+          $ref: "#/components/responses/OAuthServerError"
+        "503":
+          $ref: "#/components/responses/OAuthTemporarilyUnavailable"
 
   /api/create_test_user:
     post:
@@ -938,7 +1704,8 @@ components:
         token for any still-registered application carrying `identify`, others
         only a token for the AbandonAuth site carrying `abandonauth`. This
         token is never accepted where a `DeveloperApplicationAccessToken` is
-        required, and that token is never accepted in its place.
+        required, and that token is never accepted in its place. Nor is an
+        `OIDCAccessToken`.
       scheme: bearer
       type: http
     DeveloperApplicationAccessToken:
@@ -956,7 +1723,37 @@ components:
 
 
         This token is never accepted where a `UserAccessToken` is required,
-        and that token is never accepted in its place.
+        and that token is never accepted in its place. Nor is an
+        `OIDCAccessToken`. A public client can never obtain this token.
+      scheme: bearer
+      type: http
+    OIDCAccessToken:
+      bearerFormat: JWT
+      description: >-
+        An RFC 9068 access token issued to a public client at
+        `POST /api/oauth/token`, sent in the `Authorization` header with the
+        `Bearer` scheme. Its header carries `typ` `at+jwt`, `alg` `RS256` and
+        the `kid` of a key published only at `GET /api/oauth/access-jwks`. Its
+        issuer is the OpenID issuer, its subject the pairwise subject, its
+        audience the client identifier as one string, and it carries `iat`,
+        `nbf`, `exp`, a UUID `jti`, `client_id`, the canonical granted `scope`
+        and `auth_epoch`, and never a username or an AbandonAuth user
+        identifier. It expires exactly fifteen minutes after it is issued.
+
+
+        AbandonAuth's own UserInfo refuses it at once after revocation,
+        deletion of its application or user, or authority rotation. A resource
+        server validating it locally cannot learn of those and accepts a
+        correctly signed token until it expires: within this profile a token
+        stays usable elsewhere for up to fifteen minutes after it is withdrawn.
+        Validators allow no clock tolerance, so any real clock error adds
+        directly to that window and synchronized UTC clocks are an operator
+        responsibility.
+
+
+        This token is never accepted where a `UserAccessToken` or a
+        `DeveloperApplicationAccessToken` is required, and neither of those is
+        ever accepted in its place.
       scheme: bearer
       type: http
     BrowserSession:
@@ -974,9 +1771,11 @@ components:
         `Secure`, `SameSite=Lax`, `Path=/` and no `Domain`. Beside it the
         readable `__Host-abandonauth_csrf` cookie, with the same attributes
         except `HttpOnly`, carries the CSRF token the site copies into a
-        header. Only when the site itself is on a loopback address without TLS
-        are the cookies named `abandonauth_session` and `abandonauth_csrf`,
-        without the `__Host-` prefix or `Secure`.
+        header. Only in a development build running in debug mode with the
+        site itself on a loopback address without TLS are the cookies named
+        `abandonauth_session` and `abandonauth_csrf`, without the `__Host-`
+        prefix or `Secure`. A deployment build always sets the prefixed
+        `Secure` cookies, on a loopback HTTPS origin too.
 
 
         A browser-authenticated request that changes state additionally
@@ -1173,6 +1972,139 @@ components:
         bound to the server-side session.
       schema:
         type: string
+    AuthorizationResponseType:
+      name: response_type
+      in: query
+      required: true
+      description: Exactly `code`, once.
+      schema:
+        type: string
+        enum: [code]
+    AuthorizationClientID:
+      name: client_id
+      in: query
+      required: true
+      description: >-
+        The public client's identifier, once, as a canonical lower-case
+        hyphenated 36-character UUID.
+      schema:
+        type: string
+        format: uuid
+        pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    AuthorizationRedirectURI:
+      name: redirect_uri
+      in: query
+      required: true
+      description: >-
+        One of the client's registered loopback templates with exactly one
+        numeric port from 1 through 65535 added and nothing else changed, at
+        most 2,048 UTF-8 bytes once decoded. Its exact spelling is stored and
+        must be presented again, byte for byte, when the code is redeemed.
+      schema:
+        type: string
+    AuthorizationScope:
+      name: scope
+      in: query
+      required: true
+      description: >-
+        `openid`, optionally with `profile` and `offline_access`, separated by
+        single spaces with none leading or trailing and none repeated, at most
+        64 bytes. Granted scopes are always reported in the order `openid
+        profile offline_access` with ungranted ones omitted. `profile`
+        releases `preferred_username`; `offline_access` issues a refresh
+        token.
+      schema:
+        type: string
+        maxLength: 64
+    AuthorizationState:
+      name: state
+      in: query
+      required: true
+      description: >-
+        The client's own unpredictable value, returned unchanged in the
+        authorization response: 43 to 128 unpadded base64url characters.
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9_-]{43,128}$"
+    AuthorizationNonce:
+      name: nonce
+      in: query
+      required: true
+      description: >-
+        The client's own unpredictable value, returned in the ID token issued
+        for the code: 43 to 128 unpadded base64url characters.
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9_-]{43,128}$"
+    AuthorizationCodeChallenge:
+      name: code_challenge
+      in: query
+      required: true
+      description: >-
+        The RFC 7636 `S256` challenge: the unpadded base64url SHA-256 of the
+        client's verifier, exactly 43 characters.
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9_-]{43}$"
+    AuthorizationCodeChallengeMethod:
+      name: code_challenge_method
+      in: query
+      required: true
+      description: >-
+        Exactly `S256`. `plain` and an omitted method are refused, so no
+        challenge can be downgraded.
+      schema:
+        type: string
+        enum: [S256]
+    AuthorizationResponseMode:
+      name: response_mode
+      in: query
+      required: false
+      description: Exactly `query` when present.
+      schema:
+        type: string
+        enum: [query]
+    AuthorizationRequestHandle:
+      name: request
+      in: path
+      required: true
+      description: >-
+        The opaque page handle the authorization page read from its address
+        fragment: exactly 43 unpadded base64url characters. It is single-use,
+        stored only as a digest, and expires with its authorization five
+        minutes after it began.
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9_-]{43}$"
+    NativeAuthorizationBinding:
+      name: __Host-abandonauth_native_oauth
+      in: cookie
+      required: true
+      description: >-
+        The browser binding a public client's authorization was started with.
+        It holds a random value; the server stores only its digest. It is
+        separate from the cookie a confidential sign-in uses, so authorizations
+        and sign-ins in other tabs never overwrite one another. It carries
+        `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` and no `Domain`, and
+        expires five minutes after it was last set. Only in a development
+        build running in debug mode with the site on a loopback address
+        without TLS is it named `abandonauth_native_oauth`, without the
+        `__Host-` prefix or `Secure`. Several cookies of this name with
+        different values, or a malformed value, match nothing.
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9_-]{43}$"
+    NativeAuthorizationBindingOptional:
+      name: __Host-abandonauth_native_oauth
+      in: cookie
+      required: false
+      description: >-
+        A binding this browser already holds from another public client
+        authorization begun within five minutes. When it is syntactically
+        valid it is reused and its expiry renewed; otherwise a new one is
+        issued. See `NativeAuthorizationBinding`.
+      schema:
+        type: string
 
   headers:
     Location:
@@ -1184,6 +2116,46 @@ components:
       schema:
         type: integer
         minimum: 1
+    CacheControlNoStore:
+      description: The answer must not be stored by any cache.
+      schema:
+        type: string
+        enum: [no-store]
+    CacheControlFiveMinutes:
+      description: The answer may be cached for five minutes.
+      schema:
+        type: string
+        enum: ["public, max-age=300"]
+    PragmaNoCache:
+      description: The answer must not be cached, for caches that read only this header.
+      schema:
+        type: string
+        enum: [no-cache]
+    ReferrerPolicyNoReferrer:
+      description: No address is sent as a referrer from what this answer leads to.
+      schema:
+        type: string
+        enum: [no-referrer]
+    FrameOptionsDeny:
+      description: The answer may not be displayed in a frame.
+      schema:
+        type: string
+        enum: [DENY]
+    ContentSecurityPolicyNoFraming:
+      description: No page may frame the answer.
+      schema:
+        type: string
+        enum: ["frame-ancestors 'none'"]
+    InvalidTokenChallenge:
+      description: The fixed challenge. It never quotes the token or a claim.
+      schema:
+        type: string
+        enum: ['Bearer error="invalid_token"']
+    InsufficientScopeChallenge:
+      description: The fixed challenge. It never quotes the token or a claim.
+      schema:
+        type: string
+        enum: ['Bearer error="insufficient_scope", scope="openid"']
 
   schemas:
     TokenResponse:
@@ -1203,10 +2175,18 @@ components:
           format: uuid
         username:
           type: string
+    ClientType:
+      type: string
+      enum: [confidential, public]
+      description: >-
+        The RFC 6749 client type, fixed when the application is registered. A
+        `confidential` application is a server-side application that can
+        protect a credential. A `public` client is an installed application
+        that cannot protect a shared credential and holds none.
     DeveloperApplication:
       type: object
       description: A developer application.
-      required: [id, name, owner_id]
+      required: [id, name, owner_id, client_type]
       properties:
         id:
           type: string
@@ -1216,10 +2196,12 @@ components:
         owner_id:
           type: string
           format: uuid
+        client_type:
+          $ref: "#/components/schemas/ClientType"
     DeveloperApplicationWithCallbackURIs:
       type: object
       description: A developer application and the exact URIs it may be returned to.
-      required: [id, name, owner_id, callback_uris]
+      required: [id, name, owner_id, client_type, callback_uris]
       properties:
         id:
           type: string
@@ -1229,6 +2211,8 @@ components:
         owner_id:
           type: string
           format: uuid
+        client_type:
+          $ref: "#/components/schemas/ClientType"
         callback_uris:
           type: array
           items:
@@ -1236,10 +2220,10 @@ components:
     DeveloperApplicationWithCredential:
       type: object
       description: >-
-        A developer application and its refresh token. The refresh token is
-        returned only once, in this answer; it is stored as a hash and cannot
-        be read back.
-      required: [id, name, owner_id, token]
+        A confidential developer application and its refresh token. The
+        refresh token is returned only once, in this answer; it is stored as a
+        hash and cannot be read back.
+      required: [id, name, owner_id, client_type, token]
       properties:
         id:
           type: string
@@ -1249,16 +2233,49 @@ components:
         owner_id:
           type: string
           format: uuid
+        client_type:
+          type: string
+          enum: [confidential]
         token:
           type: string
           description: The application's refresh token.
-    DeveloperApplicationName:
+    RegisteredDeveloperApplication:
       type: object
-      description: The name a new developer application is registered under.
+      description: >-
+        A newly registered developer application. A confidential application's
+        answer carries its refresh token, returned only once; it is stored as
+        a hash and cannot be read back. A public client's answer carries no
+        `token`, because it has no credential.
+      required: [id, name, owner_id, client_type]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        owner_id:
+          type: string
+          format: uuid
+        client_type:
+          $ref: "#/components/schemas/ClientType"
+        token:
+          type: string
+          description: >-
+            The application's refresh token. Present exactly when
+            `client_type` is `confidential`.
+    DeveloperApplicationRegistration:
+      type: object
+      description: The developer application to register.
       required: [name]
       properties:
         name:
           type: string
+        client_type:
+          type: string
+          enum: [confidential, public]
+          description: >-
+            The application's client type, which can never be changed. When
+            omitted the application is `confidential`.
     DeveloperApplicationCredentials:
       type: object
       description: A developer application's identifier and refresh token.
@@ -1341,6 +2358,464 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/InputFailure"
+    OpenIDProviderMetadata:
+      type: object
+      description: >-
+        Exactly these members, describing exactly the implemented profile.
+        Every address is the issuer followed by a fixed path.
+      additionalProperties: false
+      required:
+        - issuer
+        - authorization_endpoint
+        - token_endpoint
+        - userinfo_endpoint
+        - revocation_endpoint
+        - jwks_uri
+        - access_token_jwks_uri
+        - response_types_supported
+        - response_modes_supported
+        - grant_types_supported
+        - subject_types_supported
+        - id_token_signing_alg_values_supported
+        - scopes_supported
+        - token_endpoint_auth_methods_supported
+        - revocation_endpoint_auth_methods_supported
+        - code_challenge_methods_supported
+        - authorization_response_iss_parameter_supported
+      properties:
+        issuer:
+          type: string
+          description: >-
+            `ABANDON_AUTH_URL` followed by `/api`, in the origin's registered
+            spelling and with no trailing slash.
+        authorization_endpoint:
+          type: string
+          description: The issuer followed by `/oauth/authorize`.
+        token_endpoint:
+          type: string
+          description: The issuer followed by `/oauth/token`.
+        userinfo_endpoint:
+          type: string
+          description: The issuer followed by `/oauth/userinfo`.
+        revocation_endpoint:
+          type: string
+          description: The issuer followed by `/oauth/revoke`.
+        jwks_uri:
+          type: string
+          description: >-
+            The issuer followed by `/oidc/jwks`: the ID token key set, and only
+            that.
+        access_token_jwks_uri:
+          type: string
+          description: >-
+            The issuer followed by `/oauth/access-jwks`: the access token key
+            set, and only that. A resource server validates access tokens
+            against this set alone.
+        response_types_supported:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            type: string
+            enum: [code]
+        response_modes_supported:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            type: string
+            enum: [query]
+        grant_types_supported:
+          type: array
+          description: Exactly `authorization_code` then `refresh_token`.
+          minItems: 2
+          maxItems: 2
+          uniqueItems: true
+          items:
+            type: string
+            enum: [authorization_code, refresh_token]
+        subject_types_supported:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            type: string
+            enum: [pairwise]
+        id_token_signing_alg_values_supported:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            type: string
+            enum: [RS256]
+        scopes_supported:
+          type: array
+          description: Exactly `openid`, `profile` then `offline_access`.
+          minItems: 3
+          maxItems: 3
+          uniqueItems: true
+          items:
+            type: string
+            enum: [openid, profile, offline_access]
+        token_endpoint_auth_methods_supported:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            type: string
+            enum: [none]
+        revocation_endpoint_auth_methods_supported:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            type: string
+            enum: [none]
+        code_challenge_methods_supported:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            type: string
+            enum: [S256]
+        authorization_response_iss_parameter_supported:
+          type: boolean
+          enum: [true]
+    JSONWebKeySet:
+      type: object
+      description: One purpose's public verification keys, and nothing else.
+      additionalProperties: false
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          minItems: 1
+          maxItems: 8
+          items:
+            $ref: "#/components/schemas/RSAPublicJSONWebKey"
+    RSAPublicJSONWebKey:
+      type: object
+      description: >-
+        One public RSA signing key with exactly these members. No private
+        member is ever published.
+      additionalProperties: false
+      required: [kid, kty, use, alg, n, e]
+      properties:
+        kid:
+          type: string
+          description: The RFC 7638 thumbprint of `kty`, `n` and `e`.
+          pattern: "^[A-Za-z0-9_-]{43}$"
+        kty:
+          type: string
+          enum: [RSA]
+        use:
+          type: string
+          enum: [sig]
+        alg:
+          type: string
+          enum: [RS256]
+        n:
+          type: string
+          description: The modulus, unpadded base64url, of at least 2048 bits.
+          pattern: "^[A-Za-z0-9_-]+$"
+        e:
+          type: string
+          description: The public exponent, unpadded base64url.
+          pattern: "^[A-Za-z0-9_-]+$"
+    PendingAuthorization:
+      type: object
+      description: >-
+        What the authorization page displays, and nothing else. The offline
+        session it describes lasts up to 90 days; one person can hold ten
+        active offline sessions with one application, and another grant ends
+        the least recently created. `profile` releases the username, which
+        can be the same at every application.
+      additionalProperties: false
+      required: [application_name, scopes, expires_at, providers]
+      properties:
+        application_name:
+          type: string
+          description: The name the application was registered under, to be shown as text.
+        scopes:
+          type: array
+          description: The requested scopes, in the order `openid`, `profile`, `offline_access`.
+          minItems: 1
+          maxItems: 3
+          uniqueItems: true
+          items:
+            type: string
+            enum: [openid, profile, offline_access]
+        expires_at:
+          type: string
+          format: date-time
+          description: >-
+            When the request expires: five minutes after the authorization
+            began, in UTC, with whole seconds and a trailing `Z`.
+          pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        providers:
+          type: array
+          description: Exactly `discord`, `github`, `google` then `steam`.
+          minItems: 4
+          maxItems: 4
+          uniqueItems: true
+          items:
+            type: string
+            enum: [discord, github, google, steam]
+    AuthorizationCodeGrant:
+      type: object
+      description: >-
+        Redeem a native authorization code. Each member appears exactly once.
+      required: [grant_type, client_id, code, redirect_uri, code_verifier]
+      properties:
+        grant_type:
+          type: string
+          enum: [authorization_code]
+        client_id:
+          type: string
+          format: uuid
+          pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        code:
+          type: string
+          description: The authorization code, exactly 43 unpadded base64url characters.
+          pattern: "^[A-Za-z0-9_-]{43}$"
+        redirect_uri:
+          type: string
+          description: >-
+            Byte for byte the redirect URI, port included, the authorization
+            was begun with, at most 2,048 UTF-8 bytes.
+        code_verifier:
+          type: string
+          description: The RFC 7636 verifier, 43 to 128 unreserved characters.
+          pattern: "^[A-Za-z0-9._~-]{43,128}$"
+    RefreshTokenGrant:
+      type: object
+      description: >-
+        Rotate a refresh token. Each member appears at most once.
+      required: [grant_type, client_id, refresh_token]
+      properties:
+        grant_type:
+          type: string
+          enum: [refresh_token]
+        client_id:
+          type: string
+          format: uuid
+          pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        refresh_token:
+          type: string
+          description: The refresh token, exactly 43 unpadded base64url characters.
+          pattern: "^[A-Za-z0-9_-]{43}$"
+        scope:
+          type: string
+          description: >-
+            A narrowing of the granted scopes that still contains `openid`,
+            under the same spelling rules as the authorization request. When
+            omitted the grant is kept.
+          maxLength: 64
+    TokenRevocation:
+      type: object
+      description: A token to revoke. `client_id` and `token` appear exactly once.
+      required: [client_id, token]
+      properties:
+        client_id:
+          type: string
+          format: uuid
+          pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        token:
+          type: string
+          description: A refresh token or an OIDC access token, at most 8,192 bytes.
+          maxLength: 8192
+        token_type_hint:
+          type: string
+          description: >-
+            Accepted any number of times with any value, and never read: it
+            neither selects nor suppresses a lookup.
+    TokenSet:
+      type: object
+      description: >-
+        Exactly these members. `refresh_token` and `refresh_token_expires_in`
+        are present exactly when `offline_access` is granted.
+      additionalProperties: false
+      required: [access_token, token_type, expires_in, id_token, scope]
+      properties:
+        access_token:
+          type: string
+          description: An `OIDCAccessToken`, whose claims are `AccessTokenClaims`.
+          maxLength: 8192
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_in:
+          type: integer
+          description: The access token's lifetime in seconds, always 900.
+          enum: [900]
+        id_token:
+          type: string
+          description: An ID token, whose claims are `IDTokenClaims`.
+          maxLength: 8192
+        scope:
+          type: string
+          description: >-
+            The granted scopes in the order `openid profile offline_access`,
+            ungranted ones omitted.
+        refresh_token:
+          type: string
+          description: >-
+            The opaque rotating refresh token, exactly 43 unpadded base64url
+            characters. Store it in the operating system's secure storage.
+          pattern: "^[A-Za-z0-9_-]{43}$"
+        refresh_token_expires_in:
+          type: integer
+          description: >-
+            Whole seconds until this refresh token expires, measured by the
+            database clock of the issuing transaction and rounded down.
+          minimum: 1
+          maximum: 2592000
+    IDTokenClaims:
+      type: object
+      description: >-
+        The payload of an ID token, with exactly these claims. Its header
+        carries `alg` `RS256`, `typ` `JWT` and the `kid` of a key in the ID
+        token key set at `jwks_uri`. It is valid for exactly five minutes from
+        `iat`. A validator rejects `typ` `at+jwt` and any access token claim.
+      additionalProperties: false
+      required: [iss, sub, aud, exp, iat, auth_time]
+      properties:
+        iss:
+          type: string
+          description: The issuer.
+        sub:
+          $ref: "#/components/schemas/PairwiseSubject"
+        aud:
+          type: string
+          description: The client identifier, as one string.
+        exp:
+          type: integer
+        iat:
+          type: integer
+        auth_time:
+          type: integer
+          description: When the provider authenticated the person, kept across refreshes.
+        nonce:
+          type: string
+          description: >-
+            The authorization request's nonce. Present on the ID token issued
+            for a code and absent from every refreshed ID token.
+        preferred_username:
+          type: string
+          description: Present only when `profile` is granted.
+    AccessTokenClaims:
+      type: object
+      description: >-
+        The payload of an `OIDCAccessToken`, with exactly these claims. Its
+        header carries `typ` `at+jwt`, `alg` `RS256` and the `kid` of a key in
+        the access token key set at `access_token_jwks_uri`. `nbf` and `iat`
+        are equal and `exp` is exactly 900 seconds later; validators allow no
+        clock tolerance. A resource server requires `auth_epoch`, `client_id`
+        and `jti` to be canonical lower-case UUIDs but does not compare
+        `auth_epoch` with the current authority: the token stays valid until
+        it expires.
+      additionalProperties: false
+      required: [iss, sub, aud, client_id, scope, jti, auth_epoch, iat, nbf, exp]
+      properties:
+        iss:
+          type: string
+          description: The issuer.
+        sub:
+          $ref: "#/components/schemas/PairwiseSubject"
+        aud:
+          type: string
+          description: The client identifier, as one string.
+        client_id:
+          type: string
+          format: uuid
+        scope:
+          type: string
+          description: The granted scopes in canonical order.
+        jti:
+          type: string
+          format: uuid
+        auth_epoch:
+          type: string
+          format: uuid
+        iat:
+          type: integer
+        nbf:
+          type: integer
+        exp:
+          type: integer
+    PairwiseSubject:
+      type: string
+      description: >-
+        The person's identifier at one application: 32 random bytes as exactly
+        43 unpadded base64url characters, stable for that person and
+        application, different at every other application, and never the
+        AbandonAuth user identifier.
+      pattern: "^[A-Za-z0-9_-]{43}$"
+    UserInfo:
+      type: object
+      description: The claims an `OIDCAccessToken`'s grant releases, and no others.
+      additionalProperties: false
+      required: [sub]
+      properties:
+        sub:
+          $ref: "#/components/schemas/PairwiseSubject"
+        preferred_username:
+          type: string
+          description: Present only when `profile` is granted.
+    OAuthErrorInvalidRequest:
+      type: object
+      description: An OAuth refusal with only its code and no description.
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum: [invalid_request]
+    OAuthErrorToken:
+      type: object
+      description: An OAuth refusal with only its code and no description.
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum: [invalid_request, unsupported_grant_type, invalid_client, invalid_grant, invalid_scope]
+    OAuthErrorServer:
+      type: object
+      description: An OAuth refusal with only its code and no description.
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum: [server_error]
+    OAuthErrorTemporarilyUnavailable:
+      type: object
+      description: An OAuth refusal with only its code and no description.
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum: [temporarily_unavailable]
+    OAuthErrorInvalidToken:
+      type: object
+      description: An OAuth refusal with only its code and no description.
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum: [invalid_token]
+    OAuthErrorInsufficientScope:
+      type: object
+      description: An OAuth refusal with only its code and no description.
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum: [insufficient_scope]
 
   responses:
     BadRequest:
@@ -1428,3 +2903,191 @@ components:
       headers:
         Location:
           $ref: "#/components/headers/Location"
+    PublicClientHasNoCredential:
+      description: >-
+        The application is a public client, which has no credential to
+        replace. The detail is always `Public client has no credential`, and
+        nothing is changed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Failure"
+    AuthorizationRequestUnavailable:
+      description: >-
+        No pending authorization matches: the handle is unknown, expired,
+        consumed or malformed, or this browser does not hold the binding it
+        was bound to. Every case receives the same detail, `Authorization
+        request unavailable`, and nothing is consumed.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControlNoStore"
+        Referrer-Policy:
+          $ref: "#/components/headers/ReferrerPolicyNoReferrer"
+        X-Frame-Options:
+          $ref: "#/components/headers/FrameOptionsDeny"
+        Content-Security-Policy:
+          $ref: "#/components/headers/ContentSecurityPolicyNoFraming"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Failure"
+    AuthorizationRequestForbidden:
+      description: >-
+        The request did not carry exactly the AbandonAuth site's `Origin`. The
+        detail is always `Authorization request forbidden`, and nothing is
+        consumed.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControlNoStore"
+        Referrer-Policy:
+          $ref: "#/components/headers/ReferrerPolicyNoReferrer"
+        X-Frame-Options:
+          $ref: "#/components/headers/FrameOptionsDeny"
+        Content-Security-Policy:
+          $ref: "#/components/headers/ContentSecurityPolicyNoFraming"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Failure"
+    ServiceTemporarilyUnavailable:
+      description: >-
+        The worker already has 64 public-protocol requests in progress. The
+        detail is always `Service temporarily unavailable`; nothing was read,
+        consumed or changed, and the request can be retried.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Failure"
+    OAuthInvalidRequest:
+      description: >-
+        The request was malformed. For `GET /api/oauth/authorize` this is the
+        direct refusal of an unproven client or redirect, sent with no
+        `Location`.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControlNoStore"
+        Pragma:
+          $ref: "#/components/headers/PragmaNoCache"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OAuthErrorInvalidRequest"
+    OAuthTokenRefused:
+      description: >-
+        The token request was refused. The code says why, as the operation
+        describes; nothing else is disclosed.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControlNoStore"
+        Pragma:
+          $ref: "#/components/headers/PragmaNoCache"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OAuthErrorToken"
+    OAuthServerError:
+      description: The request could not be answered. Nothing about the cause is disclosed.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControlNoStore"
+        Pragma:
+          $ref: "#/components/headers/PragmaNoCache"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OAuthErrorServer"
+    OAuthTemporarilyUnavailable:
+      description: >-
+        The worker already has 64 public-protocol requests in progress, or,
+        for revocation, the fixed ceiling of revoked access tokens is reached.
+        Nothing was consumed, and the request can be retried.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControlNoStore"
+        Pragma:
+          $ref: "#/components/headers/PragmaNoCache"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OAuthErrorTemporarilyUnavailable"
+    OAuthInvalidToken:
+      description: The access token was missing or is not accepted.
+      headers:
+        WWW-Authenticate:
+          $ref: "#/components/headers/InvalidTokenChallenge"
+        Cache-Control:
+          $ref: "#/components/headers/CacheControlNoStore"
+        Pragma:
+          $ref: "#/components/headers/PragmaNoCache"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OAuthErrorInvalidToken"
+    OAuthInsufficientScope:
+      description: The access token does not carry the `openid` scope.
+      headers:
+        WWW-Authenticate:
+          $ref: "#/components/headers/InsufficientScopeChallenge"
+        Cache-Control:
+          $ref: "#/components/headers/CacheControlNoStore"
+        Pragma:
+          $ref: "#/components/headers/PragmaNoCache"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OAuthErrorInsufficientScope"
+    AuthorizationStarted:
+      description: >-
+        On success, the browser is sent to the AbandonAuth site's origin
+        followed by `/authorize#request=` and the page handle, and receives
+        the binding cookie. On a refusal after the client and redirect are
+        proven, it is sent to the exact redirect with only `error`, the valid
+        `state` and `iss`. The response has no body.
+      headers:
+        Location:
+          $ref: "#/components/headers/Location"
+        Cache-Control:
+          $ref: "#/components/headers/CacheControlNoStore"
+        Referrer-Policy:
+          $ref: "#/components/headers/ReferrerPolicyNoReferrer"
+        X-Frame-Options:
+          $ref: "#/components/headers/FrameOptionsDeny"
+        Content-Security-Policy:
+          $ref: "#/components/headers/ContentSecurityPolicyNoFraming"
+    RedirectFromPageToProvider:
+      description: >-
+        The browser is sent to the provider's fixed HTTPS authorization
+        address, carrying only the opaque provider state, the PKCE challenge
+        for an OAuth provider and, for Google, the nonce; Steam is sent only
+        the opaque state, inside the return address. The response has no
+        body.
+      headers:
+        Location:
+          $ref: "#/components/headers/Location"
+        Cache-Control:
+          $ref: "#/components/headers/CacheControlNoStore"
+        Referrer-Policy:
+          $ref: "#/components/headers/ReferrerPolicyNoReferrer"
+        X-Frame-Options:
+          $ref: "#/components/headers/FrameOptionsDeny"
+        Content-Security-Policy:
+          $ref: "#/components/headers/ContentSecurityPolicyNoFraming"
+    RedirectToPublicClient:
+      description: >-
+        The browser is sent to the public client's validated loopback redirect,
+        rebuilt from its exact stored spelling with no existing byte
+        rewritten and each response parameter encoded and appended: `code`,
+        `state` and `iss` on success, or `error`, `state` and `iss` on a
+        refusal. No token is ever put in this address. The response has no
+        body.
+      headers:
+        Location:
+          $ref: "#/components/headers/Location"
+        Cache-Control:
+          $ref: "#/components/headers/CacheControlNoStore"
+        Referrer-Policy:
+          $ref: "#/components/headers/ReferrerPolicyNoReferrer"
+        X-Frame-Options:
+          $ref: "#/components/headers/FrameOptionsDeny"
+        Content-Security-Policy:
+          $ref: "#/components/headers/ContentSecurityPolicyNoFraming"

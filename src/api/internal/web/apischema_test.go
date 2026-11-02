@@ -62,6 +62,7 @@ type openAPIOperation struct {
 	Summary     string                     `yaml:"summary"`
 	Description string                     `yaml:"description"`
 	Build       string                     `yaml:"x-abandonauth-build"`
+	Served      *bool                      `yaml:"x-abandonauth-served"`
 	Security    *[]map[string][]string     `yaml:"security"`
 	Parameters  []openAPIParameter         `yaml:"parameters"`
 	RequestBody *openAPIRequestBody        `yaml:"requestBody"`
@@ -101,16 +102,29 @@ type openAPIHeader struct {
 }
 
 type openAPISchema struct {
-	Ref         string                   `yaml:"$ref"`
-	Type        string                   `yaml:"type"`
-	Format      string                   `yaml:"format"`
-	Description string                   `yaml:"description"`
-	Required    []string                 `yaml:"required"`
-	Properties  map[string]openAPISchema `yaml:"properties"`
-	Items       *openAPISchema           `yaml:"items"`
-	AnyOf       []openAPISchema          `yaml:"anyOf"`
-	Enum        []string                 `yaml:"enum"`
-	Minimum     *int                     `yaml:"minimum"`
+	Ref                  string                   `yaml:"$ref"`
+	Type                 string                   `yaml:"type"`
+	Format               string                   `yaml:"format"`
+	Description          string                   `yaml:"description"`
+	Required             []string                 `yaml:"required"`
+	Properties           map[string]openAPISchema `yaml:"properties"`
+	AdditionalProperties *bool                    `yaml:"additionalProperties"`
+	Items                *openAPISchema           `yaml:"items"`
+	AnyOf                []openAPISchema          `yaml:"anyOf"`
+	Enum                 []any                    `yaml:"enum"`
+	Pattern              string                   `yaml:"pattern"`
+	Minimum              *int                     `yaml:"minimum"`
+	Maximum              *int                     `yaml:"maximum"`
+	MaxLength            *int                     `yaml:"maxLength"`
+	MinItems             *int                     `yaml:"minItems"`
+	MaxItems             *int                     `yaml:"maxItems"`
+	UniqueItems          bool                     `yaml:"uniqueItems"`
+}
+
+// unserved reports whether the contract describes an operation before any build
+// declares its route. Only the exact value false says so.
+func (o openAPIOperation) unserved() bool {
+	return o.Served != nil && !*o.Served
 }
 
 func canonicalOpenAPI(t *testing.T) openAPIDocument {
@@ -325,7 +339,10 @@ func TestAPISchemaIsOpenAPIDocument(t *testing.T) {
 		tags = append(tags, tag.Name)
 	}
 
-	want := []string{"Users", "Authentication", "Developer Applications", "Provider Callbacks", "Development Sign-In"}
+	want := []string{
+		"Users", "Authentication", "Developer Applications", "Provider Callbacks",
+		"OpenID Connect", "Authorization Page", "Development Sign-In",
+	}
 	if !slices.Equal(tags, want) {
 		t.Errorf("tags = %v, want %v", tags, want)
 	}
@@ -356,8 +373,10 @@ func TestAPISchemaNamesWholeAddressesAndNoServer(t *testing.T) {
 
 // The schema and the route table are written separately, so nothing but this
 // comparison keeps the document describing what the running build serves. The
-// one permitted difference is the labelled development operations, which a
-// deployment documents and does not declare.
+// permitted differences are the labelled development operations, which a
+// deployment documents and does not declare, and an operation whose contract is
+// written before its route exists, which says so with x-abandonauth-served
+// exactly false. That value on a declared route is a contradiction.
 func TestAPISchemaDocumentsDeclaredRoutes(t *testing.T) {
 	t.Parallel()
 
@@ -386,7 +405,23 @@ func TestAPISchemaDocumentsDeclaredRoutes(t *testing.T) {
 	}
 
 	for key, operation := range operations {
+		if operation.Served != nil && *operation.Served {
+			t.Errorf("%s carries x-abandonauth-served true; a served operation carries no marker", key)
+		}
+
 		if slices.Contains(declared, key) {
+			if operation.Served != nil {
+				t.Errorf("%s is declared and still carries x-abandonauth-served", key)
+			}
+
+			continue
+		}
+
+		if operation.unserved() {
+			if operation.Build != "" || slices.Contains(developmentOperations, key) {
+				t.Errorf("%s is marked unserved and development-only at once", key)
+			}
+
 			continue
 		}
 
@@ -513,6 +548,7 @@ func TestAPISchemaAuthenticationBoundaries(t *testing.T) {
 		user        = "UserAccessToken"
 		application = "DeveloperApplicationAccessToken"
 		browser     = "BrowserSession"
+		oidcAccess  = "OIDCAccessToken"
 	)
 
 	public := []string{}
@@ -538,6 +574,16 @@ func TestAPISchemaAuthenticationBoundaries(t *testing.T) {
 		"POST /api/ui/logout":                                             {browser},
 		"POST /api/create_test_user":                                      public,
 		"POST /api/login_test_user":                                       public,
+		"GET /api/.well-known/openid-configuration":                       public,
+		"GET /api/oidc/jwks":                                              public,
+		"GET /api/oauth/access-jwks":                                      public,
+		"GET /api/oauth/authorize":                                        public,
+		"GET /api/oauth/authorization/{request}":                          public,
+		"POST /api/oauth/authorization/{request}/{provider}":              public,
+		"POST /api/oauth/authorization/{request}/cancel":                  public,
+		"POST /api/oauth/token":                                           public,
+		"GET /api/oauth/userinfo":                                         {oidcAccess},
+		"POST /api/oauth/revoke":                                          public,
 	}
 
 	document := canonicalOpenAPI(t)
@@ -594,13 +640,14 @@ func TestAPISchemaSecuritySchemes(t *testing.T) {
 
 	schemes := canonicalOpenAPI(t).Components.SecuritySchemes
 
-	if len(schemes) != 3 {
-		t.Errorf("the schema declares %d security schemes, want 3", len(schemes))
+	if len(schemes) != 4 {
+		t.Errorf("the schema declares %d security schemes, want 4", len(schemes))
 	}
 
 	for name, class := range map[string]string{
 		"UserAccessToken":                 "`user_access`",
 		"DeveloperApplicationAccessToken": "`developer_application_access`",
+		"OIDCAccessToken":                 "RFC 9068 access token",
 	} {
 		scheme := schemes[name]
 
@@ -637,6 +684,30 @@ func TestAPISchemaSecuritySchemes(t *testing.T) {
 	} {
 		if !strings.Contains(applicationToken, statement) {
 			t.Errorf("DeveloperApplicationAccessToken does not state %q", statement)
+		}
+	}
+
+	for _, name := range []string{"UserAccessToken", "DeveloperApplicationAccessToken"} {
+		if !strings.Contains(prose(schemes[name].Description), "Nor is an `OIDCAccessToken`.") {
+			t.Errorf("%s does not say an OIDC access token is refused in its place", name)
+		}
+	}
+
+	oidcToken := prose(schemes["OIDCAccessToken"].Description)
+	for _, statement := range []string{
+		"`typ` `at+jwt`, `alg` `RS256`",
+		"published only at `GET /api/oauth/access-jwks`",
+		"its subject the pairwise subject",
+		"its audience the client identifier as one string",
+		"never a username or an AbandonAuth user identifier",
+		"exactly fifteen minutes after it is issued",
+		"refuses it at once after revocation",
+		"accepts a correctly signed token until it expires",
+		"Validators allow no clock tolerance",
+		"never accepted where a `UserAccessToken` or a `DeveloperApplicationAccessToken` is required",
+	} {
+		if !strings.Contains(oidcToken, statement) {
+			t.Errorf("OIDCAccessToken does not state %q", statement)
 		}
 	}
 
@@ -720,12 +791,60 @@ func TestAPISchemaBrowserSessionContract(t *testing.T) {
 					t.Errorf("%s does not state %q", key, statement)
 				}
 			}
+		case slices.Contains(authorizationPageSubmissions, key):
+			if !hasOrigin || !origin.Required || hasCSRF {
+				t.Errorf("%s must require the exact site Origin and no CSRF token", key)
+			}
+
+			binding, bound := document.cookieParameter(t, operation, nativeBindingCookie)
+			if !bound || !binding.Required {
+				t.Errorf("%s does not require the native binding cookie", key)
+			}
+
+			for _, statement := range []string{
+				"exact site `Origin`",
+				"`NativeAuthorizationBinding` cookie",
+				"consumed atomically",
+				"exactly one succeeds",
+			} {
+				if !strings.Contains(description, statement) {
+					t.Errorf("%s does not state %q", key, statement)
+				}
+			}
 		default:
 			if (hasOrigin && origin.Required) || (hasCSRF && csrf.Required) {
 				t.Errorf("%s requires Origin or X-CSRF-Token without being a session-only change", key)
 			}
 		}
 	}
+}
+
+// authorizationPageSubmissions spend a public client's pending authorization.
+// The page submits them as forms, so the exact Origin and the binding cookie
+// stand where a session-authenticated change would need a CSRF token.
+var authorizationPageSubmissions = []string{
+	"POST /api/oauth/authorization/{request}/{provider}",
+	"POST /api/oauth/authorization/{request}/cancel",
+}
+
+// nativeBindingCookie is the published name of the cookie binding a public
+// client's authorization to the browser that began it.
+const nativeBindingCookie = "__Host-abandonauth_native_oauth"
+
+// cookieParameter returns an operation's resolved cookie parameter by name.
+func (d openAPIDocument) cookieParameter(
+	t *testing.T, operation openAPIOperation, name string,
+) (openAPIParameter, bool) {
+	t.Helper()
+
+	for _, parameter := range operation.Parameters {
+		resolved := d.parameter(t, parameter)
+		if resolved.In == "cookie" && resolved.Name == name {
+			return resolved, true
+		}
+	}
+
+	return openAPIParameter{}, false
 }
 
 // Spending a code needs proof of the collecting application, and OpenAPI can
@@ -1013,12 +1132,19 @@ func TestAPISchemaResponseConventions(t *testing.T) {
 	t.Parallel()
 
 	document := canonicalOpenAPI(t)
-	emptySuccess := []string{"POST /api/burn-token", "POST /api/ui/logout"}
+	emptySuccess := []string{"POST /api/burn-token", "POST /api/ui/logout", "POST /api/oauth/revoke"}
 
 	for key, operation := range document.operations() {
 		for status, declared := range operation.Responses {
 			response := document.response(t, declared)
 			media, hasJSON := response.Content["application/json"]
+
+			if slices.Contains(oauthOperations, key) && !strings.HasPrefix(status, "2") &&
+				!strings.HasPrefix(status, "3") {
+				expectOAuthRefusal(t, document, key, status, response)
+
+				continue
+			}
 
 			switch {
 			case strings.HasPrefix(status, "3"):
@@ -1064,6 +1190,142 @@ func TestAPISchemaResponseConventions(t *testing.T) {
 
 	if failure := document.Components.Schemas["Failure"]; !slices.Equal(failure.Required, []string{"detail"}) {
 		t.Errorf("Failure requires %v, want detail", failure.Required)
+	}
+}
+
+// oauthOperations answer a refusal with an OAuth error body rather than this
+// service's detail or input-failure bodies.
+var oauthOperations = []string{
+	"GET /api/oauth/authorize",
+	"POST /api/oauth/token",
+	"GET /api/oauth/userinfo",
+	"POST /api/oauth/revoke",
+}
+
+// expectOAuthRefusal requires an OAuth refusal to be exactly one `error` member
+// drawn from fixed codes, never a description, and never cacheable.
+func expectOAuthRefusal(t *testing.T, document openAPIDocument, key, status string, response openAPIResponse) {
+	t.Helper()
+
+	if status == "422" {
+		t.Errorf("%s documents the 422 input-failure body, which an OAuth endpoint never sends", key)
+	}
+
+	media, hasJSON := response.Content["application/json"]
+	if !hasJSON || len(response.Content) != 1 {
+		t.Errorf("%s: %s is not a JSON OAuth error", key, status)
+
+		return
+	}
+
+	if !strings.HasPrefix(media.Schema.Ref, "#/components/schemas/OAuthError") {
+		t.Errorf("%s: %s is %q, not an OAuth error body", key, status, media.Schema.Ref)
+
+		return
+	}
+
+	body := document.schema(t, media.Schema)
+	if body.AdditionalProperties == nil || *body.AdditionalProperties ||
+		!slices.Equal(body.Required, []string{"error"}) || len(body.Properties) != 1 {
+		t.Errorf("%s: %s is not exactly one error member", key, status)
+	}
+
+	if codes := body.Properties["error"].Enum; len(codes) == 0 {
+		t.Errorf("%s: %s names no fixed error code", key, status)
+	}
+
+	for header, value := range map[string]string{"Cache-Control": "no-store", "Pragma": "no-cache"} {
+		declared, found := response.Headers[header]
+		if !found || !slices.Equal(document.header(t, declared).Schema.Enum, []any{value}) {
+			t.Errorf("%s: %s does not carry %s: %s", key, status, header, value)
+		}
+	}
+}
+
+// Every OAuth refusal names one fixed code per status, and nothing the caller
+// sent: no description, no rejected value.
+func TestAPISchemaOAuthErrorCodes(t *testing.T) {
+	t.Parallel()
+
+	document := canonicalOpenAPI(t)
+
+	want := map[string]map[string][]any{
+		"GET /api/oauth/authorize": {
+			"400": {"invalid_request"},
+			"500": {"server_error"},
+			"503": {"temporarily_unavailable"},
+		},
+		"POST /api/oauth/token": {
+			"400": {"invalid_request", "unsupported_grant_type", "invalid_client", "invalid_grant", "invalid_scope"},
+			"500": {"server_error"},
+			"503": {"temporarily_unavailable"},
+		},
+		"GET /api/oauth/userinfo": {
+			"401": {"invalid_token"},
+			"403": {"insufficient_scope"},
+			"500": {"server_error"},
+			"503": {"temporarily_unavailable"},
+		},
+		"POST /api/oauth/revoke": {
+			"400": {"invalid_request"},
+			"500": {"server_error"},
+			"503": {"temporarily_unavailable"},
+		},
+	}
+
+	for key, statuses := range want {
+		operation := document.operation(t, key)
+
+		for status, codes := range statuses {
+			declared, found := operation.Responses[status]
+			if !found {
+				t.Errorf("%s does not document %s", key, status)
+
+				continue
+			}
+
+			body := document.schema(t, document.response(t, declared).Content["application/json"].Schema)
+			if got := body.Properties["error"].Enum; !slices.Equal(got, codes) {
+				t.Errorf("%s %s: codes = %v, want %v", key, status, got, codes)
+			}
+		}
+
+		for status := range operation.Responses {
+			if _, stated := statuses[status]; !stated && !strings.HasPrefix(status, "2") && !strings.HasPrefix(status, "3") {
+				t.Errorf("%s documents %s, which has no stated code", key, status)
+			}
+		}
+	}
+
+	for _, challenge := range []struct{ status, header, value string }{
+		{"401", "InvalidTokenChallenge", `Bearer error="invalid_token"`},
+		{"403", "InsufficientScopeChallenge", `Bearer error="insufficient_scope", scope="openid"`},
+	} {
+		response := document.response(t, document.operation(t, "GET /api/oauth/userinfo").Responses[challenge.status])
+
+		declared, found := response.Headers["WWW-Authenticate"]
+		if !found || declared.Ref != "#/components/headers/"+challenge.header {
+			t.Errorf("UserInfo %s does not carry the fixed challenge", challenge.status)
+
+			continue
+		}
+
+		if got := document.header(t, declared).Schema.Enum; !slices.Equal(got, []any{challenge.value}) {
+			t.Errorf("UserInfo %s challenge = %v, want exactly %q", challenge.status, got, challenge.value)
+		}
+	}
+
+	for name, schema := range document.Components.Schemas {
+		if strings.HasPrefix(name, "OAuthError") {
+			if _, described := schema.Properties["error_description"]; described {
+				t.Errorf("%s carries error_description", name)
+			}
+		}
+	}
+
+	token := document.operation(t, "POST /api/oauth/token")
+	if _, challenged := document.response(t, token.Responses["400"]).Headers["WWW-Authenticate"]; challenged {
+		t.Error("the token endpoint's invalid_client carries WWW-Authenticate")
 	}
 }
 
@@ -1120,7 +1382,8 @@ func TestAPISchemaStatesRefusalContract(t *testing.T) {
 			description string
 			wanted      []string
 		}{document.operation(t, key).Description, []string{
-			"Every failure after the state is consumed is refused with that same 403 response",
+			"For a confidential application's sign-in, every failure after the state is consumed is refused " +
+				"with that same 403 response",
 			"a provider that does not authenticate the user",
 			"a provider identity that is incomplete or cannot be stored",
 			"a stored callback that no longer passes the callback URI policy",
@@ -1370,4 +1633,649 @@ func TestEveryRouteIsUnderAPIsRouteRoot(t *testing.T) {
 			t.Errorf("route %s %s is not under %s", route.Method, route.Path(), APIRoot)
 		}
 	}
+}
+
+// expectStatements fails for every statement a description does not make.
+func expectStatements(t *testing.T, where, description string, statements ...string) {
+	t.Helper()
+
+	text := prose(description)
+
+	for _, statement := range statements {
+		if !strings.Contains(text, statement) {
+			t.Errorf("%s does not state %q", where, statement)
+		}
+	}
+}
+
+// propertyNames lists a schema's members, sorted.
+func propertyNames(schema openAPISchema) []string {
+	names := make([]string, 0, len(schema.Properties))
+	for name := range schema.Properties {
+		names = append(names, name)
+	}
+
+	slices.Sort(names)
+
+	return names
+}
+
+// expectExactObject requires a schema to be a closed object with exactly the
+// named members, of which exactly the named ones are required.
+func expectExactObject(t *testing.T, name string, schema openAPISchema, members, required []string) {
+	t.Helper()
+
+	if schema.AdditionalProperties == nil || *schema.AdditionalProperties {
+		t.Errorf("%s does not refuse members it does not name", name)
+	}
+
+	sortedMembers := slices.Sorted(slices.Values(members))
+	if got := propertyNames(schema); !slices.Equal(got, sortedMembers) {
+		t.Errorf("%s members = %v, want %v", name, got, sortedMembers)
+	}
+
+	sortedRequired := slices.Sorted(slices.Values(required))
+	if got := slices.Sorted(slices.Values(schema.Required)); !slices.Equal(got, sortedRequired) {
+		t.Errorf("%s requires %v, want %v", name, got, sortedRequired)
+	}
+}
+
+func intValue(value *int) int {
+	if value == nil {
+		return -1
+	}
+
+	return *value
+}
+
+// Each public-client operation documents exactly the statuses its handler
+// answers, and the headers that keep its answers out of caches and frames.
+func TestAPISchemaOpenIDConnectStatuses(t *testing.T) {
+	t.Parallel()
+
+	document := canonicalOpenAPI(t)
+
+	want := map[string][]string{
+		"GET /api/.well-known/openid-configuration":          {"200", "500"},
+		"GET /api/oidc/jwks":                                 {"200", "500"},
+		"GET /api/oauth/access-jwks":                         {"200", "500"},
+		"GET /api/oauth/authorize":                           {"303", "400", "500", "503"},
+		"GET /api/oauth/authorization/{request}":             {"200", "404", "500", "503"},
+		"POST /api/oauth/authorization/{request}/{provider}": {"303", "403", "404", "500", "503"},
+		"POST /api/oauth/authorization/{request}/cancel":     {"303", "403", "404", "500", "503"},
+		"POST /api/oauth/token":                              {"200", "400", "500", "503"},
+		"GET /api/oauth/userinfo":                            {"200", "401", "403", "500", "503"},
+		"POST /api/oauth/revoke":                             {"200", "400", "500", "503"},
+	}
+
+	for key, statuses := range want {
+		operation := document.operation(t, key)
+
+		got := make([]string, 0, len(operation.Responses))
+		for status := range operation.Responses {
+			got = append(got, status)
+		}
+
+		slices.Sort(got)
+
+		if !slices.Equal(got, statuses) {
+			t.Errorf("%s documents %v, want %v", key, got, statuses)
+		}
+	}
+
+	expectHeader := func(key, status, header string, value any) {
+		t.Helper()
+
+		response := document.response(t, document.operation(t, key).Responses[status])
+
+		declared, found := response.Headers[header]
+		if !found || !slices.Equal(document.header(t, declared).Schema.Enum, []any{value}) {
+			t.Errorf("%s %s does not carry %s: %v", key, status, header, value)
+		}
+	}
+
+	for _, key := range []string{
+		"GET /api/.well-known/openid-configuration", "GET /api/oidc/jwks", "GET /api/oauth/access-jwks",
+	} {
+		expectHeader(key, "200", "Cache-Control", "public, max-age=300")
+	}
+
+	for _, key := range []string{"POST /api/oauth/token", "GET /api/oauth/userinfo", "POST /api/oauth/revoke"} {
+		expectHeader(key, "200", "Cache-Control", "no-store")
+		expectHeader(key, "200", "Pragma", "no-cache")
+	}
+
+	pageHeaders := map[string]string{
+		"Cache-Control":           "no-store",
+		"Referrer-Policy":         "no-referrer",
+		"X-Frame-Options":         "DENY",
+		"Content-Security-Policy": "frame-ancestors 'none'",
+	}
+
+	for key, statuses := range map[string][]string{
+		"GET /api/oauth/authorize":                           {"303"},
+		"GET /api/oauth/authorization/{request}":             {"200", "404"},
+		"POST /api/oauth/authorization/{request}/{provider}": {"303", "403", "404"},
+		"POST /api/oauth/authorization/{request}/cancel":     {"303", "403", "404"},
+	} {
+		for _, status := range statuses {
+			for header, value := range pageHeaders {
+				expectHeader(key, status, header, value)
+			}
+		}
+
+		expectStatements(t, key, document.operation(t, key).Description,
+			"Every answer carries `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, "+
+				"`X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'`.")
+	}
+
+	for key, operation := range document.operations() {
+		if !strings.Contains(key, "/api/oauth/") && !strings.Contains(key, "/api/.well-known/") &&
+			!strings.Contains(key, "/api/oidc/") {
+			continue
+		}
+
+		if slices.ContainsFunc(operation.Tags, func(tag string) bool {
+			return tag == "OpenID Connect" || tag == "Authorization Page"
+		}) {
+			continue
+		}
+
+		t.Errorf("%s is a public-client operation outside its tags", key)
+	}
+}
+
+// Discovery advertises exactly the implemented profile, and each key set
+// publishes exactly the public members of one purpose's keys.
+func TestAPISchemaOpenIDDiscoveryDocument(t *testing.T) {
+	t.Parallel()
+
+	document := canonicalOpenAPI(t)
+	schemas := document.Components.Schemas
+
+	metadata := schemas["OpenIDProviderMetadata"]
+	members := []string{
+		"issuer", "authorization_endpoint", "token_endpoint", "userinfo_endpoint", "revocation_endpoint",
+		"jwks_uri", "access_token_jwks_uri", "response_types_supported", "response_modes_supported",
+		"grant_types_supported", "subject_types_supported", "id_token_signing_alg_values_supported",
+		"scopes_supported", "token_endpoint_auth_methods_supported",
+		"revocation_endpoint_auth_methods_supported", "code_challenge_methods_supported",
+		"authorization_response_iss_parameter_supported",
+	}
+	expectExactObject(t, "OpenIDProviderMetadata", metadata, members, members)
+
+	for member, values := range map[string][]any{
+		"response_types_supported":                   {"code"},
+		"response_modes_supported":                   {"query"},
+		"grant_types_supported":                      {"authorization_code", "refresh_token"},
+		"subject_types_supported":                    {"pairwise"},
+		"id_token_signing_alg_values_supported":      {"RS256"},
+		"scopes_supported":                           {"openid", "profile", "offline_access"},
+		"token_endpoint_auth_methods_supported":      {"none"},
+		"revocation_endpoint_auth_methods_supported": {"none"},
+		"code_challenge_methods_supported":           {"S256"},
+	} {
+		array := metadata.Properties[member]
+		if array.Type != "array" || array.Items == nil || !slices.Equal(array.Items.Enum, values) ||
+			intValue(array.MinItems) != len(values) || intValue(array.MaxItems) != len(values) {
+			t.Errorf("%s does not advertise exactly %v", member, values)
+		}
+	}
+
+	if issuer := metadata.Properties["authorization_response_iss_parameter_supported"]; !slices.Equal(issuer.Enum, []any{true}) {
+		t.Error("discovery does not advertise RFC 9207 issuer identification as exactly true")
+	}
+
+	for member, path := range map[string]string{
+		"authorization_endpoint": "`/oauth/authorize`",
+		"token_endpoint":         "`/oauth/token`",
+		"userinfo_endpoint":      "`/oauth/userinfo`",
+		"revocation_endpoint":    "`/oauth/revoke`",
+		"jwks_uri":               "`/oidc/jwks`",
+		"access_token_jwks_uri":  "`/oauth/access-jwks`",
+	} {
+		expectStatements(t, member, metadata.Properties[member].Description, "The issuer followed by "+path)
+	}
+
+	expectStatements(t, "the issuer", metadata.Properties["issuer"].Description,
+		"`ABANDON_AUTH_URL` followed by `/api`", "no trailing slash")
+
+	expectStatements(t, "GET /api/.well-known/openid-configuration",
+		document.operation(t, "GET /api/.well-known/openid-configuration").Description,
+		"requires its `issuer` to equal the expected issuer byte for byte",
+		"Standard `jwks_uri` names only the ID token key set.",
+		"`access_token_jwks_uri` names only the access token key set",
+		"never tries a key from one set against the other class",
+		"publishes no dynamic registration, introspection, DPoP, device authorization or logout capability",
+	)
+
+	keySet := schemas["JSONWebKeySet"]
+	expectExactObject(t, "JSONWebKeySet", keySet, []string{"keys"}, []string{"keys"})
+
+	if keys := keySet.Properties["keys"]; intValue(keys.MinItems) != 1 || intValue(keys.MaxItems) != 8 ||
+		keys.Items == nil || keys.Items.Ref != "#/components/schemas/RSAPublicJSONWebKey" {
+		t.Error("a key set does not hold one to eight public RSA keys")
+	}
+
+	key := schemas["RSAPublicJSONWebKey"]
+	keyMembers := []string{"kid", "kty", "use", "alg", "n", "e"}
+	expectExactObject(t, "RSAPublicJSONWebKey", key, keyMembers, keyMembers)
+
+	for member, value := range map[string]string{"kty": "RSA", "use": "sig", "alg": "RS256"} {
+		if !slices.Equal(key.Properties[member].Enum, []any{value}) {
+			t.Errorf("a published key's %s is not exactly %s", member, value)
+		}
+	}
+
+	if key.Properties["kid"].Pattern != "^[A-Za-z0-9_-]{43}$" {
+		t.Error("a key identifier is not a 43-character thumbprint")
+	}
+
+	for _, operation := range []string{"GET /api/oidc/jwks", "GET /api/oauth/access-jwks"} {
+		expectStatements(t, operation, document.operation(t, operation).Description,
+			"RFC 7638 thumbprint", "no private member", "no `kid` appears in both key sets", "one to eight keys",
+			"at least five minutes before it signs", "at least twenty minutes after its last possible signature")
+	}
+}
+
+// The authorization request's bounds are exact protocol constants, and every
+// one is written where a client reads it.
+func TestAPISchemaAuthorizationRequestBounds(t *testing.T) {
+	t.Parallel()
+
+	document := canonicalOpenAPI(t)
+	authorize := document.operation(t, "GET /api/oauth/authorize")
+
+	type bound struct {
+		in       string
+		required bool
+		pattern  string
+		enum     []any
+		maximum  int
+	}
+
+	canonicalUUID := "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+	clientValue := "^[A-Za-z0-9_-]{43,128}$"
+
+	want := map[string]bound{
+		"response_type":                   {in: "query", required: true, enum: []any{"code"}, maximum: -1},
+		"client_id":                       {in: "query", required: true, pattern: canonicalUUID, maximum: -1},
+		"redirect_uri":                    {in: "query", required: true, maximum: -1},
+		"scope":                           {in: "query", required: true, maximum: 64},
+		"state":                           {in: "query", required: true, pattern: clientValue, maximum: -1},
+		"nonce":                           {in: "query", required: true, pattern: clientValue, maximum: -1},
+		"code_challenge":                  {in: "query", required: true, pattern: "^[A-Za-z0-9_-]{43}$", maximum: -1},
+		"code_challenge_method":           {in: "query", required: true, enum: []any{"S256"}, maximum: -1},
+		"response_mode":                   {in: "query", required: false, enum: []any{"query"}, maximum: -1},
+		"__Host-abandonauth_native_oauth": {in: "cookie", required: false, maximum: -1},
+	}
+
+	got := make(map[string]bound)
+
+	for _, declared := range authorize.Parameters {
+		parameter := document.parameter(t, declared)
+		got[parameter.Name] = bound{
+			in:       parameter.In,
+			required: parameter.Required,
+			pattern:  parameter.Schema.Pattern,
+			enum:     parameter.Schema.Enum,
+			maximum:  intValue(parameter.Schema.MaxLength),
+		}
+	}
+
+	if len(got) != len(want) {
+		t.Errorf("the authorization request documents %d parameters, want %d", len(got), len(want))
+	}
+
+	for name, expected := range want {
+		actual, found := got[name]
+		if !found {
+			t.Errorf("the authorization request does not document %s", name)
+
+			continue
+		}
+
+		if actual.in != expected.in || actual.required != expected.required || actual.pattern != expected.pattern ||
+			!slices.Equal(actual.enum, expected.enum) || actual.maximum != expected.maximum {
+			t.Errorf("%s = %+v, want %+v", name, actual, expected)
+		}
+	}
+
+	parameters := document.Components.Parameters
+	expectStatements(t, "redirect_uri", parameters["AuthorizationRedirectURI"].Description,
+		"exactly one numeric port from 1 through 65535", "at most 2,048 UTF-8 bytes", "byte for byte")
+	expectStatements(t, "scope", parameters["AuthorizationScope"].Description,
+		"single spaces", "none repeated", "at most 64 bytes", "`openid profile offline_access`")
+	expectStatements(t, "code_challenge_method", parameters["AuthorizationCodeChallengeMethod"].Description,
+		"`plain` and an omitted method are refused")
+
+	for name, pattern := range map[string]string{
+		"AuthorizationRequestHandle": "^[A-Za-z0-9_-]{43}$",
+		"NativeAuthorizationBinding": "^[A-Za-z0-9_-]{43}$",
+	} {
+		if parameters[name].Schema.Pattern != pattern {
+			t.Errorf("%s is not exactly 43 unpadded base64url characters", name)
+		}
+	}
+
+	binding := parameters["NativeAuthorizationBinding"]
+	if binding.In != "cookie" || binding.Name != nativeBindingCookie || !binding.Required {
+		t.Errorf("the native binding cookie is %s %q", binding.In, binding.Name)
+	}
+
+	expectStatements(t, "the native binding cookie", binding.Description,
+		"`HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` and no `Domain`",
+		"expires five minutes after it was last set",
+		"separate from the cookie a confidential sign-in uses",
+		"Only in a development build running in debug mode with the site on a loopback address without TLS",
+		"`abandonauth_native_oauth`, without the `__Host-` prefix or `Secure`",
+	)
+
+	expectStatements(t, "GET /api/oauth/authorize", authorize.Description,
+		"Each parameter must appear exactly once",
+		"Unknown parameters are ignored.",
+		"at most 8,192 bytes and 32 fields, unknown fields included",
+		"every parameter name at most 64 bytes",
+		"is refused whole, and no part of it is used",
+		"validated before the redirect is used for anything",
+		"the port is the only difference accepted",
+		"direct 400 `invalid_request` and no `Location`",
+		"`unsupported_response_type`",
+		"`invalid_scope`",
+		"ten thousand authorizations already in progress across the whole service with `temporarily_unavailable`",
+		"`state` when exactly one syntactically valid state was supplied, and `iss`",
+		"No refusal carries `error_description`.",
+		"expires five minutes after creation and nothing that happens to it later extends it",
+		"an empty 303 to the AbandonAuth site's origin followed by `/authorize#request=`",
+		"The handle travels only in the fragment",
+		"Nothing is approved silently.",
+		"at most 64 public-protocol requests at once",
+	)
+}
+
+// The authorization page reads a sanitized request and nothing that would let
+// the page or anything it loads complete the authorization itself.
+func TestAPISchemaPendingAuthorizationDisclosure(t *testing.T) {
+	t.Parallel()
+
+	document := canonicalOpenAPI(t)
+	pending := document.Components.Schemas["PendingAuthorization"]
+
+	members := []string{"application_name", "scopes", "expires_at", "providers"}
+	expectExactObject(t, "PendingAuthorization", pending, members, members)
+
+	if scopes := pending.Properties["scopes"]; scopes.Items == nil ||
+		!slices.Equal(scopes.Items.Enum, []any{"openid", "profile", "offline_access"}) {
+		t.Error("the requested scopes are not the canonical three")
+	}
+
+	if providers := pending.Properties["providers"]; providers.Items == nil ||
+		!slices.Equal(providers.Items.Enum, []any{"discord", "github", "google", "steam"}) ||
+		intValue(providers.MinItems) != 4 || intValue(providers.MaxItems) != 4 {
+		t.Error("the providers are not exactly the four, in order")
+	}
+
+	if expiry := pending.Properties["expires_at"]; expiry.Pattern !=
+		"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" {
+		t.Error("the expiry is not whole-second UTC with a trailing Z")
+	}
+
+	expectStatements(t, "PendingAuthorization", pending.Description,
+		"one person can hold ten active offline sessions with one application",
+		"another grant ends the least recently created",
+		"can be the same at every application")
+
+	expectStatements(t, "GET /api/oauth/authorization/{request}",
+		document.operation(t, "GET /api/oauth/authorization/{request}").Description,
+		"never carries the redirect URI, the client's state, nonce or challenge, a user identifier or anything a provider returned",
+		"Reading consumes nothing and extends nothing.",
+		"same 404 `Authorization request unavailable`")
+
+	responses := document.Components.Responses
+	for name, detail := range map[string]string{
+		"AuthorizationRequestUnavailable": "`Authorization request unavailable`",
+		"AuthorizationRequestForbidden":   "`Authorization request forbidden`",
+		"ServiceTemporarilyUnavailable":   "`Service temporarily unavailable`",
+		"PublicClientHasNoCredential":     "`Public client has no credential`",
+	} {
+		expectStatements(t, name, responses[name].Description, detail)
+	}
+}
+
+// The token and revocation contracts state every bound, binding and lifetime a
+// public client depends on, and the claims of each token class exactly.
+func TestAPISchemaTokenContract(t *testing.T) {
+	t.Parallel()
+
+	document := canonicalOpenAPI(t)
+	schemas := document.Components.Schemas
+
+	for _, key := range []string{"POST /api/oauth/token", "POST /api/oauth/revoke"} {
+		operation := document.operation(t, key)
+		if operation.RequestBody == nil || !operation.RequestBody.Required || len(operation.RequestBody.Content) != 1 {
+			t.Errorf("%s does not require one form body", key)
+
+			continue
+		}
+
+		if _, form := operation.RequestBody.Content["application/x-www-form-urlencoded"]; !form {
+			t.Errorf("%s does not take application/x-www-form-urlencoded", key)
+		}
+	}
+
+	grants := document.operation(t, "POST /api/oauth/token").RequestBody.Content["application/x-www-form-urlencoded"].Schema
+	if len(grants.AnyOf) != 2 || grants.AnyOf[0].Ref != "#/components/schemas/AuthorizationCodeGrant" ||
+		grants.AnyOf[1].Ref != "#/components/schemas/RefreshTokenGrant" {
+		t.Error("the token request is not one of the two grants")
+	}
+
+	code := schemas["AuthorizationCodeGrant"]
+	if want := []string{"grant_type", "client_id", "code", "redirect_uri", "code_verifier"}; !slices.Equal(code.Required, want) {
+		t.Errorf("a code grant requires %v, want %v", code.Required, want)
+	}
+
+	if code.Properties["code_verifier"].Pattern != "^[A-Za-z0-9._~-]{43,128}$" ||
+		code.Properties["code"].Pattern != "^[A-Za-z0-9_-]{43}$" {
+		t.Error("a code grant does not bound its code and verifier")
+	}
+
+	refresh := schemas["RefreshTokenGrant"]
+	if want := []string{"grant_type", "client_id", "refresh_token"}; !slices.Equal(refresh.Required, want) {
+		t.Errorf("a refresh grant requires %v, want %v", refresh.Required, want)
+	}
+
+	if intValue(refresh.Properties["scope"].MaxLength) != 64 ||
+		refresh.Properties["refresh_token"].Pattern != "^[A-Za-z0-9_-]{43}$" {
+		t.Error("a refresh grant does not bound its scope and token")
+	}
+
+	revocation := schemas["TokenRevocation"]
+	if !slices.Equal(revocation.Required, []string{"client_id", "token"}) ||
+		intValue(revocation.Properties["token"].MaxLength) != 8192 {
+		t.Error("a revocation does not require a bounded token and a client")
+	}
+
+	tokens := schemas["TokenSet"]
+	expectExactObject(t, "TokenSet", tokens,
+		[]string{"access_token", "token_type", "expires_in", "id_token", "scope", "refresh_token", "refresh_token_expires_in"},
+		[]string{"access_token", "token_type", "expires_in", "id_token", "scope"})
+
+	if !slices.Equal(tokens.Properties["token_type"].Enum, []any{"Bearer"}) ||
+		!slices.Equal(tokens.Properties["expires_in"].Enum, []any{900}) {
+		t.Error("a token set is not exactly a Bearer token for 900 seconds")
+	}
+
+	if lifetime := tokens.Properties["refresh_token_expires_in"]; intValue(lifetime.Minimum) != 1 ||
+		intValue(lifetime.Maximum) != 2592000 {
+		t.Error("a refresh token's remaining lifetime is not bounded by thirty days")
+	}
+
+	expectExactObject(t, "IDTokenClaims", schemas["IDTokenClaims"],
+		[]string{"iss", "sub", "aud", "exp", "iat", "auth_time", "nonce", "preferred_username"},
+		[]string{"iss", "sub", "aud", "exp", "iat", "auth_time"})
+	expectExactObject(t, "AccessTokenClaims", schemas["AccessTokenClaims"],
+		[]string{"iss", "sub", "aud", "client_id", "scope", "jti", "auth_epoch", "iat", "nbf", "exp"},
+		[]string{"iss", "sub", "aud", "client_id", "scope", "jti", "auth_epoch", "iat", "nbf", "exp"})
+	expectExactObject(t, "UserInfo", schemas["UserInfo"], []string{"sub", "preferred_username"}, []string{"sub"})
+
+	if subject := schemas["PairwiseSubject"]; subject.Pattern != "^[A-Za-z0-9_-]{43}$" {
+		t.Error("a pairwise subject is not exactly 43 unpadded base64url characters")
+	}
+
+	expectStatements(t, "PairwiseSubject", schemas["PairwiseSubject"].Description,
+		"32 random bytes", "never the AbandonAuth user identifier")
+	expectStatements(t, "IDTokenClaims", schemas["IDTokenClaims"].Description,
+		"`alg` `RS256`", "ID token key set", "exactly five minutes", "rejects `typ` `at+jwt`")
+	expectStatements(t, "AccessTokenClaims", schemas["AccessTokenClaims"].Description,
+		"`typ` `at+jwt`", "access token key set", "exactly 900 seconds later", "no clock tolerance",
+		"does not compare `auth_epoch` with the current authority")
+
+	expectStatements(t, "POST /api/oauth/token", document.operation(t, "POST /api/oauth/token").Description,
+		"Client authentication is `none`",
+		"an `Authorization` header, a `client_secret` member or any other attempt to authenticate the client is refused",
+		"at most 16,384 bytes and 16 fields, unknown fields included",
+		"every field name at most 64 bytes",
+		"Parameters in the query are never read.",
+		"one atomic delete",
+		"a wrong verifier, client or redirect does not consume the code",
+		"exactly one succeeds",
+		"revokes its whole family",
+		"serialize refreshes and store the replacement before discarding the token it presented",
+		"A refresh never adds scope.",
+		"30 days after it is issued",
+		"90 days after the code was redeemed",
+		"at most 10,000 tokens",
+		"at most ten active families",
+		"revokes the least recently created one",
+		"accepts it until it expires fifteen minutes after issue",
+		"`Cache-Control: no-store` and `Pragma: no-cache`",
+		"400 `invalid_client`, without `WWW-Authenticate`",
+	)
+
+	expectStatements(t, "POST /api/oauth/revoke", document.operation(t, "POST /api/oauth/revoke").Description,
+		"`token_type_hint` is accepted and completely ignored",
+		"Both supported token classes are always checked.",
+		"same empty 200",
+		"at most 1,000 revoked access tokens",
+		"is not recorded as revoked",
+		"accepts it until it expires fifteen minutes after issue",
+	)
+
+	expectStatements(t, "GET /api/oauth/userinfo", document.operation(t, "GET /api/oauth/userinfo").Description,
+		"`preferred_username` only when `profile` was granted",
+		"No other claim is ever returned.",
+		"can be correlated across them; the pairwise subject cannot",
+		"An ID token, a `UserAccessToken` and a `DeveloperApplicationAccessToken` are refused.",
+		"Neither challenge quotes the token or a claim.",
+	)
+}
+
+// An application's client type decides which credential and which callbacks it
+// can ever have, so every application shape states it and none can change it.
+func TestAPISchemaApplicationClientType(t *testing.T) {
+	t.Parallel()
+
+	document := canonicalOpenAPI(t)
+	schemas := document.Components.Schemas
+
+	if !slices.Equal(schemas["ClientType"].Enum, []any{"confidential", "public"}) {
+		t.Errorf("client types = %v, want exactly confidential and public", schemas["ClientType"].Enum)
+	}
+
+	for _, name := range []string{
+		"DeveloperApplication", "DeveloperApplicationWithCallbackURIs",
+		"DeveloperApplicationWithCredential", "RegisteredDeveloperApplication",
+	} {
+		if !slices.Contains(schemas[name].Required, "client_type") {
+			t.Errorf("%s does not always state client_type", name)
+		}
+	}
+
+	if credential := schemas["DeveloperApplicationWithCredential"]; !slices.Equal(
+		credential.Properties["client_type"].Enum, []any{"confidential"},
+	) {
+		t.Error("a credential is returned for an application that is not confidential")
+	}
+
+	if slices.Contains(schemas["RegisteredDeveloperApplication"].Required, "token") {
+		t.Error("registration always returns a token, but a public client has none")
+	}
+
+	registration := schemas["DeveloperApplicationRegistration"]
+	if slices.Contains(registration.Required, "client_type") ||
+		!slices.Equal(registration.Properties["client_type"].Enum, []any{"confidential", "public"}) {
+		t.Error("registration does not take an optional client_type of the two values")
+	}
+
+	create := document.operation(t, "POST /api/developer_application")
+	if create.RequestBody.Content["application/json"].Schema.Ref != "#/components/schemas/DeveloperApplicationRegistration" ||
+		document.response(t, create.Responses["200"]).Content["application/json"].Schema.Ref !=
+			"#/components/schemas/RegisteredDeveloperApplication" {
+		t.Error("registration does not use the client-type shapes")
+	}
+
+	expectStatements(t, "POST /api/developer_application", create.Description,
+		"can never be changed", "an omitted `client_type` registers a `confidential` application",
+		"receives no credential, and its answer carries no `token`")
+
+	reset := document.operation(t, "PATCH /api/developer_application/{application_id}/reset_token")
+	if reset.Responses["409"].Ref != "#/components/responses/PublicClientHasNoCredential" {
+		t.Error("resetting a public client's credential documents no fixed 409")
+	}
+
+	expectStatements(t, "reset_token", reset.Description, "answered 409 and changes nothing")
+
+	expectStatements(t, "callback_uris",
+		document.operation(t, "PATCH /api/developer_application/{application_id}/callback_uris").Description,
+		"Which URIs are accepted depends on the application's `client_type`.",
+		"A public client's callback is a portless loopback template",
+		"an IPv4 literal in `127.0.0.0/8` or the IPv6 literal `[::1]`, no port",
+		"none of the query keys `code`, `state`, `error`, `error_description` or `iss` in any letter case or encoding",
+		"A host name such as `localhost` is refused.")
+
+	expectStatements(t, "GET /api/ui/{provider}/authorize", document.operation(t, "GET /api/ui/{provider}/authorize").Description,
+		"A public client is refused with that same 403 before anything is stored")
+	expectStatements(t, "POST /api/developer_application/login",
+		document.operation(t, "POST /api/developer_application/login").Description,
+		"A public client has no refresh token, and its identifier is refused with that same 401")
+	expectStatements(t, "POST /api/login", document.operation(t, "POST /api/login").Description,
+		"Only a confidential application spends a code here.")
+}
+
+// A provider callback finishing a public client's authorization returns the
+// browser to the client, never with a session or a confidential code, and a
+// saturated worker leaves the callback retryable.
+func TestAPISchemaProviderCallbacksContinuePublicAuthorization(t *testing.T) {
+	t.Parallel()
+
+	document := canonicalOpenAPI(t)
+
+	for _, key := range []string{
+		"GET /api/ui/discord-callback", "GET /api/ui/github-callback", "GET /api/google", "GET /api/ui/steam-callback",
+	} {
+		operation := document.operation(t, key)
+
+		if operation.Responses["303"].Ref != "#/components/responses/RedirectToPublicClient" {
+			t.Errorf("%s does not document the 303 to a public client", key)
+		}
+
+		if operation.Responses["503"].Ref != "#/components/responses/ServiceTemporarilyUnavailable" {
+			t.Errorf("%s does not document the retryable 503", key)
+		}
+
+		expectStatements(t, key, operation.Description,
+			"never ends in a browser session or in a one-time code for `POST /api/login`",
+			"Every provider check above applies unchanged.",
+			"A state that cannot be trusted is refused with the same 403.",
+			"with `code`, the client's `state` and `iss` on success",
+			"`error` `access_denied`",
+			"`error` `server_error`",
+			"at most 120 seconds and never beyond the authorization's five-minute deadline",
+			"answered 503 before its parameters are read or its state is consumed",
+			"the provider is not contacted",
+		)
+	}
+
+	expectStatements(t, "RedirectToPublicClient", document.Components.Responses["RedirectToPublicClient"].Description,
+		"rebuilt from its exact stored spelling with no existing byte rewritten", "No token is ever put in this address.")
 }

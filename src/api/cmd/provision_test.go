@@ -129,7 +129,7 @@ func TestBareProvisionAsksForIdentifierAndOrigin(t *testing.T) {
 // A deployment's settings never stand in for an answer: bare provisioning asks
 // even where the site's settings are in the environment.
 func TestBareProvisionIgnoresDeploymentSettings(t *testing.T) {
-	applyEnvironment(t, placeholderEnvironment())
+	applyEnvironment(t, placeholderEnvironment(t))
 	t.Setenv("DEBUG", "false")
 
 	const answered = "00000000-0000-0000-0000-000000000002"

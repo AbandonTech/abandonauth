@@ -104,6 +104,9 @@ func (service) RotateAuthority(ctx context.Context, configuration config.Config)
 		Int64("withdrawn_codes", rotation.AbandonedExchanges).
 		Int64("ended_sessions", rotation.EndedSessions).
 		Int64("cleared_revocations", rotation.ClearedRevocations).
+		Int64("abandoned_native_authorizations", rotation.AbandonedNativeAuthorizations).
+		Int64("revoked_refresh_families", rotation.RevokedRefreshFamilies).
+		Int64("cleared_access_token_revocations", rotation.ClearedAccessTokenRevocations).
 		Msg("a new authority is in place; every credential issued before it is refused")
 
 	return nil

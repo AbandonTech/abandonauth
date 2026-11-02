@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/abandontech/abandonauth/src/api/internal/database"
@@ -32,7 +33,34 @@ var (
 	// ErrInvalidCredential reports that the presented refresh token is not the
 	// application's.
 	ErrInvalidCredential = errors.New("the application's credential was not accepted")
+	// ErrPublicClientHasNoCredential reports a credential operation on a public
+	// client, which never holds one.
+	ErrPublicClientHasNoCredential = errors.New("a public client has no credential")
 )
+
+// ClientType is the RFC 6749 client type an application is registered as. It
+// never changes: moving to the other type means registering another
+// application.
+type ClientType string
+
+// The two client types.
+const (
+	// Confidential is a server-side application that can protect a credential.
+	Confidential ClientType = "confidential"
+	// Public is an installed application that cannot protect a shared
+	// credential, holds none and signs in only with PKCE.
+	Public ClientType = "public"
+)
+
+// ParseClientType returns the client type a value names exactly.
+func ParseClientType(value string) (ClientType, bool) {
+	switch ClientType(value) {
+	case Confidential, Public:
+		return ClientType(value), true
+	default:
+		return "", false
+	}
+}
 
 // UnsafeCallbackError names a callback URI an application may not register and
 // why. It deliberately does not carry the URI: it is another deployment's
@@ -55,15 +83,36 @@ func (e UnsafeCallbackError) Unwrap() error {
 
 // Application is a developer application.
 type Application struct {
-	ID      uuid.UUID
-	OwnerID uuid.UUID
-	Name    string
+	ID         uuid.UUID
+	OwnerID    uuid.UUID
+	Name       string
+	ClientType ClientType
 
 	// CredentialVersion rises every time the refresh token is replaced. An
 	// access token carries the version it was issued under.
 	CredentialVersion int64
 
 	credentialHash string
+}
+
+// describe is the application a stored row records. A row whose client type is
+// neither known value is refused rather than given a default.
+func describe(
+	id, ownerID uuid.UUID, name string, credentialHash pgtype.Text, version int64, clientType string,
+) (Application, error) {
+	parsed, known := ParseClientType(clientType)
+	if !known {
+		return Application{}, errors.New("an application row records an unknown client type")
+	}
+
+	return Application{
+		ID:                id,
+		OwnerID:           ownerID,
+		Name:              name,
+		ClientType:        parsed,
+		CredentialVersion: version,
+		credentialHash:    credentialHash.String,
+	}, nil
 }
 
 // UnknownApplicationComparisonInput is the published value the comparison hash
@@ -115,30 +164,53 @@ func New(pool *pgxpool.Pool, hasher CredentialHasher) *Applications {
 	return &Applications{pool: pool, queries: query.New(pool), hasher: hasher}
 }
 
-// Create registers an application and returns its refresh token, which is not
-// recoverable afterwards.
-func (a *Applications) Create(ctx context.Context, ownerID uuid.UUID, name string) (Application, string, error) {
-	token, hashed, err := a.newCredential()
-	if err != nil {
-		return Application{}, "", err
+// Create registers an application. A confidential application's refresh token
+// is returned, and is not recoverable afterwards; a public client receives
+// none, and the empty string is returned in its place.
+func (a *Applications) Create(
+	ctx context.Context, ownerID uuid.UUID, name string, clientType ClientType,
+) (Application, string, error) {
+	if _, known := ParseClientType(string(clientType)); !known {
+		return Application{}, "", errors.New("an application needs a known client type")
+	}
+
+	var (
+		token  string
+		stored pgtype.Text
+	)
+
+	if clientType == Confidential {
+		var (
+			hashed string
+			err    error
+		)
+
+		token, hashed, err = a.newCredential()
+		if err != nil {
+			return Application{}, "", err
+		}
+
+		stored = pgtype.Text{String: hashed, Valid: true}
 	}
 
 	created, err := a.queries.CreateDeveloperApplication(ctx, query.CreateDeveloperApplicationParams{
 		OwnerID:      ownerID,
-		RefreshToken: hashed,
+		RefreshToken: stored,
 		Name:         name,
+		ClientType:   string(clientType),
 	})
 	if err != nil {
 		return Application{}, "", fmt.Errorf("creating an application: %w", err)
 	}
 
-	return Application{
-		ID:                created.ID,
-		OwnerID:           created.OwnerID,
-		Name:              created.Name,
-		CredentialVersion: created.CredentialVersion,
-		credentialHash:    created.RefreshToken,
-	}, token, nil
+	application, err := describe(
+		created.ID, created.OwnerID, created.Name, created.RefreshToken, created.CredentialVersion, created.ClientType,
+	)
+	if err != nil {
+		return Application{}, "", err
+	}
+
+	return application, token, nil
 }
 
 // Get returns one application.
@@ -152,13 +224,48 @@ func (a *Applications) Get(ctx context.Context, id uuid.UUID) (Application, erro
 		return Application{}, fmt.Errorf("reading an application: %w", err)
 	}
 
-	return Application{
-		ID:                found.ID,
-		OwnerID:           found.OwnerID,
-		Name:              found.Name,
-		CredentialVersion: found.CredentialVersion,
-		credentialHash:    found.RefreshToken,
-	}, nil
+	return describe(found.ID, found.OwnerID, found.Name, found.RefreshToken, found.CredentialVersion, found.ClientType)
+}
+
+// PublicClient returns an application only when it is a public client. A
+// confidential application is refused exactly as one that does not exist.
+func (a *Applications) PublicClient(ctx context.Context, id uuid.UUID) (Application, error) {
+	found, err := a.Get(ctx, id)
+	if err != nil {
+		return Application{}, err
+	}
+
+	if found.ClientType != Public {
+		return Application{}, ErrNoSuchApplication
+	}
+
+	return found, nil
+}
+
+// NativeRedirect returns the redirect a public client asked for when it is one
+// of the client's registered loopback templates with a port added.
+func (a *Applications) NativeRedirect(ctx context.Context, client Application, requested string) (string, bool, error) {
+	if client.ClientType != Public {
+		return "", false, nil
+	}
+
+	templates, err := a.CallbackURIs(ctx, client.ID)
+	if err != nil {
+		return "", false, err
+	}
+
+	for _, registered := range templates {
+		template, err := urlpolicy.ParseNativeCallbackTemplate(registered)
+		if err != nil {
+			continue
+		}
+
+		if redirect, matched := urlpolicy.MatchNativeCallback(template, requested); matched {
+			return redirect, true, nil
+		}
+	}
+
+	return "", false, nil
 }
 
 // OwnedBy returns one application only when a person owns it, and reports the
@@ -185,13 +292,14 @@ func (a *Applications) ListByOwner(ctx context.Context, ownerID uuid.UUID) ([]Ap
 
 	applications := make([]Application, 0, len(rows))
 	for _, row := range rows {
-		applications = append(applications, Application{
-			ID:                row.ID,
-			OwnerID:           row.OwnerID,
-			Name:              row.Name,
-			CredentialVersion: row.CredentialVersion,
-			credentialHash:    row.RefreshToken,
-		})
+		application, err := describe(
+			row.ID, row.OwnerID, row.Name, row.RefreshToken, row.CredentialVersion, row.ClientType,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		applications = append(applications, application)
 	}
 
 	return applications, nil
@@ -208,24 +316,36 @@ func (a *Applications) Delete(ctx context.Context, id uuid.UUID) (Application, e
 		return Application{}, fmt.Errorf("deleting an application: %w", err)
 	}
 
-	return Application{
-		ID:                deleted.ID,
-		OwnerID:           deleted.OwnerID,
-		Name:              deleted.Name,
-		CredentialVersion: deleted.CredentialVersion,
-	}, nil
+	application, err := describe(
+		deleted.ID, deleted.OwnerID, deleted.Name, pgtype.Text{}, deleted.CredentialVersion, deleted.ClientType,
+	)
+	if err != nil {
+		return Application{}, err
+	}
+
+	return application, nil
 }
 
 // ReplaceCredential issues a new refresh token and withdraws every access token
-// issued against the one it replaces.
+// issued against the one it replaces. A public client has no credential to
+// replace, and nothing is changed.
 func (a *Applications) ReplaceCredential(ctx context.Context, id uuid.UUID) (Application, string, error) {
+	found, err := a.Get(ctx, id)
+	if err != nil {
+		return Application{}, "", err
+	}
+
+	if found.ClientType != Confidential {
+		return Application{}, "", ErrPublicClientHasNoCredential
+	}
+
 	token, hashed, err := a.newCredential()
 	if err != nil {
 		return Application{}, "", err
 	}
 
 	updated, err := a.queries.ResetDeveloperApplicationCredential(
-		ctx, query.ResetDeveloperApplicationCredentialParams{ID: id, RefreshToken: hashed},
+		ctx, query.ResetDeveloperApplicationCredentialParams{ID: id, RefreshToken: pgtype.Text{String: hashed, Valid: true}},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Application{}, "", ErrNoSuchApplication
@@ -235,20 +355,24 @@ func (a *Applications) ReplaceCredential(ctx context.Context, id uuid.UUID) (App
 		return Application{}, "", fmt.Errorf("replacing an application's credential: %w", err)
 	}
 
-	return Application{
-		ID:                updated.ID,
-		OwnerID:           updated.OwnerID,
-		Name:              updated.Name,
-		CredentialVersion: updated.CredentialVersion,
-	}, token, nil
+	application, err := describe(
+		updated.ID, updated.OwnerID, updated.Name, pgtype.Text{}, updated.CredentialVersion, updated.ClientType,
+	)
+	if err != nil {
+		return Application{}, "", err
+	}
+
+	return application, token, nil
 }
 
-// Authenticate returns the application a refresh token belongs to.
+// Authenticate returns the confidential application a refresh token belongs
+// to.
 //
-// An unknown application and a wrong token are refused identically, and both
-// take one hash comparison, so the refusal does not say which of the two it
-// was. A token bcrypt could not have made a hash from is refused before the
-// identifier is looked up, so that refusal is the same for every identifier.
+// An unknown application, a public client and a wrong token are refused
+// identically, and each takes one hash comparison, so the refusal does not say
+// which it was. A token bcrypt could not have made a hash from is refused
+// before the identifier is looked up, so that refusal is the same for every
+// identifier.
 func (a *Applications) Authenticate(ctx context.Context, id uuid.UUID, refreshToken string) (Application, error) {
 	if refreshToken == "" || len(refreshToken) > credentials.MaxSecretBytes {
 		return Application{}, ErrInvalidCredential
@@ -259,7 +383,7 @@ func (a *Applications) Authenticate(ctx context.Context, id uuid.UUID, refreshTo
 		return Application{}, err
 	}
 
-	exists := err == nil
+	exists := err == nil && found.ClientType == Confidential
 
 	comparedTo := unknownApplicationComparisonHash
 	if exists {
@@ -313,17 +437,20 @@ func (a *Applications) CallbackIsRegistered(ctx context.Context, id uuid.UUID, u
 
 // ReplaceCallbackURIs makes the registered set exactly the one submitted.
 //
-// Every URI is checked against the policy first, so one the service would
-// refuse to return a browser to cannot be stored. The additions and removals
-// are one transaction under the application's row lock: a failure leaves the
-// application with the set it had, and two replacements arriving together
-// leave it with one of the two sets rather than a mixture. An application that
-// is gone by the time the lock is granted is ErrNoSuchApplication.
-func (a *Applications) ReplaceCallbackURIs(ctx context.Context, id uuid.UUID, uris []string) error {
-	wanted, err := acceptableURIs(uris)
+// Every URI is checked against the policy for the application's client type
+// first, so one the service would refuse to return a browser to cannot be
+// stored. The additions and removals are one transaction under the
+// application's row lock: a failure leaves the application with the set it
+// had, and two replacements arriving together leave it with one of the two sets
+// rather than a mixture. An application that is gone by the time the lock is
+// granted is ErrNoSuchApplication.
+func (a *Applications) ReplaceCallbackURIs(ctx context.Context, application Application, uris []string) error {
+	wanted, err := acceptableURIs(application.ClientType, uris)
 	if err != nil {
 		return err
 	}
+
+	id := application.ID
 
 	transaction, err := a.pool.Begin(ctx)
 	if err != nil {
@@ -381,13 +508,25 @@ func (a *Applications) ReplaceCallbackURIs(ctx context.Context, id uuid.UUID, ur
 	return nil
 }
 
-// acceptableURIs checks every submitted URI and collapses repeats, which the
-// unique index would otherwise refuse as a conflict.
-func acceptableURIs(uris []string) (map[string]struct{}, error) {
+// acceptableURIs checks every submitted URI against the policy for the client
+// type and collapses repeats, which the unique index would otherwise refuse as
+// a conflict.
+func acceptableURIs(clientType ClientType, uris []string) (map[string]struct{}, error) {
 	accepted := make(map[string]struct{}, len(uris))
 
 	for index, uri := range uris {
-		if _, err := urlpolicy.ParseRegisteredCallbackURI(uri); err != nil {
+		var err error
+
+		switch clientType {
+		case Confidential:
+			_, err = urlpolicy.ParseRegisteredCallbackURI(uri)
+		case Public:
+			_, err = urlpolicy.ParseNativeCallbackTemplate(uri)
+		default:
+			err = urlpolicy.ErrMalformed
+		}
+
+		if err != nil {
 			return nil, UnsafeCallbackError{Index: index, Reason: err}
 		}
 

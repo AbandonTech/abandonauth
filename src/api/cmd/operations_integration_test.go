@@ -19,6 +19,7 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/database/testdatabase"
 	"github.com/abandontech/abandonauth/src/api/internal/services/siteapplication"
 	"github.com/abandontech/abandonauth/src/api/internal/web"
+	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
 )
 
 // freeAddress reserves a port and releases it, so the address given to a
@@ -46,27 +47,31 @@ func freeAddress(t *testing.T) string {
 func operationalSettings(t *testing.T, databaseURL, address string) config.Config {
 	t.Helper()
 
-	const origin = "https://api.auth.example.test"
+	const origin = "https://auth.example.test:8443"
+
+	keys := servertest.SigningKeyFiles(t)
 
 	configuration, err := config.Load(config.Settings{
-		BindAddress:           address,
-		DatabaseURL:           databaseURL,
-		SigningSecret:         "placeholder-signing-secret-placeholder-signing-secret-placeholder",
-		SigningAlgorithm:      config.SigningAlgorithm,
-		ExchangeCodeSeconds:   config.DefaultExchangeCodeSeconds,
-		BrowserSessionSeconds: config.DefaultBrowserSessionSeconds,
-		InternalApplicationID: uuid.New().String(),
-		SiteURL:               "https://auth.example.test",
-		APIURL:                origin,
-		DiscordClientID:       "discord-client-id",
-		DiscordClientSecret:   "discord-client-secret-placeholder",
-		DiscordCallback:       origin + web.APIRoot + "/ui/discord-callback",
-		GitHubClientID:        "github-client-id",
-		GitHubClientSecret:    "github-client-secret-placeholder",
-		GitHubCallback:        origin + web.APIRoot + "/ui/github-callback",
-		GoogleClientID:        "google-client-id",
-		GoogleClientSecret:    "google-client-secret-placeholder",
-		GoogleCallback:        origin + web.APIRoot + "/google",
+		IDTokenSigningKeysFile:     keys.IDTokenFile,
+		AccessTokenSigningKeysFile: keys.AccessTokenFile,
+		BindAddress:                address,
+		DatabaseURL:                databaseURL,
+		SigningSecret:              "placeholder-signing-secret-placeholder-signing-secret-placeholder",
+		SigningAlgorithm:           config.SigningAlgorithm,
+		ExchangeCodeSeconds:        config.DefaultExchangeCodeSeconds,
+		BrowserSessionSeconds:      config.DefaultBrowserSessionSeconds,
+		InternalApplicationID:      uuid.New().String(),
+		SiteURL:                    "https://auth.example.test",
+		APIURL:                     origin,
+		DiscordClientID:            "discord-client-id",
+		DiscordClientSecret:        "discord-client-secret-placeholder",
+		DiscordCallback:            origin + web.APIRoot + "/ui/discord-callback",
+		GitHubClientID:             "github-client-id",
+		GitHubClientSecret:         "github-client-secret-placeholder",
+		GitHubCallback:             origin + web.APIRoot + "/ui/github-callback",
+		GoogleClientID:             "google-client-id",
+		GoogleClientSecret:         "google-client-secret-placeholder",
+		GoogleCallback:             origin + web.APIRoot + "/google",
 	})
 	if err != nil {
 		t.Fatalf("the test configuration is not valid: %v", err)
