@@ -116,9 +116,19 @@ func TestTargetThisServiceDoesNotSpellIsRefusedWithoutRedirect(t *testing.T) {
 func TestRouteTableDecidesWhichPathsAreDeclared(t *testing.T) {
 	t.Parallel()
 
-	paths := newDeclaredPaths()
+	paths := newDeclaredPaths(Routes())
 
 	declared := []string{
+		"/api/.well-known/openid-configuration",
+		"/api/oidc/jwks",
+		"/api/oauth/access-jwks",
+		"/api/oauth/authorize",
+		"/api/oauth/authorization/" + pageHandle,
+		"/api/oauth/authorization/" + pageHandle + "/discord",
+		"/api/oauth/authorization/" + pageHandle + "/cancel",
+		"/api/oauth/token",
+		"/api/oauth/userinfo",
+		"/api/oauth/revoke",
 		"/api",
 		"/api/",
 		"/api/me",
@@ -165,11 +175,56 @@ func TestRouteTableDecidesWhichPathsAreDeclared(t *testing.T) {
 		"/api/./me",
 		"/api//me",
 		"",
+		"/api/.well-known/openid-configuration/",
+		"/api/.well-known/",
+		"/api/oidc/jwks/",
+		"/api/oauth/authorize/",
+		"/api/oauth/authorization",
+		"/api/oauth/authorization/",
+		"/api/oauth/authorization//discord",
+		"/api/oauth/authorization/" + pageHandle + "/",
+		"/api/oauth/authorization/" + pageHandle + "/discord/",
+		"/api/oauth/authorization/" + pageHandle + "//cancel",
+		"/api/oauth/authorization/" + pageHandle + "/cancel/again",
+		"/api/oauth/token/",
+		"/api/oauth",
+		"/api/oauth/",
 	}
 
 	for _, path := range undeclared {
 		if paths.names(path) {
 			t.Errorf("%q is not served but is recognised as declared", path)
+		}
+	}
+}
+
+// The public-client protocol addresses are served, and a browser is told
+// nothing about calling any of them from another origin, the site's included.
+func TestPublicClientAddressesPermitNoCrossOriginRequest(t *testing.T) {
+	t.Parallel()
+
+	permitted := newDeclaredPaths(crossOriginRoutes())
+
+	for _, path := range []string{
+		"/api/.well-known/openid-configuration",
+		"/api/oidc/jwks",
+		"/api/oauth/access-jwks",
+		"/api/oauth/authorize",
+		"/api/oauth/authorization/" + pageHandle,
+		"/api/oauth/authorization/" + pageHandle + "/google",
+		"/api/oauth/authorization/" + pageHandle + "/cancel",
+		"/api/oauth/token",
+		"/api/oauth/userinfo",
+		"/api/oauth/revoke",
+	} {
+		if permitted.names(path) {
+			t.Errorf("%q permits a cross-origin request", path)
+		}
+	}
+
+	for _, path := range []string{"/api/me", "/api/developer_application", "/api/ui/logout"} {
+		if !permitted.names(path) {
+			t.Errorf("%q no longer permits the site", path)
 		}
 	}
 }

@@ -1852,9 +1852,9 @@ func TestAPISchemaOpenIDDiscoveryDocument(t *testing.T) {
 	keySet := schemas["JSONWebKeySet"]
 	expectExactObject(t, "JSONWebKeySet", keySet, []string{"keys"}, []string{"keys"})
 
-	if keys := keySet.Properties["keys"]; intValue(keys.MinItems) != 1 || intValue(keys.MaxItems) != 8 ||
+	if keys := keySet.Properties["keys"]; intValue(keys.MinItems) != 1 || intValue(keys.MaxItems) != 1 ||
 		keys.Items == nil || keys.Items.Ref != "#/components/schemas/RSAPublicJSONWebKey" {
-		t.Error("a key set does not hold one to eight public RSA keys")
+		t.Error("a key set does not hold exactly one public RSA key")
 	}
 
 	key := schemas["RSAPublicJSONWebKey"]
@@ -1873,8 +1873,9 @@ func TestAPISchemaOpenIDDiscoveryDocument(t *testing.T) {
 
 	for _, operation := range []string{"GET /api/oidc/jwks", "GET /api/oauth/access-jwks"} {
 		expectStatements(t, operation, document.operation(t, operation).Description,
-			"RFC 7638 thumbprint", "no private member", "no `kid` appears in both key sets", "one to eight keys",
-			"at least five minutes before it signs", "at least twenty minutes after its last possible signature")
+			"RFC 7638 thumbprint", "no private member", "no `kid` appears in both key sets", "exactly one key",
+			"removes the replaced key from this set at once",
+			"it refuses tokens the new key signs and can keep trusting the replaced key")
 	}
 }
 

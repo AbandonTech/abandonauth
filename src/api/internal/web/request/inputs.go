@@ -213,6 +213,29 @@ func (i *Inputs) BodyString(name string) string {
 	return value
 }
 
+// OptionalBodyString reads a string member of the object body that the request
+// need not carry, and reports whether it did. An explicit null is absent.
+func (i *Inputs) OptionalBodyString(name string) (string, bool) {
+	if !i.bodyDecoded {
+		return "", false
+	}
+
+	raw, present := i.body[name]
+	if !present || string(raw) == "null" {
+		return "", false
+	}
+
+	var value string
+
+	if err := json.Unmarshal(raw, &value); err != nil {
+		i.record([]any{locationBody, name}, messageStringType, typeStringType)
+
+		return "", false
+	}
+
+	return value, true
+}
+
 // BodyUUID reads a required member of the object body that must be a UUID.
 func (i *Inputs) BodyUUID(name string) uuid.UUID {
 	raw, present := i.bodyMember(name)

@@ -42,19 +42,26 @@ are relative to `src/api/`.
 - `internal/logging/` — the logger; never a query string, header or cookie
 - `internal/urlpolicy/` — callback URI policy and origin parsing; `Callback`
   keeps the registered spelling beside the parsed form; the response query keys
-  a callback is returned under, and refused at registration
+  a callback is returned under, and refused at registration;
+  `nativecallback.go`, a public client's portless loopback templates, the
+  request redirect that adds only a port, and the encoded response appended to
+  it
 
 ### Database
 
 - `migrations/` — the Goose SQL migrations, applied only by the standalone
   Goose CLI: the baseline schema, then auth state, sessions, revocation, rate
-  limits, then Steam accounts and the Steam provider in login state and codes.
-  The application never reads them; sqlc does
+  limits, then Steam accounts and the Steam provider in login state and codes,
+  then client types and the public-client authorization roots, codes, pairwise
+  subjects, refresh families and access-token revocations. The application
+  never reads them; sqlc does
 - `internal/database/queries/` — the SQL source; edit this, never generated
   code; `rate_limits.sql` derives the budget window and the wait from the
   database clock, `developer_applications.sql` carries the application row lock
   and the site application's conflict-safe insert under a given identifier,
-  `credentials.sql` the auth epoch's row lock
+  `credentials.sql` the auth epoch's row lock, `native_authorization.sql`
+  every public-client authorization, code, subject, refresh and revocation
+  statement under the shared auth-epoch lock
 - `internal/database/query/` — sqlc output: gitignored, regenerated every run
 - `internal/database/pool.go` — connection pool lifecycle
 - `internal/database/rollback.go` — the detached, bounded rollback every
@@ -91,7 +98,14 @@ endpoints that stop accepting credentials in
   owner, application and callback created together where the identifier is
   absent, nothing changed where it is held
 - `internal/services/oauth/` — authorization state, with PKCE for the OAuth
-  providers and none for Steam, one-time exchange codes
+  providers and none for Steam, one-time exchange codes; for public clients
+  `authorizationrequest.go` (the capacity-held root from authorization to code),
+  `authorizationcode.go` (redemption with PKCE), `refreshtoken.go` (rotation,
+  reuse and revocation) and `subject.go` (pairwise subjects and access-token
+  revocations)
+- `internal/services/oidc/` — the two RS256 key files and their published key
+  sets, the ID and RFC 9068 access token profiles, issuing both and verifying
+  the access token UserInfo accepts
 - `internal/services/sessions/` — browser sessions and their CSRF tokens
 - `internal/services/authority/` — the auth epoch every check is measured
   against
@@ -123,14 +137,27 @@ endpoints that stop accepting credentials in
 - `internal/web/burntoken.go` — `POST /api/burn-token`
 - `internal/web/developerapplication.go` — the seven
   `/api/developer_application` routes
-- `internal/web/providerlogin.go` — `GET /api/ui/{provider}/authorize`
+- `internal/web/providerlogin.go` — `GET /api/ui/{provider}/authorize`, which
+  refuses a public client; completing a login, confidential or continuing a
+  public client's authorization
 - `internal/web/providercallback.go` — the Discord, GitHub, Google callbacks,
   and the Steam callback at `/api/ui/steam-callback`, which reads the assertion
   before spending the login and spends it before Steam is asked
 - `internal/web/browsersession.go` — `/api/ui/`, `POST /api/ui/logout`, session
   and CSRF checks
+- `internal/web/nativeauthorization.go` — `GET /api/oauth/authorize`, and the
+  authorization page's `GET /api/oauth/authorization/{request}`,
+  `POST .../{request}/{provider}` and `POST .../{request}/cancel`
+- `internal/web/nativetoken.go` — `POST /api/oauth/token`
+- `internal/web/nativeuserinfo.go` — `GET /api/oauth/userinfo`
+- `internal/web/nativerevocation.go` — `POST /api/oauth/revoke`
+- `internal/web/oidcdiscovery.go` — `GET /api/.well-known/openid-configuration`,
+  `GET /api/oidc/jwks` (ID tokens), `GET /api/oauth/access-jwks` (access tokens)
+- `internal/web/publicprotocol.go` — the 64 permits every public-client request
+  and provider callback holds while it is served
 - `internal/web/authentication.go` — bearer and session authorization per route
-- `internal/web/cors.go` — exactly one permitted origin, declared addresses only
+- `internal/web/cors.go` — exactly one permitted origin, declared addresses only,
+  never a `SameOriginOnly` public-client address
 - `internal/web/middleware.go` — panic recovery that never logs the value and
   never answers a committed response, request identifiers, request log
 - `internal/web/requestlimit.go` — applies the budgets
@@ -148,10 +175,14 @@ endpoints that stop accepting credentials in
   and both representations, read from the canonical source
 - `internal/web/models/` — request and response bodies
 - `internal/web/request/`, `internal/web/response/` — input reading, answer
-  shapes
+  shapes; `request/oauthform.go` the bounded OAuth query and form reader,
+  `response/oauth.go` OAuth errors, bearer challenges and page headers
 - `internal/web/servertest/` — the real service against its own database; tests
   give the path below the route root, and `AtExactTarget` writes a target in
-  full; `credentialhasher.go` is the `testHasher` the harness injects
+  full; `credentialhasher.go` is the `testHasher` the harness injects;
+  `oidcsettings.go` writes the run's signing key files; `oidcclient.go` drives
+  a public client through the browser journey and validates its tokens from
+  discovery and the key sets alone, test support and never a client library
 - `internal/web/passwordsignintest/` — the password sign-in journeys, under
   `integration && devtools`
 
@@ -186,14 +217,21 @@ Paths are relative to `src/website/`. Everything the browser runs is under
 - `app/utils/providerLogin.ts` — the address that asks the API to start a
   sign-in
 - `app/utils/browserSession.ts` — CSRF header, session paths, signed-in check
-- `app/middleware/auth.global.ts` — route gate; asks `/api/me`
+- `app/middleware/auth.global.ts` — route gate; asks `/api/me`; `/login` and
+  `/authorize` are public
 - `app/pages/login.vue` — the Discord, GitHub, Google and Steam sign-in
   buttons, each mark drawn inline
+- `app/pages/authorize.vue` — a public client's authorization page: the handle
+  taken from the fragment, the application, permissions and session disclosed,
+  the provider and cancel forms
+- `server/middleware/authorizationHeaders.ts` — applies
+  `server/utils/authorizationHeaders.ts`: no-store, no-referrer and framing
+  denial for `/authorize` and no other page
 - `app/pages/developer-applications/` — developer application and callback URI
   administration
 - `app/layouts/dashboard.vue` — authenticated layout, including logout
 - `app/components/` — shared Vue components
-- `app/types/` — user and developer application DTOs
+- `app/types/` — user, developer application and pending authorization DTOs
 - `app/assets/css/main.css` — stylesheet entrypoint, theme tokens, daisyUI
   themes
 
@@ -206,7 +244,8 @@ address. `/api` is the API's route root, so a browser's path is forwarded whole.
 `migrations/` defines `User`, the provider accounts,
 `PasswordAccount`, `DeveloperApplication` and `CallbackUri`, then the auth
 epoch, OAuth state, exchange codes, browser sessions, JWT revocations and rate
-limit buckets, then `SteamAccount`, a Steam ID as decimal text.
+limit buckets, then `SteamAccount`, a Steam ID as decimal text, then the
+`client_type` of each application and the public-client tables.
 Provider accounts are one-to-one with users; users own developer
 applications; callback URIs belong to applications. Passwords and developer
 credentials are stored only as hashes, every one-time credential only as a
@@ -311,3 +350,6 @@ Each subject has one owner; everything else links to it.
 - `docs/DISCORD-OAUTH2.md`, `GITHUB-OAUTH2.md`, `GOOGLE-OAUTH2.md` — registering
   with each provider; `docs/STEAM-OPENID.md` — Steam, which needs no
   registration or setting
+- `docs/INSTALLED-CLIENT-OIDC.md` — integrating an installed application as a
+  public client: the browser journey, token validation, refresh, revocation
+  and the local-validation limit

@@ -798,3 +798,160 @@ func applicationAccessToken(t *testing.T, service *servertest.Service, id uuid.U
 
 	return granted.Token
 }
+
+// A public client is registered with no credential at all: none is returned,
+// none is stored, none can be reset, and nothing it presents authenticates it.
+// Every management shape states its client type.
+func TestPublicClientIsRegisteredWithoutCredential(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	service.SignInSomeone("the developer")
+
+	var registered map[string]json.RawMessage
+
+	service.POSTJSON("/developer_application", map[string]string{"name": "an installed application", "client_type": "public"},
+		service.Protected).ExpectStatus(http.StatusOK).DecodeInto(&registered)
+
+	members := make([]string, 0, len(registered))
+	for member := range registered {
+		members = append(members, member)
+	}
+
+	slices.Sort(members)
+
+	if !slices.Equal(members, []string{"client_type", "id", "name", "owner_id"}) {
+		t.Errorf("a public client's registration answered %v", members)
+	}
+
+	var identifier string
+	if err := json.Unmarshal(registered["id"], &identifier); err != nil {
+		t.Fatalf("the registration named no identifier: %v", err)
+	}
+
+	var stored int
+	if err := service.Pool.QueryRow(t.Context(),
+		`SELECT count(*) FROM "DeveloperApplication" WHERE "id" = $1 AND "refresh_token" IS NULL`, identifier,
+	).Scan(&stored); err != nil || stored != 1 {
+		t.Errorf("a public client's credential column is not empty: %d %v", stored, err)
+	}
+
+	service.PATCHJSON("/developer_application/"+identifier+"/reset_token", nil, service.Protected).
+		ExpectStatus(http.StatusConflict).
+		ExpectDetail("Public client has no credential")
+
+	for _, presented := range []string{applications.UnknownApplicationComparisonInput, strings.Repeat("A", 43), "x"} {
+		service.POSTJSON("/developer_application/login", map[string]string{"id": identifier, "refresh_token": presented}).
+			ExpectStatus(http.StatusUnauthorized)
+	}
+
+	var described struct {
+		ClientType string `json:"client_type"`
+	}
+
+	service.GET("/developer_application/" + identifier).ExpectStatus(http.StatusOK).DecodeInto(&described)
+
+	if described.ClientType != "public" {
+		t.Errorf("the application is described as %q", described.ClientType)
+	}
+
+	var listed []struct {
+		ID         string `json:"id"`
+		ClientType string `json:"client_type"`
+	}
+
+	service.GET("/user/applications").ExpectStatus(http.StatusOK).DecodeInto(&listed)
+
+	if len(listed) != 1 || listed[0].ClientType != "public" {
+		t.Errorf("the list describes %+v", listed)
+	}
+}
+
+// Registration that names no client type is confidential and carries its
+// credential exactly as before, and an unknown type is refused as an input.
+func TestOmittedClientTypeRegistersConfidentialApplication(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	service.SignInSomeone("the developer")
+
+	application := service.RegisterApplication("a server-side application", externalCallbackURI)
+	applicationAccessToken(t, service, application.ID, application.RefreshToken)
+
+	var reset struct {
+		ClientType string `json:"client_type"`
+		Token      string `json:"token"`
+	}
+
+	service.PATCHJSON("/developer_application/"+application.ID.String()+"/reset_token", nil, service.Protected).
+		ExpectStatus(http.StatusOK).DecodeInto(&reset)
+
+	if reset.ClientType != "confidential" || reset.Token == "" {
+		t.Errorf("a confidential reset answered %+v", reset)
+	}
+
+	for _, clientType := range []any{"native", "Public", "", 1} {
+		service.POSTJSON("/developer_application", map[string]any{"name": "x", "client_type": clientType}, service.Protected).
+			ExpectRejectedInput("body", "client_type")
+	}
+}
+
+// A public client registers only portless loopback templates, and a
+// confidential application keeps its own callback policy.
+func TestCallbackPolicyFollowsClientType(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	service.SignInSomeone("the developer")
+
+	public := service.RegisterPublicClient("an installed application")
+	confidential := service.RegisterApplication("a server-side application")
+
+	replace := func(application servertest.Application, uris ...string) *servertest.Response {
+		return service.PATCHJSON("/developer_application/"+application.ID.String()+"/callback_uris", uris, service.Protected)
+	}
+
+	for _, refused := range []string{
+		externalCallbackURI,
+		"http://127.0.0.1:8080/oauth/callback",
+		"http://localhost/oauth/callback",
+		"http://127.0.0.1",
+		"http://127.0.0.1/oauth/callback?state=x",
+		"http://127.0.0.1/oauth/callback?ISS=x",
+		"http://127.0.0.1/oauth/callback#x",
+		"myapp://callback",
+	} {
+		replace(public, ipv4Template, refused).
+			ExpectStatus(http.StatusBadRequest).
+			ExpectDetail("Callback URI at index 1 is invalid")
+	}
+
+	replace(public, ipv4Template, ipv6Template, "http://127.0.0.1/oauth/callback?tenant=a").ExpectStatus(http.StatusOK)
+	replace(confidential, ipv4Template).ExpectStatus(http.StatusBadRequest)
+	replace(confidential, externalCallbackURI).ExpectStatus(http.StatusOK)
+}
+
+// A public client cannot use the confidential sign-in, even with a callback
+// it registered: nothing is stored and no provider is involved.
+func TestPublicClientCannotStartConfidentialSignIn(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	service.SignInSomeone("the developer")
+
+	public := service.RegisterPublicClient("an installed application", ipv4Template)
+	logins := countRows(t, service, "oauth_authorization_state")
+
+	for _, provider := range oauth.Providers {
+		service.GET("/ui/" + string(provider) + "/authorize?" + url.Values{
+			"application_id": {public.ID.String()},
+			"callback_uri":   {ipv4Template},
+		}.Encode()).
+			ExpectStatus(http.StatusForbidden).
+			ExpectDetail("Invalid application ID or callback URI")
+	}
+
+	if after := countRows(t, service, "oauth_authorization_state"); after != logins {
+		t.Errorf("refused sign-ins stored %d logins", after-logins)
+	}
+}

@@ -164,3 +164,113 @@ func TestLoginCannotBeStartedWithAnotherSpellingOfCallback(t *testing.T) {
 		})
 	}
 }
+
+// A public client is returned to the exact redirect it began with, every
+// registered byte kept and the response parameters appended once each, so a
+// value registered in the template's query can never be read as a response.
+func TestPublicClientIsReturnedToItsExactRedirect(t *testing.T) {
+	t.Parallel()
+
+	const template = "http://127.0.0.1/Return/Callback?tenant=Acme&next=%2FHome%3Fa%3Db"
+
+	service := servertest.New(t)
+	service.SignInSomeone("the developer")
+
+	client := service.InstalledClient(service.RegisterPublicClient("an installed application", template))
+	pending := client.Pending(template, 49152, "openid")
+
+	if pending.RedirectURI != "http://127.0.0.1:49152/Return/Callback?tenant=Acme&next=%2FHome%3Fa%3Db" {
+		t.Fatalf("the test's redirect is %q", pending.RedirectURI)
+	}
+
+	started := client.BeginPublicSignIn(pending, oauth.Discord)
+	returned := service.FinishLogin(started, service.Providers.Someone(oauth.Discord, "someone")).
+		ExpectStatus(http.StatusSeeOther)
+
+	location := returned.Header.Get("Location")
+	prefix := pending.RedirectURI + "&code="
+
+	code, rest, found := strings.Cut(strings.TrimPrefix(location, prefix), "&state=")
+	if !strings.HasPrefix(location, prefix) || !found {
+		t.Fatalf("Location = %q, want the exact redirect with the code appended", location)
+	}
+
+	if rest != pending.State+"&iss="+url.QueryEscape(servertest.OpenIDIssuer) {
+		t.Errorf("the state and issuer were appended as %q", rest)
+	}
+
+	if len(code) != 43 || strings.ContainsAny(code, "&?#%") {
+		t.Errorf("the code is %q, want one encoded value", code)
+	}
+
+	parsed, err := url.Parse(location)
+	if err != nil {
+		t.Fatalf("the browser was sent to something that is not a URL: %v", err)
+	}
+
+	if values := parsed.Query(); values.Get("next") != "/Home?a=b" || len(values["code"]) != 1 || len(values["state"]) != 1 {
+		t.Errorf("the redirect decodes to %v", values)
+	}
+
+	if _, err := pending.Read(location, servertest.OpenIDIssuer); err != nil {
+		t.Errorf("the client could not read its own answer: %v", err)
+	}
+}
+
+// The test client's listener accepts only an unambiguous answer to its own
+// pending authorization.
+func TestInstalledClientRefusesAmbiguousOrUnsolicitedAnswers(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	_, client := installedClient(t, service)
+
+	pending := client.Pending(ipv4Template, 49152, "openid")
+	other := client.Pending(ipv4Template, 49152, "openid")
+
+	issuer := url.QueryEscape(servertest.OpenIDIssuer)
+	answer := pending.RedirectURI + "?code=c&state=" + pending.State + "&iss=" + issuer
+
+	if _, err := pending.Read(answer, servertest.OpenIDIssuer); err != nil {
+		t.Fatalf("a genuine answer was refused: %v", err)
+	}
+
+	for name, location := range map[string]string{
+		"a repeated code":       answer + "&code=d",
+		"a repeated state":      answer + "&state=" + pending.State,
+		"a repeated issuer":     answer + "&iss=" + issuer,
+		"a code and an error":   answer + "&error=access_denied",
+		"no state":              pending.RedirectURI + "?code=c&iss=" + issuer,
+		"no issuer":             pending.RedirectURI + "?code=c&state=" + pending.State,
+		"another issuer":        pending.RedirectURI + "?code=c&state=" + pending.State + "&iss=https%3A%2F%2Fevil.test",
+		"another path":          "http://127.0.0.1:49152/other?code=c&state=" + pending.State + "&iss=" + issuer,
+		"another port":          "http://127.0.0.1:49153/oauth/callback?code=c&state=" + pending.State + "&iss=" + issuer,
+		"another authorization": pending.RedirectURI + "?code=c&state=" + other.State + "&iss=" + issuer,
+		"malformed encoding":    answer + "&x=%zz",
+		"nothing":               pending.RedirectURI,
+	} {
+		if _, err := pending.Read(location, servertest.OpenIDIssuer); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+
+	// Two authorizations in flight at once: each code is bound to its own
+	// verifier and redirect, so swapping any one of them redeems nothing.
+	first := client.Pending(ipv4Template, 50001, "openid")
+	second := client.Pending(ipv4Template, 50002, "openid")
+
+	firstCode := client.SignIn(first, oauth.Discord, "someone")
+	secondCode := client.SignIn(second, oauth.Discord, "someone else")
+
+	swapped := first
+	swapped.Verifier = second.Verifier
+	expectOAuthError(t, client.Exchange(swapped, firstCode), http.StatusBadRequest, "invalid_grant")
+
+	swapped = first
+	swapped.RedirectURI = second.RedirectURI
+	expectOAuthError(t, client.Exchange(swapped, firstCode), http.StatusBadRequest, "invalid_grant")
+	expectOAuthError(t, client.Exchange(first, secondCode), http.StatusBadRequest, "invalid_grant")
+
+	client.Exchange(first, firstCode).ExpectStatus(http.StatusOK)
+	client.Exchange(second, secondCode).ExpectStatus(http.StatusOK)
+}

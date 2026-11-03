@@ -14,6 +14,7 @@ import (
 	"github.com/abandontech/abandonauth/src/api/internal/services/housekeeping"
 	"github.com/abandontech/abandonauth/src/api/internal/services/keyring"
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
+	"github.com/abandontech/abandonauth/src/api/internal/services/oidc"
 	"github.com/abandontech/abandonauth/src/api/internal/services/providers"
 	"github.com/abandontech/abandonauth/src/api/internal/services/ratelimit"
 	"github.com/abandontech/abandonauth/src/api/internal/services/sessions"
@@ -79,6 +80,15 @@ type Server struct {
 	limiter      *ratelimit.Limiter
 	signer       *tokens.Signer
 
+	issuer         *oidc.Issuer
+	accessTokens   *oidc.AccessTokenVerifier
+	authorizations *oauth.AuthorizationRequests
+	nativeCodes    *oauth.AuthorizationCodes
+	refreshTokens  *oauth.RefreshTokens
+	subjects       *oauth.PairwiseSubjects
+	admission      *publicProtocolAdmission
+	discovery      []byte
+
 	discord *providers.Discord
 	github  *providers.GitHub
 	google  *providers.Google
@@ -133,6 +143,18 @@ func NewServer(configuration config.Config, dependencies Dependencies) (*Server,
 		return nil, err
 	}
 
+	issuer, err := oidc.NewIssuer(configuration.OpenIDIssuer, configuration.SigningKeys, now)
+	if err != nil {
+		return nil, err
+	}
+
+	discovery, err := openIDProviderMetadata(configuration.OpenIDIssuer)
+	if err != nil {
+		return nil, err
+	}
+
+	subjects := oauth.NewPairwiseSubjects(dependencies.Pool, nil)
+
 	return &Server{
 		config:       configuration,
 		logger:       dependencies.Logger,
@@ -146,6 +168,16 @@ func NewServer(configuration config.Config, dependencies Dependencies) (*Server,
 		codes:        codes,
 		limiter:      limiter,
 		signer:       signer,
+
+		issuer:         issuer,
+		accessTokens:   oidc.NewAccessTokenVerifier(configuration.OpenIDIssuer, configuration.SigningKeys, now),
+		authorizations: oauth.NewAuthorizationRequests(dependencies.Pool, logins),
+		nativeCodes:    oauth.NewAuthorizationCodes(dependencies.Pool, subjects),
+		refreshTokens:  oauth.NewRefreshTokens(dependencies.Pool),
+		subjects:       subjects,
+		admission:      newPublicProtocolAdmission(),
+		discovery:      discovery,
+
 		discord: providers.NewDiscord(
 			configuration.Discord, dependencies.DiscordEndpoints, dependencies.ProviderTransport,
 		),
@@ -219,6 +251,9 @@ func (s *Server) ExpiredRecordSweeps() []housekeeping.Sweep {
 		{Records: "browser sessions", Forget: s.sessions.Forget},
 		{Records: "withdrawn tokens", Forget: s.authority.Forget},
 		{Records: "rate limit windows", Forget: s.limiter.Forget},
+		{Records: "public client authorizations", Forget: s.authorizations.Forget},
+		{Records: "ended offline grants", Forget: s.refreshTokens.Forget},
+		{Records: "expired access token revocations", Forget: s.subjects.ForgetRevocations},
 	}
 }
 

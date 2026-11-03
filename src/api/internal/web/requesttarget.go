@@ -69,10 +69,15 @@ func onlyCanonicalTargets(next http.Handler) http.Handler {
 // matcher that serves it and the two cannot drift apart. Every pattern answers
 // with the given handler.
 func routePaths(answer http.Handler) *http.ServeMux {
+	return pathsOf(Routes(), answer)
+}
+
+// pathsOf builds the same router over a chosen set of routes.
+func pathsOf(routes []Route, answer http.Handler) *http.ServeMux {
 	paths := http.NewServeMux()
 	registered := make(map[string]bool)
 
-	for _, route := range Routes() {
+	for _, route := range routes {
 		if registered[route.Pattern] {
 			continue
 		}
@@ -100,10 +105,10 @@ type declaredMarker struct{}
 
 func (*declaredMarker) ServeHTTP(http.ResponseWriter, *http.Request) {}
 
-func newDeclaredPaths() declaredPaths {
+func newDeclaredPaths(routes []Route) declaredPaths {
 	marker := &declaredMarker{}
 
-	return declaredPaths{paths: routePaths(marker), marker: marker}
+	return declaredPaths{paths: pathsOf(routes, marker), marker: marker}
 }
 
 // names reports whether a canonical path is one the route table declares.

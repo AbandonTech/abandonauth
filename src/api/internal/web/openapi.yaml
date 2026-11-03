@@ -1024,7 +1024,6 @@ paths:
         member `access_token_jwks_uri` names only the access token key set. A
         validator trusts only the set for the token class it validates and
         never tries a key from one set against the other class.
-      x-abandonauth-served: false
       security: []
       responses:
         "200":
@@ -1049,23 +1048,23 @@ paths:
         with a key from this set.
 
 
-        Each key carries exactly `kid`, `kty` `RSA`, `use` `sig`, `alg`
-        `RS256`, `n` and `e`, and no private member. Every `kid` is the
-        43-character RFC 7638 thumbprint of its key's public members, and no
-        `kid` appears in both key sets. The set holds one to eight keys.
+        The key carries exactly `kid`, `kty` `RSA`, `use` `sig`, `alg`
+        `RS256`, `n` and `e`, and no private member. Its `kid` is the
+        43-character RFC 7638 thumbprint of its public members, and no `kid`
+        appears in both key sets. The set holds exactly one key, the one that
+        signs ID tokens.
 
 
-        The answer is cacheable for five minutes. A key is advertised here for
-        at least five minutes before it signs, and stays for at least twenty
-        minutes after its last possible signature before it is removed. A key
-        whose private part is suspected compromised may be removed at once; a
-        validator holding a cached copy can keep trusting it for at most that
-        five-minute cache lifetime.
-      x-abandonauth-served: false
+        The answer is cacheable for five minutes. The key is replaced by
+        replacing its key file and recreating the API, which removes the
+        replaced key from this set at once. Until a validator fetches the set
+        again, at most that five-minute cache lifetime later, it refuses tokens
+        the new key signs and can keep trusting the replaced key. A key whose
+        private part is suspected compromised is replaced the same way.
       security: []
       responses:
         "200":
-          description: The ID token verification keys, cacheable for five minutes.
+          description: The ID token verification key, cacheable for five minutes.
           headers:
             Cache-Control:
               $ref: "#/components/headers/CacheControlFiveMinutes"
@@ -1088,23 +1087,23 @@ paths:
         a forged token.
 
 
-        Each key carries exactly `kid`, `kty` `RSA`, `use` `sig`, `alg`
-        `RS256`, `n` and `e`, and no private member. Every `kid` is the
-        43-character RFC 7638 thumbprint of its key's public members, and no
-        `kid` appears in both key sets. The set holds one to eight keys.
+        The key carries exactly `kid`, `kty` `RSA`, `use` `sig`, `alg`
+        `RS256`, `n` and `e`, and no private member. Its `kid` is the
+        43-character RFC 7638 thumbprint of its public members, and no `kid`
+        appears in both key sets. The set holds exactly one key, the one that
+        signs access tokens.
 
 
-        The answer is cacheable for five minutes. A key is advertised here for
-        at least five minutes before it signs, and stays for at least twenty
-        minutes after its last possible signature before it is removed. A key
-        whose private part is suspected compromised may be removed at once; a
-        validator holding a cached copy can keep trusting it for at most that
-        five-minute cache lifetime.
-      x-abandonauth-served: false
+        The answer is cacheable for five minutes. The key is replaced by
+        replacing its key file and recreating the API, which removes the
+        replaced key from this set at once. Until a validator fetches the set
+        again, at most that five-minute cache lifetime later, it refuses tokens
+        the new key signs and can keep trusting the replaced key. A key whose
+        private part is suspected compromised is replaced the same way.
       security: []
       responses:
         "200":
-          description: The access token verification keys, cacheable for five minutes.
+          description: The access token verification key, cacheable for five minutes.
           headers:
             Cache-Control:
               $ref: "#/components/headers/CacheControlFiveMinutes"
@@ -1189,7 +1188,6 @@ paths:
         Every answer carries `Cache-Control: no-store`, `Referrer-Policy:
         no-referrer`, `X-Frame-Options: DENY` and `Content-Security-Policy:
         frame-ancestors 'none'`. No cross-origin request is permitted.
-      x-abandonauth-served: false
       security: []
       parameters:
         - $ref: "#/components/parameters/AuthorizationResponseType"
@@ -1243,7 +1241,6 @@ paths:
         Every answer carries `Cache-Control: no-store`, `Referrer-Policy:
         no-referrer`, `X-Frame-Options: DENY` and `Content-Security-Policy:
         frame-ancestors 'none'`.
-      x-abandonauth-served: false
       security: []
       parameters:
         - $ref: "#/components/parameters/AuthorizationRequestHandle"
@@ -1307,7 +1304,6 @@ paths:
         Every answer carries `Cache-Control: no-store`, `Referrer-Policy:
         no-referrer`, `X-Frame-Options: DENY` and `Content-Security-Policy:
         frame-ancestors 'none'`.
-      x-abandonauth-served: false
       security: []
       parameters:
         - $ref: "#/components/parameters/AuthorizationRequestHandle"
@@ -1360,7 +1356,6 @@ paths:
         Every answer carries `Cache-Control: no-store`, `Referrer-Policy:
         no-referrer`, `X-Frame-Options: DENY` and `Content-Security-Policy:
         frame-ancestors 'none'`.
-      x-abandonauth-served: false
       security: []
       parameters:
         - $ref: "#/components/parameters/AuthorizationRequestHandle"
@@ -1459,7 +1454,6 @@ paths:
         `temporarily_unavailable` when the worker already has 64
         public-protocol requests in progress; and 500 `server_error` for an
         internal failure.
-      x-abandonauth-served: false
       security: []
       requestBody:
         required: true
@@ -1517,7 +1511,6 @@ paths:
         claim. When the worker already has 64 public-protocol requests in
         progress the answer is 503 `temporarily_unavailable`, and an internal
         failure is 500 `server_error`.
-      x-abandonauth-served: false
       security:
         - OIDCAccessToken: []
       responses:
@@ -1583,7 +1576,6 @@ paths:
         on the worker 503 `temporarily_unavailable`; and an internal failure
         500 `server_error`. Every answer carries `Cache-Control: no-store` and
         `Pragma: no-cache`.
-      x-abandonauth-served: false
       security: []
       requestBody:
         required: true
@@ -2483,14 +2475,14 @@ components:
           enum: [true]
     JSONWebKeySet:
       type: object
-      description: One purpose's public verification keys, and nothing else.
+      description: One purpose's public verification key, and nothing else.
       additionalProperties: false
       required: [keys]
       properties:
         keys:
           type: array
           minItems: 1
-          maxItems: 8
+          maxItems: 1
           items:
             $ref: "#/components/schemas/RSAPublicJSONWebKey"
     RSAPublicJSONWebKey:

@@ -34,6 +34,9 @@ agent-accessible worktree.
   trusted comma-delimited input.
 - PKCE is required for public clients; a confidential-client flow that omits it
   records why. Validate nonce on OIDC responses.
+- A public client holds no secret and is never given one. Its redirect is a
+  loopback template whose only accepted variation is the port, and nothing is
+  redirected to before the client and redirect are both proven.
 - Match registered redirect URIs exactly. Define the HTTPS requirement and any
   narrow loopback exception. Never normalize, prefix-match, or accept a
   caller-controlled redirect.
@@ -111,6 +114,17 @@ the work was about.
 | Password sign-in compiled only into the development build and served only in debug mode on a loopback-only bind; a deployment refuses `DEBUG` outright | `internal/buildmode`, `internal/config`, the `_devtools.go` files |
 | One hand-maintained schema, served as YAML and JSON only after it proves to be one complete mapping with no `example`, `examples` or `default` anywhere, refusals carrying fixed words that never quote the source; password operations documented in every build only when labelled `x-abandonauth-build: development`, while their routes and handlers are compiled out of a deployment, which answers both 404 | `internal/web/openapi.yaml`, `internal/web/apidocumentation.go`, `routes_devtools.go` |
 | A log line that never carries a query string, header or cookie | `internal/logging` |
+| An immutable RFC 6749 client type: a public client holds no credential (a database constraint ties a null credential to `public`), cannot authenticate, reset, or use the confidential sign-in, and is the only type the OIDC endpoints accept | `internal/services/applications`, `src/api/migrations/`, `internal/web/developerapplication.go`, `providerlogin.go` |
+| Public-client redirects: portless `http` templates on an IPv4 loopback literal or `[::1]`, a path, no response keys; a request matches a template with exactly one numeric port added and nothing else changed; the exact spelling is stored and required again at redemption; nothing is redirected before client and redirect are proven | `internal/urlpolicy/nativecallback.go`, `internal/web/nativeauthorization.go` |
+| OAuth input read whole or not at all: bounded bytes, fields and name length, no `;`, no encoded or case-varied names, no bad escape, control character or invalid UTF-8; recognized members at most once; query and form never merged; `token_type_hint` never read | `internal/web/request/oauthform.go` |
+| One authorization root per public authorization, in one of 10,000 slots counted under a lock, with one absolute five-minute deadline; page handle, provider state and code single-use digests bound to the browser's separate `abandonauth_native_oauth` cookie, the client, redirect, scopes, state, nonce, challenge and epoch | `internal/services/oauth/authorizationrequest.go`, `authorizationstate.go`, `internal/web/nativeauthorization.go`, `cookies.go` |
+| PKCE `S256` mandatory; a code redeemed by one delete only when client, redirect, epoch and the verifier's challenge all match, so a wrong attempt leaves it; issuance under the shared auth-epoch lock in one transaction with signing | `internal/services/oauth/authorizationcode.go`, `internal/web/nativetoken.go` |
+| Two RS256 key files, one per token class, PKCS #8 of at least 2048 bits, `kid` the RFC 7638 thumbprint, never the same key; two published key sets; ID and access tokens each accepted only in their exact profile with no clock tolerance | `internal/services/oidc`, `internal/config`, `internal/web/oidcdiscovery.go` |
+| Pairwise subjects: 43 random characters unique per application and person, never the user identifier, kept across rotation | `internal/services/oauth/subject.go` |
+| Rotating refresh tokens with reuse revoking the family, ten families per person and application, ten thousand members per family, no scope widening | `internal/services/oauth/refreshtoken.go` |
+| UserInfo and revocation accepting only the OIDC access token class; a thousand unexpired revocations per person and application, beyond which revocation answers 503 rather than claiming success; a resource server's local acceptance up to fifteen minutes after withdrawal documented as the profile's limit | `internal/web/nativeuserinfo.go`, `nativerevocation.go`, `docs/INSTALLED-CLIENT-OIDC.md` |
+| At most 64 public-protocol requests per process, provider callbacks included and admitted before their state is read, refused at once with a fixed answer | `internal/web/publicprotocol.go` |
+| Authorization page answers never cached, framed or used as a referrer; OAuth answers `no-store` and `Pragma: no-cache`; no cross-origin permission on any public-client address | `internal/web/response/oauth.go`, `cors.go`, `routes.go` |
 
 ## Where the negative tests are
 
@@ -228,6 +242,32 @@ A change to a control above extends these rather than replacing them:
 - `internal/services/applications/credentialhash_test.go` — the comparison hash
   an unknown application is checked against is bcrypt at `HashCost`, made from
   its published input.
+- `internal/urlpolicy/nativecallback_test.go` — loopback templates and redirects
+  in every refused spelling: abbreviated, integer, octal and mapped addresses,
+  zone identifiers, host names, ports, dot segments, escapes and response keys.
+- `internal/web/request/oauthform_test.go`, `nativeauthorization_test.go`,
+  `nativetoken_test.go` — the parser-differential matrix, every bound at its
+  limit and one past it, PKCE, state, nonce and opaque-value syntax, and
+  `token_type_hint` ignored in every form.
+- `internal/web/nativeauthorization_integration_test.go` — no redirect before
+  client and redirect are proven, the fragment handoff, Origin and binding
+  refusals consuming nothing, one winner of racing choices, the separate cookie,
+  capacity and recovery, hostile application names.
+- `internal/web/nativetoken_integration_test.go`,
+  `nativeuserinfo_integration_test.go`, `nativerevocation_integration_test.go`,
+  `oidcdiscovery_integration_test.go` — exact token profiles validated from
+  discovery alone, code binding and replay, racing redemption, refresh rotation,
+  reuse and narrowing, pairwise subjects, the JOSE and claim abuse matrix,
+  cross-purpose forgeries with each key, credential-class swaps, revocation
+  indistinguishability and its ceiling, zero clock tolerance, and local
+  acceptance continuing after withdrawal.
+- `internal/web/publicprotocol_test.go`, `publicprotocol_integration_test.go` —
+  the 64-permit bound, permits returned after panic and cancellation, and a
+  callback refused while every permit is held spending nothing and succeeding
+  on retry.
+- `internal/database/nativeauthorization_integration_test.go` — lock ordering
+  against rotation, the capacity, family and revocation ceilings under races,
+  subject collisions, and the null-credential constraint.
 
 Credential hashing is one production path: `credentials.Hash` creates bcrypt at
 `credentials.HashCost` and `credentials.Matches` verifies it, and neither takes

@@ -146,12 +146,62 @@ two replacements arriving together run one after the other and leave one
 submitted set; a replacement that finds the application gone is answered as
 not found.
 
+## Public clients
+
+Every application has an immutable RFC 6749 `client_type`. A `confidential`
+application holds a credential and uses the flow above; `GET
+/api/ui/{provider}/authorize` and `POST /api/login` refuse a `public` one. A
+public client is an installed application with no credential; its registered
+callbacks are portless loopback templates (`urlpolicy.ParseNativeCallbackTemplate`),
+and it signs in only through OpenID Connect. The integration contract is
+`docs/INSTALLED-CLIENT-OIDC.md`; the issuer is `ABANDON_AUTH_URL` plus `/api`.
+
+1. `GET /api/oauth/authorize` (`internal/web/nativeauthorization.go`) reads the
+   bounded query (`request.OAuthQuery`), proves the public client and that the
+   redirect is one of its templates with only a port added
+   (`urlpolicy.MatchNativeCallback`), and only then may redirect anywhere. It
+   creates one `oauth_native_authorization` root, one of 10,000 fixed slots
+   counted under a capacity lock, holding the client's state, nonce, PKCE
+   challenge, exact redirect, scopes, the browser binding digest, the auth
+   epoch and a five-minute deadline nothing extends. The browser gets the
+   `abandonauth_native_oauth` cookie, separate from the confidential login's,
+   and a 303 to the site's `/authorize#request=<handle>`.
+2. The site's `pages/authorize.vue` takes the handle out of the fragment, reads
+   `GET /api/oauth/authorization/{request}` (name, scopes, deadline,
+   providers), and posts the person's choice to
+   `/api/oauth/authorization/{request}/{provider}` or `/cancel`. Both need the
+   exact site `Origin` and the binding cookie, and spend the page atomically.
+3. A choice advances the root and records ordinary provider state carrying the
+   root as its continuation (`oauth.Store.beginNative`). The provider callback
+   tries that continuation under the native cookie first and the confidential
+   login under its own cookie second, keeps every provider check, and for a
+   continuation issues a native code (at most 120 seconds, never past the root's
+   deadline) in the transaction that advances the root, then 303s to the stored
+   redirect with `code`, `state` and `iss`. Refusals there are `access_denied`
+   or `server_error`; an untrusted state is the usual 403.
+4. `POST /api/oauth/token` (`nativetoken.go`) redeems the code with its PKCE
+   verifier, or rotates a refresh token, in one transaction holding the shared
+   auth-epoch lock: the code or token is spent, the pairwise subject resolved,
+   an offline grant's family created or advanced, and both RS256 tokens signed
+   (`internal/services/oidc`) before commit.
+5. `GET /api/oauth/userinfo` and `POST /api/oauth/revoke` accept only the OIDC
+   access token class; discovery and the two purpose-specific key sets are
+   published at fixed addresses.
+
+Every native transition takes the auth epoch's row lock in shared mode and
+compares the root's epoch exactly; rotation takes it exclusively and deletes
+every root, code, offline family and access-token revocation, keeping pairwise
+subjects. Provider HTTP calls run outside any transaction, so a rotation during
+one leaves no root for the code to be issued against. Each API process serves at
+most 64 of these requests at once (`publicprotocol.go`).
+
 ## Browser authority
 
 One origin may use this API from a browser, and only at an address the route
 table names: `internal/web/cors.go` emits no permission header and answers no
 preflight otherwise, so an unserved target is reported unserved rather than
-described.
+described. The public-client addresses (`Route.SameOriginOnly`) permit no
+cross-origin request at all.
 
 A signed-in browser holds a random value; the database holds its digest, the
 user it stands for, and a second value the site must echo back. Expiry is
@@ -163,6 +213,7 @@ immediately for every worker.
 | session | no | the value a session is looked up by |
 | CSRF | yes | the value the site copies into `X-CSRF-Token` |
 | login binding | no | the value tying a login in progress to this browser |
+| native login binding | no | the value tying a public client's authorizations to this browser, for five minutes |
 
 `RequireSecureCookies()` chooses between `__Host-`-prefixed `Secure` cookies and
 host-only loopback equivalents. A cookie-authenticated request that changes
@@ -202,8 +253,12 @@ stored with the session.
 - Every transaction is abandoned through `internal/database/rollback.go`, which
   detaches from the request's cancellation and bounds the cleanup, so a client
   that gives up cannot leave a connection or a row lock held.
+- A third and fourth token class, the OIDC ID token and RFC 9068 access token,
+  are RS256 with two separate key files and published key sets, and share
+  nothing with the two HS512 classes.
 - `internal/services/housekeeping` sweeps expired logins, codes, sessions,
-  withdrawn tokens and budget windows on a ticker `serve` starts once its
+  withdrawn tokens, budget windows, public client authorizations, ended offline
+  grants and expired access-token revocations on a ticker `serve` starts once its
   listener is open and stops however serving ends. Sweeps are bounded and
   remove nothing still usable: granting anything from such a row already
   requires it unexpired.

@@ -15,6 +15,20 @@ Currently supported:
 
 # Integrating your application
 
+An application is registered as one of two RFC 6749 client types, fixed when it
+is registered:
+
+- **Confidential client** — a server-side application that can protect a
+  credential. It receives an application token and signs people in with the
+  exchange below.
+- **Public client** — an installed application, such as a desktop or
+  command-line application, that cannot protect a shared credential. It receives
+  no credential and signs people in with OpenID Connect, PKCE and a loopback
+  redirect: see [Signing people in to an installed
+  application](./docs/INSTALLED-CLIENT-OIDC.md).
+
+The rest of this section describes a confidential client.
+
 ## Register a developer application
 
 1. Login to [AbandonAuth](https://auth.abandontech.cloud)
@@ -92,7 +106,9 @@ needs no settings: see [Steam](./docs/STEAM-OPENID.md).
 `ABANDON_AUTH_URL` and `ABANDON_AUTH_SITE_URL` are origins: scheme, host and an
 optional port, with no path. Every endpoint is under `/api`, which belongs to
 the API and is never part of either setting. Outside a loopback development
-build both must be `https`.
+build both must be `https`. Both must name the same host; only their ports may
+differ, and the API refuses to start otherwise. `ABANDON_AUTH_URL` followed by
+`/api` is the OpenID issuer installed applications pin.
 
 ## The signing secret
 
@@ -104,8 +120,12 @@ abandonauth database rotate-auth-epoch
 ```
 
 That withdraws every access token, login in progress, one-time code and browser
-session: every browser must sign in again, and every login in progress must
-start over.
+session, and every public client's authorization, code and offline session:
+every browser must sign in again, and every login in progress must start over.
+AbandonAuth's own UserInfo refuses every OIDC access token issued before it at
+once, but a resource server that validates one locally keeps accepting it until
+it expires, up to fifteen minutes later. The subject each application knows a
+person by does not change.
 
 ## Signing keys
 
@@ -139,12 +159,23 @@ Compose reads a secret file only when it creates a container, so recreate the
 API container after replacing a key. Replacing a key is how it is rotated:
 until clients fetch the published keys again, up to five minutes later, they
 reject tokens the new key signs, and tokens the old key signed stop being
-accepted at once.
+accepted at once by AbandonAuth. A validator holding a cached key set keeps
+trusting the replaced key for at most those five minutes. A key suspected to be
+compromised is replaced the same way; for the access token key, also rotate the
+authority (above) so no offline session can obtain another token. The two keys
+are independent: replacing one never affects tokens of the other class.
 
 ## Request limits
 
 Authenticated users are limited to 20 developer application changes (create,
 delete, credential reset, callback replacement) per minute.
+
+The public-client protocol needs no credential, so it is bounded by fixed
+capacity instead: each API process serves at most 64 of its requests and
+provider callbacks at once, the whole service holds at most 10,000 public-client
+authorizations in progress, and one person holds at most ten offline sessions
+and a thousand unexpired revoked access tokens per application. None of these
+is a setting.
 
 ## Deploying the API
 

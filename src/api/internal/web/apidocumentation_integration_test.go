@@ -258,7 +258,10 @@ func TestServedSchemaDescribesWhatThisBuildServes(t *testing.T) {
 			continue
 		}
 
-		if service.AtExactTarget(http.MethodGet, addressable(t, path)).Status == http.StatusNotFound {
+		// A declared address can itself answer 404 for a value it does not
+		// know, so only the router's own refusal means the address is undeclared.
+		answer := service.AtExactTarget(http.MethodGet, addressable(t, path))
+		if answer.Status == http.StatusNotFound && string(answer.Body) == `{"detail":"Not Found"}`+"\n" {
 			t.Errorf("the served schema names %s, which this build does not declare", path)
 		}
 	}

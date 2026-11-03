@@ -4,7 +4,9 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
+	"math/big"
 	"os"
 	"path/filepath"
 	"sync"
@@ -89,6 +91,19 @@ func SigningKeyFiles(t testing.TB) SigningKeySettings {
 	}
 
 	return material
+}
+
+// IDTokenKeyID is the ID token key's RFC 7638 thumbprint.
+func (s SigningKeySettings) IDTokenKeyID() string { return keyID(s.IDTokenPrivate) }
+
+// AccessTokenKeyID is the access token key's RFC 7638 thumbprint.
+func (s SigningKeySettings) AccessTokenKeyID() string { return keyID(s.AccessTokenPrivate) }
+
+func keyID(key *rsa.PrivateKey) string {
+	return oidc.Thumbprint(
+		base64.RawURLEncoding.EncodeToString(key.N.Bytes()),
+		base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes()),
+	)
 }
 
 // Apply puts the two key file paths into settings.

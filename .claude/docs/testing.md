@@ -201,6 +201,16 @@ the embedded `openapi.yaml`, check it against the route table for the running
 build, and check the YAML and JSON representations the service serves describe
 the same document; the integration tests fetch both through the front door.
 
+A contract may be written before its route exists. Such an operation carries
+`x-abandonauth-served: false`, the only way an operation may lack a route:
+`apischema_test.go` still requires every documented route to have an
+operation, refuses `true`, and refuses the marker on an operation whose route
+is declared. The marker is removed in the same edit that declares the route,
+and no phase whose route work is complete passes with one left. It changes no
+part of the operation's contract, and the integration test that asks for each
+served operation treats only the router's own `Not Found` as undeclared, since
+a declared address can answer 404 for a value it does not know.
+
 A test that spends a request budget states the budget's number itself, as the
 contract the service promises, rather than reading it back from the service.
 Budget windows are decided by the database clock and are at least a minute

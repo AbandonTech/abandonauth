@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/abandontech/abandonauth/src/api/internal/services/accounts"
+	"github.com/abandontech/abandonauth/src/api/internal/services/applications"
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
 	"github.com/abandontech/abandonauth/src/api/internal/services/providers"
 	"github.com/abandontech/abandonauth/src/api/internal/urlpolicy"
@@ -55,6 +56,21 @@ func (s *Server) providerAuthorize() http.Handler {
 		}
 
 		if !registered {
+			response.Error(writer, http.StatusForbidden, detailUnknownApplicationOrCallback)
+
+			return
+		}
+
+		// A public client signs in only through its own authorization, which
+		// carries PKCE from the client; a login here would carry none.
+		application, err := s.applications.Get(request.Context(), wanted.applicationID)
+		if err != nil && !errors.Is(err, applications.ErrNoSuchApplication) {
+			s.refuseUnavailable(writer, request, err)
+
+			return
+		}
+
+		if err != nil || application.ClientType != applications.Confidential {
 			response.Error(writer, http.StatusForbidden, detailUnknownApplicationOrCallback)
 
 			return
@@ -130,7 +146,9 @@ func (s *Server) resumeLogin(
 	return login, request.URL.Query().Get(urlpolicy.ExchangeCodeQueryKey), true
 }
 
-// consumeLogin spends the login a state and the browser's cookie name.
+// consumeLogin spends the login a state and the browser's cookie name: one
+// continuing a public client's authorization, under its own cookie, or else a
+// confidential application's.
 //
 // It answers the request itself on every failure, always with the same detail:
 // a state that was never issued, that has expired, that has already been used,
@@ -139,9 +157,20 @@ func (s *Server) resumeLogin(
 func (s *Server) consumeLogin(
 	writer http.ResponseWriter, request *http.Request, provider oauth.Provider, state string,
 ) (oauth.Login, bool) {
+	login, err := s.authorizations.ConsumeProvider(request.Context(), provider, state, s.nativeBinding(request))
+	if err == nil {
+		return login, true
+	}
+
+	if !errors.Is(err, oauth.ErrNoSuchLogin) {
+		s.refuseUnavailable(writer, request, err)
+
+		return oauth.Login{}, false
+	}
+
 	binding := cookieValue(request, s.LoginCookieName())
 
-	login, err := s.logins.Consume(request.Context(), provider, state, binding)
+	login, err = s.logins.Consume(request.Context(), provider, state, binding)
 	if errors.Is(err, oauth.ErrNoSuchLogin) {
 		response.Error(writer, http.StatusForbidden, detailSignInValidationFailed)
 
@@ -163,6 +192,9 @@ func (s *Server) consumeLogin(
 // here, and nothing that could sign it in is put in a URL. A login another
 // application started ends in a one-time code that only that application can
 // spend.
+//
+// A login continuing a public client's authorization ends only in that
+// authorization's code, returned to its client.
 func (s *Server) completeLogin(
 	writer http.ResponseWriter,
 	request *http.Request,
@@ -170,6 +202,12 @@ func (s *Server) completeLogin(
 	identity accounts.Identity,
 	responseKey string,
 ) {
+	if login.Native != nil {
+		s.completeNativeLogin(writer, request, *login.Native, identity)
+
+		return
+	}
+
 	callback, err := urlpolicy.ParseCallbackURI(login.CallbackURI)
 	if err != nil {
 		// The URI was accepted when it was registered. If it is no longer one
@@ -225,14 +263,89 @@ func (s *Server) signInBrowser(
 	response.Redirect(writer, http.StatusTemporaryRedirect, destination)
 }
 
+// completeNativeLogin ends a public client's authorization in its code, issued
+// in the transaction that advances it, and returns the browser to the client.
+func (s *Server) completeNativeLogin(
+	writer http.ResponseWriter, request *http.Request, native oauth.NativeContinuation, identity accounts.Identity,
+) {
+	person, err := s.accounts.Resolve(request.Context(), identity)
+	if errors.Is(err, accounts.ErrUnusableIdentity) {
+		s.endNativeLogin(writer, request, native, response.OAuthAccessDenied)
+
+		return
+	}
+
+	if err != nil {
+		s.logPublicProtocolFailure(request)
+		s.endNativeLogin(writer, request, native, response.OAuthServerError)
+
+		return
+	}
+
+	code, err := s.authorizations.CompleteProvider(request.Context(), native, person.ID)
+	if errors.Is(err, oauth.ErrNoSuchAuthorization) {
+		response.Error(writer, http.StatusForbidden, detailSignInValidationFailed)
+
+		return
+	}
+
+	if err != nil {
+		s.logPublicProtocolFailure(request)
+		s.endNativeLogin(writer, request, native, response.OAuthServerError)
+
+		return
+	}
+
+	s.returnCodeToClient(writer, native.RedirectURI, native.ClientState, code)
+}
+
+// endNativeLogin ends a public client's authorization without a code and tells
+// its client why. An authorization already gone, such as one a rotation
+// withdrew during the provider's answer, is no longer proven, and the browser
+// is refused as for any untrusted state.
+func (s *Server) endNativeLogin(
+	writer http.ResponseWriter, request *http.Request, native oauth.NativeContinuation, code string,
+) {
+	_, err := s.authorizations.CompleteProvider(request.Context(), native, uuid.Nil)
+	if errors.Is(err, oauth.ErrNoSuchAuthorization) {
+		response.Error(writer, http.StatusForbidden, detailSignInValidationFailed)
+
+		return
+	}
+
+	if err != nil {
+		s.logPublicProtocolFailure(request)
+
+		code = response.OAuthServerError
+	}
+
+	s.returnToClient(writer, native.RedirectURI, native.ClientState, code)
+}
+
 // refuseProvider answers a login the provider did not authenticate. Neither
 // the provider's response nor the internal reason is repeated or logged: either
 // can quote the code that was sent or a token claim.
-func (s *Server) refuseProvider(writer http.ResponseWriter, request *http.Request, err error) {
-	if errors.Is(err, providers.ErrProviderRefused) || errors.Is(err, providers.ErrUnusableIdentity) {
+func (s *Server) refuseProvider(writer http.ResponseWriter, request *http.Request, login oauth.Login, err error) {
+	refused := errors.Is(err, providers.ErrProviderRefused) || errors.Is(err, providers.ErrUnusableIdentity)
+
+	if refused {
 		s.logger.Warn().
 			Str("request_id", requestIDOf(request)).
 			Msg("a provider did not complete a sign-in")
+	}
+
+	if login.Native != nil {
+		if refused {
+			s.endNativeLogin(writer, request, *login.Native, response.OAuthAccessDenied)
+		} else {
+			s.logPublicProtocolFailure(request)
+			s.endNativeLogin(writer, request, *login.Native, response.OAuthServerError)
+		}
+
+		return
+	}
+
+	if refused {
 		response.Error(writer, http.StatusForbidden, detailSignInValidationFailed)
 
 		return

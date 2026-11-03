@@ -286,3 +286,75 @@ func TestRedirectWritesLocationExactlyAsGiven(t *testing.T) {
 		t.Errorf("Location = %q, want %q", got, location)
 	}
 }
+
+// An OAuth refusal is exactly its code, no cache keeps it, and nothing the
+// request carried is written.
+func TestOAuthErrorIsOnlyItsCodeAndUncached(t *testing.T) {
+	t.Parallel()
+
+	recorder := httptest.NewRecorder()
+	response.OAuthError(recorder, http.StatusBadRequest, response.OAuthInvalidGrant)
+
+	if recorder.Code != http.StatusBadRequest || recorder.Body.String() != `{"error":"invalid_grant"}`+"\n" {
+		t.Errorf("answer = %d %q", recorder.Code, recorder.Body.String())
+	}
+
+	for header, want := range map[string]string{
+		"Cache-Control": "no-store", "Pragma": "no-cache", "Content-Type": response.ContentTypeJSON,
+	} {
+		if got := recorder.Header().Get(header); got != want {
+			t.Errorf("%s = %q, want %q", header, got, want)
+		}
+	}
+}
+
+// A bearer refusal carries its fixed challenge, which quotes nothing.
+func TestBearerErrorCarriesFixedChallenge(t *testing.T) {
+	t.Parallel()
+
+	recorder := httptest.NewRecorder()
+	response.BearerError(recorder, http.StatusUnauthorized, response.OAuthInvalidToken, response.InvalidTokenChallenge)
+
+	if got := recorder.Header().Get("WWW-Authenticate"); got != `Bearer error="invalid_token"` {
+		t.Errorf("challenge = %q", got)
+	}
+
+	if recorder.Body.String() != `{"error":"invalid_token"}`+"\n" || recorder.Header().Get("Cache-Control") != "no-store" {
+		t.Errorf("answer = %q", recorder.Body.String())
+	}
+}
+
+// The authorization page's answers are never cached, framed or used as a
+// referrer; published documents may be cached for five minutes; and an OAuth
+// redirect is a 303, so a browser never repeats a form body.
+func TestPublicClientAnswerHeaders(t *testing.T) {
+	t.Parallel()
+
+	page := httptest.NewRecorder()
+	response.AuthorizationPage(page)
+
+	for header, want := range map[string]string{
+		"Cache-Control":           "no-store",
+		"Referrer-Policy":         "no-referrer",
+		"X-Frame-Options":         "DENY",
+		"Content-Security-Policy": "frame-ancestors 'none'",
+	} {
+		if got := page.Header().Get(header); got != want {
+			t.Errorf("%s = %q, want %q", header, got, want)
+		}
+	}
+
+	published := httptest.NewRecorder()
+	response.CacheableForFiveMinutes(published)
+
+	if got := published.Header().Get("Cache-Control"); got != "public, max-age=300" {
+		t.Errorf("Cache-Control = %q", got)
+	}
+
+	redirected := httptest.NewRecorder()
+	response.OAuthRedirect(redirected, "http://127.0.0.1:1/callback?code=a")
+
+	if redirected.Code != http.StatusSeeOther || redirected.Header().Get("Location") != "http://127.0.0.1:1/callback?code=a" {
+		t.Errorf("redirect = %d %q", redirected.Code, redirected.Header().Get("Location"))
+	}
+}

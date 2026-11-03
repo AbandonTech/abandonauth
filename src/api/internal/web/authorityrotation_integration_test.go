@@ -100,3 +100,43 @@ func userAccessToken(
 
 	return granted.Token
 }
+
+// Rotating the authority withdraws every public client's authority at once: a
+// page waiting for a choice, a sign-in at the provider, an unredeemed code, an
+// offline grant and AbandonAuth's acceptance of an access token. The subject
+// each application knows a person by is kept.
+func TestRotationWithdrawsEveryPublicClientAuthority(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	_, client := installedClient(t, service)
+
+	person := service.Providers.Someone(oauth.Discord, "the person")
+	_, issued := client.Tokens(ipv4Template, "openid offline_access", person)
+
+	handle := service.PageHandle(client.Authorize(client.Pending(ipv4Template, 49153, "openid")))
+
+	atProvider := client.Pending(ipv4Template, 49154, "openid")
+	started := client.BeginPublicSignIn(atProvider, oauth.GitHub)
+
+	unredeemed := client.Pending(ipv4Template, 49155, "openid")
+	code := client.SignIn(unredeemed, oauth.Discord, "someone")
+
+	if _, err := database.RotateAuthority(t.Context(), service.Pool); err != nil {
+		t.Fatalf("rotating the authority: %v", err)
+	}
+
+	service.GET("/oauth/authorization/" + handle).ExpectStatus(http.StatusNotFound)
+	service.FinishLogin(started, service.Providers.Someone(oauth.GitHub, "someone")).
+		ExpectStatus(http.StatusForbidden).
+		ExpectDetail("Sign-in validation failed")
+	expectOAuthError(t, client.Exchange(unredeemed, code), http.StatusBadRequest, "invalid_grant")
+	expectOAuthError(t, client.Refresh(issued.RefreshToken, ""), http.StatusBadRequest, "invalid_grant")
+	expectInvalidToken(t, service.GET("/oauth/userinfo", servertest.Bearer(issued.AccessToken)))
+
+	_, after := client.Tokens(ipv4Template, "openid", person)
+
+	if servertest.DecodeClaims(after.AccessToken)["sub"] != servertest.DecodeClaims(issued.AccessToken)["sub"] {
+		t.Error("rotating the authority changed the person's subject")
+	}
+}

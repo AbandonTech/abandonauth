@@ -31,6 +31,19 @@ const OpenAPIYAMLPath = APIRoot + "/openapi.yaml"
 // OpenAPIJSONPath is where the same OpenAPI document is served as JSON.
 const OpenAPIJSONPath = APIRoot + "/openapi.json"
 
+// The public-client endpoints below the route root. The OpenID issuer ends in
+// the route root, so the discovery document names each below the issuer too.
+const (
+	oidcDiscoveryPath    = "/.well-known/openid-configuration"
+	idTokenJWKSPath      = "/oidc/jwks"
+	accessTokenJWKSPath  = "/oauth/access-jwks"
+	nativeAuthorizePath  = "/oauth/authorize"
+	nativeTokenPath      = "/oauth/token"
+	nativeUserInfoPath   = "/oauth/userinfo"
+	nativeRevocationPath = "/oauth/revoke"
+	nativePagePath       = "/oauth/authorization/{request}"
+)
+
 // RouteName identifies a route independently of its URL, so a handler can be
 // attached to it and a test can name it without repeating the pattern.
 type RouteName string
@@ -63,6 +76,17 @@ const (
 	RouteSwaggerOAuth2       RouteName = "swagger-oauth2-redirect"
 	RouteOpenAPIYAML         RouteName = "openapi-yaml"
 	RouteOpenAPIJSON         RouteName = "openapi-json"
+
+	RouteOIDCDiscovery             RouteName = "oidc-discovery"
+	RouteIDTokenJWKS               RouteName = "oidc-id-token-jwks"
+	RouteAccessTokenJWKS           RouteName = "oauth-access-token-jwks"
+	RouteNativeAuthorize           RouteName = "oauth-authorize"
+	RouteNativeAuthorizationView   RouteName = "oauth-authorization-view"
+	RouteNativeProviderSelection   RouteName = "oauth-authorization-provider"
+	RouteNativeAuthorizationCancel RouteName = "oauth-authorization-cancel"
+	RouteNativeToken               RouteName = "oauth-token"
+	RouteNativeUserInfo            RouteName = "oauth-userinfo"
+	RouteNativeRevocation          RouteName = "oauth-revoke"
 )
 
 // Route is one endpoint of the service.
@@ -77,6 +101,11 @@ type Route struct {
 	// Documented marks routes that belong to the published API schema.
 	// Browser redirects and the documentation UI are not part of it.
 	Documented bool
+
+	// SameOriginOnly marks the public-client protocol routes, which permit no
+	// cross-origin request, the site's included: a browser reaches them only by
+	// navigation or from the site's own origin.
+	SameOriginOnly bool
 }
 
 // Path returns the URL the route matches, without router anchoring syntax, as
@@ -141,6 +170,47 @@ var baseRoutes = []Route{
 	{Name: RouteSteamCallback, Method: "GET", Pattern: steamCallbackPath, Documented: true},
 	{Name: RouteProviderAuthorize, Method: "GET", Pattern: APIRoot + "/ui/{provider}/authorize", Documented: true},
 	{Name: RouteLogout, Method: "POST", Pattern: APIRoot + "/ui/logout", Documented: true},
+
+	{
+		Name: RouteOIDCDiscovery, Method: "GET", Pattern: APIRoot + oidcDiscoveryPath,
+		Documented: true, SameOriginOnly: true,
+	},
+	{
+		Name: RouteIDTokenJWKS, Method: "GET", Pattern: APIRoot + idTokenJWKSPath,
+		Documented: true, SameOriginOnly: true,
+	},
+	{
+		Name: RouteAccessTokenJWKS, Method: "GET", Pattern: APIRoot + accessTokenJWKSPath,
+		Documented: true, SameOriginOnly: true,
+	},
+	{
+		Name: RouteNativeAuthorize, Method: "GET", Pattern: APIRoot + nativeAuthorizePath,
+		Documented: true, SameOriginOnly: true,
+	},
+	{
+		Name: RouteNativeAuthorizationView, Method: "GET", Pattern: APIRoot + nativePagePath,
+		Documented: true, SameOriginOnly: true,
+	},
+	{
+		Name: RouteNativeProviderSelection, Method: "POST", Pattern: APIRoot + nativePagePath + "/{provider}",
+		Documented: true, SameOriginOnly: true,
+	},
+	{
+		Name: RouteNativeAuthorizationCancel, Method: "POST", Pattern: APIRoot + nativePagePath + "/cancel",
+		Documented: true, SameOriginOnly: true,
+	},
+	{
+		Name: RouteNativeToken, Method: "POST", Pattern: APIRoot + nativeTokenPath,
+		Documented: true, SameOriginOnly: true,
+	},
+	{
+		Name: RouteNativeUserInfo, Method: "GET", Pattern: APIRoot + nativeUserInfoPath,
+		Documented: true, SameOriginOnly: true,
+	},
+	{
+		Name: RouteNativeRevocation, Method: "POST", Pattern: APIRoot + nativeRevocationPath,
+		Documented: true, SameOriginOnly: true,
+	},
 
 	{Name: RouteSwaggerUI, Method: "GET", Pattern: APIRoot + "/docs"},
 	{Name: RouteSwaggerUIIndex, Method: "GET", Pattern: APIRoot + "/docs/"},

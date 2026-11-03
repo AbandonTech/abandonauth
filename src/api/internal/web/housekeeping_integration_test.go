@@ -113,3 +113,50 @@ func TestTidyingUpRemovesSessionsThatHaveRunOut(t *testing.T) {
 	// The session was already refused by its expiry; it is now also gone.
 	service.GET("/me").ExpectStatus(http.StatusForbidden)
 }
+
+// A public client's authorization that nobody finished, an offline grant that
+// has ended and a revocation of an expired access token are each swept once
+// they can no longer matter, and nothing still in use is.
+func TestTidyingUpRemovesEndedPublicClientRecords(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	_, client := installedClient(t, service)
+
+	_, issued := client.Tokens(ipv4Template, "openid offline_access", service.Providers.Someone(oauth.Discord, "p"))
+	_, kept := client.Tokens(ipv4Template, "openid offline_access", service.Providers.Someone(oauth.Discord, "q"))
+	client.Revoke(issued.AccessToken).ExpectStatus(http.StatusOK)
+
+	abandoned := service.PageHandle(client.Authorize(client.Pending(ipv4Template, 49153, "openid")))
+	waiting := service.PageHandle(client.Authorize(client.Pending(ipv4Template, 49154, "openid")))
+
+	for _, statement := range []string{
+		`UPDATE oauth_native_authorization
+			SET created_at = created_at - interval '10 minutes', expires_at = expires_at - interval '10 minutes'
+			WHERE id = (SELECT id FROM oauth_native_authorization ORDER BY created_at LIMIT 1)`,
+		`UPDATE oauth_refresh_family SET active_until = CURRENT_TIMESTAMP - interval '1 second'
+			WHERE id = (SELECT id FROM oauth_refresh_family ORDER BY created_at LIMIT 1)`,
+		`UPDATE oauth_access_token_revocation SET expires_at = CURRENT_TIMESTAMP - interval '1 second'`,
+	} {
+		if _, err := service.Pool.Exec(t.Context(), statement); err != nil {
+			t.Fatalf("ageing a record: %v", err)
+		}
+	}
+
+	removed := sweepAll(t, service)
+
+	for records, want := range map[string]int64{
+		"public client authorizations":     1,
+		"ended offline grants":             1,
+		"expired access token revocations": 1,
+	} {
+		if removed[records] != want {
+			t.Errorf("tidying up removed %d %s, want %d", removed[records], records, want)
+		}
+	}
+
+	service.GET("/oauth/authorization/" + abandoned).ExpectStatus(http.StatusNotFound)
+	service.GET("/oauth/authorization/" + waiting).ExpectStatus(http.StatusOK)
+	expectOAuthError(t, client.Refresh(issued.RefreshToken, ""), http.StatusBadRequest, "invalid_grant")
+	client.Refresh(kept.RefreshToken, "").ExpectStatus(http.StatusOK)
+}

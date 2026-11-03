@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/abandontech/abandonauth/src/api/internal/services/applications"
 	inputs "github.com/abandontech/abandonauth/src/api/internal/web/request"
 )
 
@@ -33,19 +34,39 @@ func callbackRequest(body string) *http.Request {
 	)
 }
 
-// An application is registered with a name, which is the only thing whoever
-// registers it chooses.
-func TestRegisteringApplicationReadsItsName(t *testing.T) {
+// An application is registered with a name and, optionally, its client type; a
+// registration that names no type is confidential, as every registration was
+// before public clients could be named.
+func TestRegisteringApplicationReadsNameAndClientType(t *testing.T) {
 	t.Parallel()
 
-	given := inputs.New(applicationBodyRequest(APIRoot+"/developer_application", `{"name":"an application"}`))
-
-	if name := readApplicationName(given); name != "an application" {
-		t.Errorf("name = %q", name)
+	tests := []struct {
+		name string
+		body string
+		want applications.ClientType
+	}{
+		{name: "no client type", body: `{"name":"an application"}`, want: applications.Confidential},
+		{name: "an explicit null", body: `{"name":"an application","client_type":null}`, want: applications.Confidential},
+		{name: "confidential", body: `{"name":"an application","client_type":"confidential"}`, want: applications.Confidential},
+		{name: "public", body: `{"name":"an application","client_type":"public"}`, want: applications.Public},
 	}
 
-	if !given.OK() {
-		t.Errorf("a valid request was refused: %v", refusals(given))
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			given := inputs.New(applicationBodyRequest(APIRoot+"/developer_application", test.body))
+			registration := readApplicationRegistration(given)
+
+			if !given.OK() {
+				t.Fatalf("a valid request was refused: %v", refusals(given))
+			}
+
+			if registration.name != "an application" || registration.clientType != test.want {
+				t.Errorf("registration = %q %q, want %q %q",
+					registration.name, registration.clientType, "an application", test.want)
+			}
+		})
 	}
 }
 
@@ -61,6 +82,26 @@ func TestRegisteringApplicationRefusesWhatItCannotRead(t *testing.T) {
 		{name: "no name", body: `{}`, want: []string{"body.name missing"}},
 		{name: "a name that is not text", body: `{"name":42}`, want: []string{"body.name string_type"}},
 		{name: "a body that is not an object", body: `"an application"`, want: []string{"body model_attributes_type"}},
+		{
+			name: "a client type that is not text",
+			body: `{"name":"an application","client_type":1}`,
+			want: []string{"body.client_type string_type"},
+		},
+		{
+			name: "an unknown client type",
+			body: `{"name":"an application","client_type":"native"}`,
+			want: []string{"body.client_type enum"},
+		},
+		{
+			name: "a client type in another letter case",
+			body: `{"name":"an application","client_type":"Public"}`,
+			want: []string{"body.client_type enum"},
+		},
+		{
+			name: "an empty client type",
+			body: `{"name":"an application","client_type":""}`,
+			want: []string{"body.client_type enum"},
+		},
 	}
 
 	for _, test := range tests {
@@ -68,7 +109,7 @@ func TestRegisteringApplicationRefusesWhatItCannotRead(t *testing.T) {
 			t.Parallel()
 
 			given := inputs.New(applicationBodyRequest(APIRoot+"/developer_application", test.body))
-			readApplicationName(given)
+			readApplicationRegistration(given)
 
 			if got := refusals(given); !slices.Equal(got, test.want) {
 				t.Errorf("refusals = %v, want %v", got, test.want)

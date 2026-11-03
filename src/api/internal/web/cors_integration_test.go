@@ -234,3 +234,49 @@ func TestLogHoldsNoRequestValues(t *testing.T) {
 		t.Error("the log does not say which route answered")
 	}
 }
+
+// The public-client protocol addresses permit no cross-origin request, the
+// site's included: a preflight is told nothing, and an answer carries no
+// permission, while the site keeps its permission everywhere else.
+func TestPublicClientAddressesGrantNoOriginPermission(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+
+	for _, path := range []string{
+		"/.well-known/openid-configuration",
+		"/oidc/jwks",
+		"/oauth/access-jwks",
+		"/oauth/authorize",
+		"/oauth/authorization/" + strings.Repeat("A", 43),
+		"/oauth/authorization/" + strings.Repeat("A", 43) + "/discord",
+		"/oauth/authorization/" + strings.Repeat("A", 43) + "/cancel",
+		"/oauth/token",
+		"/oauth/userinfo",
+		"/oauth/revoke",
+	} {
+		t.Run(path, func(t *testing.T) {
+			preflight := service.OPTIONS(path,
+				servertest.Header("Origin", servertest.SiteOrigin),
+				servertest.Header("Access-Control-Request-Method", http.MethodPost))
+
+			if preflight.Status == http.StatusNoContent || preflight.Header.Get("Access-Control-Allow-Origin") != "" ||
+				preflight.Header.Get("Access-Control-Allow-Methods") != "" {
+				t.Errorf("a preflight was answered with permission: %d %v", preflight.Status, preflight.Header)
+			}
+
+			answer := service.GET(path, servertest.Header("Origin", servertest.SiteOrigin))
+			if answer.Header.Get("Access-Control-Allow-Origin") != "" || answer.Header.Get("Access-Control-Allow-Credentials") != "" {
+				t.Errorf("an answer permits the site: %v", answer.Header)
+			}
+		})
+	}
+
+	permitted := service.OPTIONS("/me",
+		servertest.Header("Origin", servertest.SiteOrigin),
+		servertest.Header("Access-Control-Request-Method", http.MethodGet))
+
+	if permitted.Header.Get("Access-Control-Allow-Origin") != servertest.SiteOrigin {
+		t.Error("the site lost its permission on its own addresses")
+	}
+}
