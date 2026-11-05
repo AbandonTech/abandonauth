@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/abandontech/abandonauth/src/api/internal/config"
+	"github.com/abandontech/abandonauth/src/api/internal/database/testdatabase"
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
 	"github.com/abandontech/abandonauth/src/api/internal/services/providers/providertest"
 	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
@@ -20,6 +21,206 @@ import (
 // externalCallbackURI is where an application that is not the site is returned
 // to when someone signs in to it.
 const externalCallbackURI = "https://relying.example.test/return"
+
+// A provider authenticating a person for a public client hands the browser to
+// consent and nothing else: an empty 303 to the site's consent page with the
+// handle alone in the fragment, the person's account resolved, and no code,
+// client relationship, offline grant or session.
+func TestPublicSignInHandsBrowserOnlyToConsent(t *testing.T) {
+	t.Parallel()
+
+	for _, provider := range oauth.Providers {
+		t.Run(string(provider), func(t *testing.T) {
+			t.Parallel()
+
+			service := servertest.New(t)
+			_, client := installedClient(t, service)
+
+			sessions := countRows(t, service, "browser_session")
+
+			pending := client.Pending(ipv4Template, 49152, "openid profile offline_access")
+			started := client.BeginPublicSignIn(pending, provider)
+
+			identity := service.Providers.Someone(provider, "first-time person")
+
+			returned := service.FinishLogin(started, identity).
+				ExpectStatus(http.StatusSeeOther)
+			handle := service.ConsentHandle(returned)
+			expectPageHeaders(t, returned)
+
+			location := returned.Header.Get("Location")
+			if location != servertest.SiteOrigin+"/consent#request="+handle {
+				t.Errorf("the browser was sent to %q", location)
+			}
+
+			username := identity.Username
+			if provider == oauth.Steam {
+				username = "steam:" + identity.ID
+			}
+
+			person := userIDOf(t, service, username)
+
+			for _, value := range []string{
+				pending.State, pending.Nonce, pending.Challenge, "127.0.0.1", person, "first-time", "code=", "?",
+			} {
+				if strings.Contains(location, value) {
+					t.Errorf("the handoff address carries %q", value)
+				}
+			}
+
+			if returned.Cookie(service.SessionCookieName()) != nil {
+				t.Error("provider authentication gave the browser a session")
+			}
+
+			expectNoGrant(t, service, sessions)
+
+			if strings.Contains(service.Logs.String(), handle) {
+				t.Error("the consent handle reached the log")
+			}
+
+			service.GET("/oauth/consent/" + handle).ExpectStatus(http.StatusOK)
+		})
+	}
+}
+
+// A callback handing over to consent cannot be replayed: its state is spent, so
+// a second return from the provider reaches neither consent nor the client.
+func TestPublicSignInCallbackIsSpentOnce(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	_, client := installedClient(t, service)
+
+	started := client.BeginPublicSignIn(client.Pending(ipv4Template, 49152, "openid"), oauth.Discord)
+	identity := service.Providers.Someone(oauth.Discord, "someone")
+
+	service.ConsentHandle(service.FinishLogin(started, identity))
+
+	replayed := service.FinishLogin(started, identity).
+		ExpectStatus(http.StatusForbidden).
+		ExpectDetail("Sign-in validation failed")
+
+	if replayed.Header.Get("Location") != "" {
+		t.Errorf("a replayed callback was sent to %q", replayed.Header.Get("Location"))
+	}
+}
+
+// A provider that did not authenticate the person, and a person who declined
+// there, end the authorization at the client's exact redirect with access_denied.
+// None of them reaches consent, creates an account or grants anything.
+func TestProviderRefusalReturnsAccessDeniedWithoutConsent(t *testing.T) {
+	t.Parallel()
+
+	refusals := map[string]struct {
+		provider oauth.Provider
+		code     string
+	}{
+		"a person declining at Discord": {oauth.Discord, ""},
+		"a person declining at GitHub":  {oauth.GitHub, ""},
+		"a person declining at Google":  {oauth.Google, ""},
+		"a person declining at Steam":   {oauth.Steam, servertest.SteamCancellation()},
+		"Discord refusing the code":     {oauth.Discord, "a code Discord never issued"},
+		"GitHub refusing the code":      {oauth.GitHub, "a code GitHub never issued"},
+		"Google refusing the code":      {oauth.Google, "a code Google never issued"},
+	}
+
+	for name, refusal := range refusals {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			service := servertest.New(t)
+			_, client := installedClient(t, service)
+
+			sessions := countRows(t, service, "browser_session")
+			people := countRows(t, service, `"User"`)
+
+			pending := client.Pending(ipv4Template, 49152, "openid")
+			started := client.BeginPublicSignIn(pending, refusal.provider)
+
+			returned := service.ReturnFromProvider(refusal.provider, refusal.code, started.State).
+				ExpectStatus(http.StatusSeeOther)
+
+			returned.ExpectRedirectTo(pending.RedirectURI + "?error=access_denied&state=" + pending.State +
+				"&iss=" + url.QueryEscape(servertest.OpenIDIssuer))
+			expectPageHeaders(t, returned)
+
+			if held := countRows(t, service, "oauth_native_authorization"); held != 0 {
+				t.Errorf("a refused sign-in still holds %d slots", held)
+			}
+
+			if held := countRows(t, service, `"User"`); held != people {
+				t.Errorf("a refused sign-in changed the accounts from %d to %d", people, held)
+			}
+
+			expectNoGrant(t, service, sessions)
+		})
+	}
+}
+
+// An identity this service cannot record ends the authorization the same way,
+// with no account and no consent.
+func TestUnusableIdentityReturnsAccessDeniedWithoutConsent(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	_, client := installedClient(t, service)
+
+	sessions := countRows(t, service, "browser_session")
+	people := countRows(t, service, `"User"`)
+
+	pending := client.Pending(ipv4Template, 49152, "openid")
+	started := client.BeginPublicSignIn(pending, oauth.Discord)
+
+	returned := service.FinishLogin(started, providertest.Identity{ID: "4242424242", Username: ""}).
+		ExpectStatus(http.StatusSeeOther)
+
+	returned.ExpectRedirectTo(pending.RedirectURI + "?error=access_denied&state=" + pending.State +
+		"&iss=" + url.QueryEscape(servertest.OpenIDIssuer))
+
+	if held := countRows(t, service, "oauth_native_authorization"); held != 0 {
+		t.Errorf("a refused identity still holds %d slots", held)
+	}
+
+	if held := countRows(t, service, `"User"`); held != people {
+		t.Errorf("an unusable identity changed the accounts from %d to %d", people, held)
+	}
+
+	expectNoGrant(t, service, sessions)
+}
+
+// An internal failure completing a provider sign-in tells the client server_error
+// and reaches no consent.
+func TestProviderCompletionFailureReturnsServerErrorWithoutConsent(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	_, client := installedClient(t, service)
+
+	sessions := countRows(t, service, "browser_session")
+
+	pending := client.Pending(ipv4Template, 49152, "openid")
+	started := client.BeginPublicSignIn(pending, oauth.Discord)
+
+	testdatabase.Execute(t, service.Pool, `ALTER TABLE oauth_native_authorization
+		ADD CONSTRAINT consent_stage_refused CHECK (stage <> 'consent') NOT VALID`)
+
+	returned := service.FinishLogin(started, service.Providers.Someone(oauth.Discord, "someone")).
+		ExpectStatus(http.StatusSeeOther)
+
+	returned.ExpectRedirectTo(pending.RedirectURI + "?error=server_error&state=" + pending.State +
+		"&iss=" + url.QueryEscape(servertest.OpenIDIssuer))
+	expectPageHeaders(t, returned)
+
+	if held := countRows(t, service, "oauth_native_authorization"); held != 0 {
+		t.Errorf("a failed sign-in still holds %d slots", held)
+	}
+
+	expectNoGrant(t, service, sessions)
+
+	if !strings.Contains(service.Logs.String(), "a public-client request could not be answered") {
+		t.Error("the failure was not recorded")
+	}
+}
 
 // A person is recognised by the identifier their provider issued, and their
 // account is created the first time they arrive with it.

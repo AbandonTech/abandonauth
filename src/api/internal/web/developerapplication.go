@@ -22,11 +22,46 @@ func detailUnsafeCallback(index int) string {
 	return "Callback URI at index " + strconv.Itoa(index) + " is invalid"
 }
 
-// readApplicationName reads the name a new application is registered under.
-func readApplicationName(given *inputs.Inputs) string {
+// detailPublicClientHasNoCredential is the answer to a credential reset for a
+// public client, which has no credential to replace.
+const detailPublicClientHasNoCredential = "Public client has no credential"
+
+// messageUnknownClientType is the input refusal message for a client type this
+// service does not register.
+const messageUnknownClientType = "Input must be confidential or public"
+
+// applicationRegistration is what registering an application names.
+type applicationRegistration struct {
+	name       string
+	clientType applications.ClientType
+}
+
+// readApplicationRegistration reads the name a new application is registered
+// under and its client type, which is confidential when omitted.
+func readApplicationRegistration(given *inputs.Inputs) applicationRegistration {
 	given.DecodeObjectBody()
 
-	return given.BodyString("name")
+	registration := applicationRegistration{name: given.BodyString("name"), clientType: applications.Confidential}
+
+	named, present := given.OptionalBodyString("client_type")
+	if !present {
+		return registration
+	}
+
+	clientType, known := applications.ParseClientType(named)
+	if !known {
+		given.Refuse(response.Failure{
+			Location: []any{"body", "client_type"},
+			Message:  messageUnknownClientType,
+			Type:     "enum",
+		})
+
+		return registration
+	}
+
+	registration.clientType = clientType
+
+	return registration
 }
 
 // applicationCredentials are what an application authenticates itself with.
@@ -61,14 +96,15 @@ func readSubmittedCallbackURIs(given *inputs.Inputs) []string {
 // describeApplication is the published shape of an application.
 func describeApplication(application applications.Application) models.DeveloperApplicationDto {
 	return models.DeveloperApplicationDto{
-		ID:      application.ID.String(),
-		Name:    application.Name,
-		OwnerID: application.OwnerID.String(),
+		ID:         application.ID.String(),
+		Name:       application.Name,
+		OwnerID:    application.OwnerID.String(),
+		ClientType: string(application.ClientType),
 	}
 }
 
 // createApplication registers an application owned by the caller and returns
-// its refresh token, which cannot be read again.
+// a confidential application's refresh token, which cannot be read again.
 func (s *Server) createApplication() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		caller, allowed := s.requireUser(writer, request, tokens.ScopeAbandonauth, audienceInternal)
@@ -77,7 +113,7 @@ func (s *Server) createApplication() http.Handler {
 		}
 
 		given := inputs.New(request)
-		name := readApplicationName(given)
+		registration := readApplicationRegistration(given)
 
 		if !given.OK() {
 			response.Invalid(writer, given.Failures())
@@ -91,7 +127,9 @@ func (s *Server) createApplication() http.Handler {
 			return
 		}
 
-		created, token, err := s.applications.Create(request.Context(), caller.UserID, name)
+		created, token, err := s.applications.Create(
+			request.Context(), caller.UserID, registration.name, registration.clientType,
+		)
 		if err != nil {
 			s.refuseUnavailable(writer, request, err)
 
@@ -99,10 +137,11 @@ func (s *Server) createApplication() http.Handler {
 		}
 
 		response.JSON(writer, http.StatusOK, models.CreateDeveloperApplicationDto{
-			ID:      created.ID.String(),
-			Name:    created.Name,
-			OwnerID: created.OwnerID.String(),
-			Token:   token,
+			ID:         created.ID.String(),
+			Name:       created.Name,
+			OwnerID:    created.OwnerID.String(),
+			ClientType: string(created.ClientType),
+			Token:      token,
 		})
 	})
 }
@@ -187,6 +226,7 @@ func (s *Server) getApplication() http.Handler {
 			ID:           application.ID.String(),
 			Name:         application.Name,
 			OwnerID:      application.OwnerID.String(),
+			ClientType:   string(application.ClientType),
 			CallbackUris: uris,
 		})
 	})
@@ -246,6 +286,12 @@ func (s *Server) resetApplicationCredential() http.Handler {
 			return
 		}
 
+		if errors.Is(err, applications.ErrPublicClientHasNoCredential) {
+			response.Error(writer, http.StatusConflict, detailPublicClientHasNoCredential)
+
+			return
+		}
+
 		if err != nil {
 			s.refuseUnavailable(writer, request, err)
 
@@ -253,10 +299,11 @@ func (s *Server) resetApplicationCredential() http.Handler {
 		}
 
 		response.JSON(writer, http.StatusOK, models.CreateDeveloperApplicationDto{
-			ID:      updated.ID.String(),
-			Name:    updated.Name,
-			OwnerID: updated.OwnerID.String(),
-			Token:   token,
+			ID:         updated.ID.String(),
+			Name:       updated.Name,
+			OwnerID:    updated.OwnerID.String(),
+			ClientType: string(updated.ClientType),
+			Token:      token,
 		})
 	})
 }
@@ -285,7 +332,7 @@ func (s *Server) replaceCallbackURIs() http.Handler {
 			return
 		}
 
-		err := s.applications.ReplaceCallbackURIs(request.Context(), application.ID, uris)
+		err := s.applications.ReplaceCallbackURIs(request.Context(), application, uris)
 
 		var unsafe applications.UnsafeCallbackError
 		if errors.As(err, &unsafe) {

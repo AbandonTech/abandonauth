@@ -49,6 +49,9 @@ rate limiting. Anything else is `none`.
 - Follow `CLAUDE.md` → "Naming and documentation" in plan prose and in every
   name the plan prescribes, including the ban on temporal framing and on
   describing behavior by reference to code the change deletes.
+- For every environment variable or setting a plan adds, name the deployments
+  that set it differently or the rotation that changes it, per `CLAUDE.md` →
+  "Repository constraints". A value with one correct answer is a constant.
 - Classify security impact as `none` or `sensitive` with rationale.
 - For sensitive work, invoke `abandonauth-security-reviewer` after drafting the
   design, resolve every critical and high finding, record the result in the
@@ -95,6 +98,8 @@ Every plan contains:
   separation, cryptographic validation, replay controls, authorization, account
   linking, secret handling, logging, abuse controls, data migration, rollback
   and negative tests.
+- Report a setting the plan adds that has one correct value; never ask for a
+  value to become configurable without naming the deployment that needs it.
 - A sensitive plan passes only when no critical or high finding remains
   unresolved. The planner, not the reviewer, updates the plan.
 
@@ -111,7 +116,9 @@ Every plan contains:
 - Compare the plan's base commit and assumptions with the current worktree;
   preserve unrelated changes and explore drift in a targeted way.
 - Implement only the approved scope, surfacing blockers and material deviations
-  instead of silently broadening the change.
+  instead of silently broadening the change. Add no environment variable or
+  setting the plan does not justify, and surface one it prescribes with a
+  single correct value instead of implementing it.
 - Follow `.claude/docs/security.md` and `.claude/docs/testing.md`, and add tests
   for changed behavior.
 - Update directly related documentation, and `.claude/docs/repo-map.md` when its

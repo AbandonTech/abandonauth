@@ -36,7 +36,7 @@ var removedSecretFlags = map[string]string{
 func TestSecretsSuppliedOnCommandLineAreRefusedWithoutBeingEchoed(t *testing.T) {
 	for flag, value := range removedSecretFlags {
 		t.Run(flag, func(t *testing.T) {
-			applyEnvironment(t, placeholderEnvironment())
+			applyEnvironment(t, placeholderEnvironment(t))
 
 			perform, err := runCommand(t, "serve", "--"+flag+"="+value)
 			if err == nil {
@@ -124,7 +124,7 @@ func TestCommandLineOffersNoSecret(t *testing.T) {
 func TestAbsentSecretFailsStartUpNamingOnlyItsVariable(t *testing.T) {
 	for _, secret := range secretEnvironment() {
 		t.Run(secret, func(t *testing.T) {
-			environment := placeholderEnvironment()
+			environment := placeholderEnvironment(t)
 			supplied := environment[secret]
 
 			if supplied == "" {

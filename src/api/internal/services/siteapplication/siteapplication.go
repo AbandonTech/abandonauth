@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/abandontech/abandonauth/src/api/internal/database"
@@ -119,7 +120,7 @@ func create(
 	inserted, err := queries.CreateDeveloperApplicationWithID(ctx, query.CreateDeveloperApplicationWithIDParams{
 		ID:           applicationID,
 		OwnerID:      owner.ID,
-		RefreshToken: hashed,
+		RefreshToken: pgtype.Text{String: hashed, Valid: true},
 		Name:         ApplicationName,
 	})
 	if err != nil {

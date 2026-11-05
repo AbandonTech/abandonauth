@@ -72,6 +72,8 @@ func New(t *testing.T, choices ...Option) *Service {
 	chosen := options{settings: placeholderSettings()}
 	chosen.dependencies.CredentialHasher = testHasher{}
 
+	SigningKeyFiles(t).Apply(&chosen.settings)
+
 	for _, choose := range choices {
 		choose(&chosen)
 	}
@@ -100,6 +102,10 @@ func New(t *testing.T, choices ...Option) *Service {
 
 	if dependencies.ProviderTransport == nil {
 		dependencies.ProviderTransport = identityProviders.Transport()
+	}
+
+	if chosen.wrapTransport != nil {
+		dependencies.ProviderTransport = chosen.wrapTransport(dependencies.ProviderTransport)
 	}
 
 	service, err := web.NewServer(configuration, dependencies)
@@ -152,11 +158,22 @@ func (s *Service) CSRFCookieName() string { return s.service.CSRFCookieName() }
 // the browser that started it.
 func (s *Service) LoginCookieName() string { return s.service.LoginCookieName() }
 
+// NativeLoginCookieName is the name of the cookie that ties a public client's
+// authorization to the browser that began it.
+func (s *Service) NativeLoginCookieName() string { return s.service.NativeLoginCookieName() }
+
 // options are what a test service is built from.
 type options struct {
-	settings     config.Settings
-	dependencies web.Dependencies
-	providers    providertest.Options
+	settings      config.Settings
+	dependencies  web.Dependencies
+	providers     providertest.Options
+	wrapTransport func(http.RoundTripper) http.RoundTripper
+}
+
+// WithProviderTransportWrapped puts a test's transport in front of the one
+// answering as the providers, so a test can hold a provider request open.
+func WithProviderTransportWrapped(wrap func(http.RoundTripper) http.RoundTripper) Option {
+	return func(chosen *options) { chosen.wrapTransport = wrap }
 }
 
 // WithProviderAnswering changes what the identity providers answer, so a test
@@ -236,6 +253,18 @@ func (s *Service) DELETE(path string, prepare ...func(*http.Request)) *Response 
 	s.t.Helper()
 
 	return s.do(http.MethodDelete, path, nil, prepare...)
+}
+
+// POSTForm sends a body as an application/x-www-form-urlencoded form, exactly
+// as given.
+func (s *Service) POSTForm(path, body string, prepare ...func(*http.Request)) *Response {
+	s.t.Helper()
+
+	withContentType := append([]func(*http.Request){func(request *http.Request) {
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}}, prepare...)
+
+	return s.do(http.MethodPost, path, strings.NewReader(body), withContentType...)
 }
 
 // POSTRaw sends a body exactly as given, for the tests that send something no

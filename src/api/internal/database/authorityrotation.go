@@ -18,6 +18,10 @@ type AuthorityRotation struct {
 	AbandonedExchanges int64
 	EndedSessions      int64
 	ClearedRevocations int64
+
+	AbandonedNativeAuthorizations int64
+	RevokedRefreshFamilies        int64
+	ClearedAccessTokenRevocations int64
 }
 
 // RotateAuthority replaces the value stamped into every credential this service
@@ -80,6 +84,20 @@ func withdrawOutstandingCredentials(ctx context.Context, queries *query.Queries)
 	// records are cleared rather than left to expire.
 	if rotation.ClearedRevocations, err = queries.DeleteAllRevocations(ctx); err != nil {
 		return AuthorityRotation{}, fmt.Errorf("clearing withdrawn tokens: %w", err)
+	}
+
+	if rotation.AbandonedNativeAuthorizations, err = queries.DeleteAllNativeAuthorizations(ctx); err != nil {
+		return AuthorityRotation{}, fmt.Errorf("abandoning public client authorizations: %w", err)
+	}
+
+	if rotation.RevokedRefreshFamilies, err = queries.DeleteAllRefreshFamilies(ctx); err != nil {
+		return AuthorityRotation{}, fmt.Errorf("revoking offline grants: %w", err)
+	}
+
+	// Public-client/user relationships are kept: they are lock anchors, not
+	// credentials.
+	if rotation.ClearedAccessTokenRevocations, err = queries.DeleteAllAccessTokenRevocations(ctx); err != nil {
+		return AuthorityRotation{}, fmt.Errorf("clearing revoked access tokens: %w", err)
 	}
 
 	epoch, err := uuid.NewRandom()

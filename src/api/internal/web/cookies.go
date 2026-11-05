@@ -2,8 +2,10 @@ package web
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/abandontech/abandonauth/src/api/internal/services/credentials"
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
 	"github.com/abandontech/abandonauth/src/api/internal/services/sessions"
 )
@@ -13,9 +15,10 @@ import (
 // for the whole site. Local development has no TLS, where such a cookie would
 // never be sent back, so the prefix is dropped there and nowhere else.
 const (
-	sessionCookieName = "abandonauth_session"
-	csrfCookieName    = "abandonauth_csrf"
-	loginCookieName   = "abandonauth_oauth"
+	sessionCookieName     = "abandonauth_session"
+	csrfCookieName        = "abandonauth_csrf"
+	loginCookieName       = "abandonauth_oauth"
+	nativeLoginCookieName = "abandonauth_native_oauth"
 
 	hostCookiePrefix = "__Host-"
 )
@@ -34,6 +37,14 @@ func (s *Server) CSRFCookieName() string {
 // the browser that started it.
 func (s *Server) LoginCookieName() string {
 	return s.cookieName(loginCookieName)
+}
+
+// NativeLoginCookieName is the name of the cookie that ties a public client's
+// authorization to the browser that began it. It is not the confidential
+// login's cookie, so authorizations and sign-ins in other tabs never overwrite
+// one another.
+func (s *Server) NativeLoginCookieName() string {
+	return s.cookieName(nativeLoginCookieName)
 }
 
 func (s *Server) cookieName(base string) string {
@@ -75,6 +86,42 @@ func (s *Server) bindLoginToBrowser(writer http.ResponseWriter, binding string) 
 	http.SetCookie(writer, s.newCookie(
 		s.LoginCookieName(), binding, int(oauth.StateLifetime.Seconds()), true,
 	))
+}
+
+// bindAuthorizationToBrowser sets the cookie a public client's authorization is
+// bound to. Only its browser expiry is renewed when a browser reuses it; every
+// authorization keeps its own five-minute deadline in the database, and none is
+// cleared when one ends, because another tab may still need it.
+func (s *Server) bindAuthorizationToBrowser(writer http.ResponseWriter, binding string) {
+	http.SetCookie(writer, s.newCookie(
+		s.NativeLoginCookieName(), binding, int(oauth.NativeAuthorizationLifetime.Seconds()), true,
+	))
+}
+
+// nativeBinding returns the authorization binding a request carried, read from
+// the raw Cookie headers: the standard reader strips the quotes from a quoted
+// value and keeps whichever of several copies comes first. A quoted, malformed
+// or non-opaque value, or copies that differ, bind nothing.
+func (s *Server) nativeBinding(request *http.Request) string {
+	name := s.NativeLoginCookieName()
+	found := ""
+
+	for _, header := range request.Header.Values("Cookie") {
+		for pair := range strings.SplitSeq(header, ";") {
+			cookieName, value, hasValue := strings.Cut(strings.TrimSpace(pair), "=")
+			if !hasValue || cookieName != name {
+				continue
+			}
+
+			if !credentials.IsOpaqueValue(value) || (found != "" && found != value) {
+				return ""
+			}
+
+			found = value
+		}
+	}
+
+	return found
 }
 
 // newCookie builds a cookie with the attributes every cookie this service sets

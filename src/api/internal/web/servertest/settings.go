@@ -4,14 +4,17 @@ import "github.com/abandontech/abandonauth/src/api/internal/config"
 
 // Settings a test service runs with. Every value is a placeholder. The signing
 // secret is a repeated phrase long enough to pass the 64-byte minimum, and the
-// hosts are under .test, which RFC 6761 reserves and which does not resolve.
+// host is under .test, which RFC 6761 reserves and which does not resolve. The
+// site and the API share it, as the service requires, on different ports.
 const (
 	// SigningSecret is the root the per-purpose signing keys are derived from.
 	SigningSecret = "placeholder-signing-secret-placeholder-signing-secret-placeholder"
 	// SiteOrigin is where the browser-facing site is served from.
 	SiteOrigin = "https://auth.example.test"
 	// APIOrigin is where this service is reached, and the issuer of its tokens.
-	APIOrigin = "https://api.auth.example.test"
+	APIOrigin = "https://auth.example.test:8443"
+	// OpenIDIssuer is the issuer of the tokens a public client receives.
+	OpenIDIssuer = APIOrigin + "/api"
 )
 
 func placeholderSettings() config.Settings {

@@ -6,6 +6,7 @@ set -eu
 . "$(dirname -- "$0")/lib.sh"
 
 require_command docker 'Install Docker from https://docs.docker.com/get-docker/.'
+require_command openssl 'Install OpenSSL from your distribution; Git for Windows already includes it.'
 
 PROJECT=abandonauth-migration-check
 TEMPLATE=abandonauth_template
@@ -23,12 +24,22 @@ export PROVISIONING_CHECK_SITE_URL="$SITE_ORIGIN/"
 # text; it must reach neither the container's arguments nor its log.
 DATABASE_CREDENTIAL='abandonauth:placeholder@'
 
+# The deployment image's declared account, which the signing key files are
+# group-readable by.
+API_ACCOUNT=65532
+
+# Development signing keys made for this run, outside the repository.
+KEY_DIRECTORY=$(mktemp -d)
+KEY_VOLUME="abandonauth-key-ownership-$$"
+
 project() {
     (cd "$REPO_ROOT" && docker compose -p "$PROJECT" -f "$COMPOSE_TEST_FILE" --profile migration-gate "$@")
 }
 
 cleanup() {
     project down -v --remove-orphans -t 0 >/dev/null 2>&1 || true
+    docker volume rm -f "$KEY_VOLUME-served" "$KEY_VOLUME-host" >/dev/null 2>&1 || true
+    rm -rf "$KEY_DIRECTORY"
 }
 
 trap cleanup EXIT INT TERM
@@ -274,6 +285,36 @@ provisioning_order() {
         die "origins with and without a trailing slash produced different callbacks"
 }
 
+# native_path names a file the way a Windows program and Docker Desktop expect,
+# and leaves every other host's path alone.
+native_path() {
+    if command -v cygpath >/dev/null 2>&1; then
+        cygpath -m "$1"
+    else
+        printf '%s\n' "$1"
+    fi
+}
+
+# Throwaway keys made the way README.md tells every deployment to make its own.
+# A run of the ID key's private body, past the prefix every key shares, stands
+# in for the keys when looking for a leak.
+signing_keys() {
+    OIDC_ID_SIGNING_KEY_FILE=$(native_path "$KEY_DIRECTORY/oidc-id-signing-key.pem")
+    OAUTH_ACCESS_SIGNING_KEY_FILE=$(native_path "$KEY_DIRECTORY/oauth-access-signing-key.pem")
+    export OIDC_ID_SIGNING_KEY_FILE OAUTH_ACCESS_SIGNING_KEY_FILE
+
+    for file in "$OIDC_ID_SIGNING_KEY_FILE" "$OAUTH_ACCESS_SIGNING_KEY_FILE"; do
+        openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$file" 2>/dev/null ||
+            die "openssl could not make a signing key"
+    done
+
+    # Opened by the image's own account through a bind mount.
+    chmod 0444 "$OIDC_ID_SIGNING_KEY_FILE" "$OAUTH_ACCESS_SIGNING_KEY_FILE"
+
+    KEY_SENTINEL=$(sed -n '12s/^\(.\{32\}\).*/\1/p' "$OIDC_ID_SIGNING_KEY_FILE")
+    [ -n "$KEY_SENTINEL" ] || die "no private key body was found to look for"
+}
+
 # Compose builds only a missing image, so without this a check would run
 # whatever image another run left behind.
 build_images() {
@@ -283,8 +324,163 @@ build_images() {
     fi
 }
 
+deployment_identity() {
+    image=$(docker inspect -f '{{.Image}}' "$(container_of migration-gate-api)")
+    [ "$(docker image inspect -f '{{.Config.User}}' "$image")" = "$API_ACCOUNT" ] ||
+        die "the deployment image does not run as its declared account $API_ACCOUNT"
+}
+
+# validate_config runs the gated API's real validate-config, under the given
+# account, with the given ownership volume mounted where the API reads its keys.
+validate_config() {
+    directory=$1
+    shift
+
+    MSYS_NO_PATHCONV=1 docker run --rm --network none "$@" -v "$KEY_VOLUME-$directory:/run/secrets:ro" \
+        --env-file "$(native_path "$KEY_DIRECTORY/gate.env")" \
+        "$GATE_IMAGE" validate-config 2>&1
+}
+
+# The key files as a production host holds them: root:65532 mode 0440, in a
+# root-only directory, and the same files where a direct bind mount places them.
+# The deployment image's account reads them; any other account, even one in the
+# image's group, cannot reach them through the root-only directory.
+key_file_ownership() {
+    GATE_IMAGE=$(docker inspect -f '{{.Image}}' "$(container_of migration-gate-api)")
+    docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$(container_of migration-gate-api)" |
+        grep -v '^PATH=\|^SSL_CERT_FILE=' |
+        grep . >"$KEY_DIRECTORY/gate.env"
+
+    for directory in served host; do
+        docker volume create "$KEY_VOLUME-$directory" >/dev/null || die "the ownership volume could not be created"
+    done
+
+    for secret in abandonauth_oidc_id_signing_keys abandonauth_oauth_access_signing_keys; do
+        source=$OIDC_ID_SIGNING_KEY_FILE
+        [ "$secret" = abandonauth_oidc_id_signing_keys ] || source=$OAUTH_ACCESS_SIGNING_KEY_FILE
+
+        MSYS_NO_PATHCONV=1 docker run --rm -i -v "$KEY_VOLUME-served:/served" --entrypoint sh postgres:15 \
+            -c "cat >/served/$secret" <"$source" ||
+            die "a key file could not be placed in the ownership volume"
+    done
+
+    MSYS_NO_PATHCONV=1 docker run --rm -v "$KEY_VOLUME-served:/served" -v "$KEY_VOLUME-host:/host" \
+        --entrypoint sh postgres:15 -c "
+        cp /served/abandonauth_* /host/ &&
+        chown 0:$API_ACCOUNT /served/abandonauth_* /host/abandonauth_* &&
+        chmod 0440 /served/abandonauth_* /host/abandonauth_* &&
+        chown 0:0 /served /host &&
+        chmod 0755 /served && chmod 0700 /host" ||
+        die "the ownership volume could not be prepared"
+
+    [ "$(validate_config served)" = "configuration valid" ] ||
+        die "the deployment image's account cannot read root:$API_ACCOUNT mode 0440 key files"
+
+    for refused in "--user 65533:65533 served" "--user 65533:65533 --group-add $API_ACCOUNT host" \
+        "--user 65533:$API_ACCOUNT host"; do
+        directory=${refused##* }
+        account=${refused% *}
+
+        # shellcheck disable=SC2086
+        if outcome=$(validate_config "$directory" $account); then
+            die "an account other than the image's own read the key files ($account)"
+        fi
+
+        case "$outcome" in
+        *"cannot be opened"*) ;;
+        *) die "reading the key files as $account failed for another reason" ;;
+        esac
+
+        case "$outcome" in
+        *"$KEY_SENTINEL"*) die "a refused read repeated key material" ;;
+        esac
+    done
+}
+
+# Only the API receives the key files, read-only at their fixed paths, and no
+# private member reaches another service, an argument, Compose's resolved
+# configuration, a log or a file in the repository.
+signing_key_isolation() {
+    api=$(container_of migration-gate-api)
+
+    mounts=$(docker inspect -f '{{range .Mounts}}{{.Destination}}={{.RW}} {{end}}' "$api")
+    for secret in abandonauth_oidc_id_signing_keys abandonauth_oauth_access_signing_keys; do
+        case " $mounts " in
+        *" /run/secrets/$secret=false "*) ;;
+        *) die "the API does not receive $secret read-only" ;;
+        esac
+    done
+
+    for service in migrations provisioning database; do
+        container=$(container_of "$service")
+        case "$(docker inspect -f '{{range .Mounts}}{{.Destination}} {{end}}' "$container")" in
+        *abandonauth_oidc* | *abandonauth_oauth*) die "$service receives a signing key file" ;;
+        esac
+    done
+
+    for service in migrations provisioning migration-gate-api database; do
+        container=$(container_of "$service")
+        inspected=$(docker inspect -f '{{.Path}} {{join .Args " "}} {{range .Config.Env}}{{println .}}{{end}}' "$container")
+        case "$inspected" in
+        *"$KEY_SENTINEL"*) die "key material reached $service's arguments or environment" ;;
+        esac
+        case "$(project logs --no-color "$service" 2>&1)" in
+        *"$KEY_SENTINEL"*) die "key material reached $service's log" ;;
+        esac
+    done
+
+    case "$(project config 2>&1)" in
+    *"$KEY_SENTINEL"*) die "key material reached Compose's resolved configuration" ;;
+    esac
+
+    if (cd "$REPO_ROOT" && git grep -q -F -e "$KEY_SENTINEL" -- . 2>/dev/null); then
+        die "key material reached a file in the repository"
+    fi
+
+    validated=$(project run --rm --no-deps migration-gate-api validate-config 2>/dev/null) ||
+        die "validate-config refused the gated API's configuration"
+    [ "$validated" = "configuration valid" ] || die "validate-config printed more than that the configuration is valid"
+}
+
+# compose.yml gives the API, and nothing else, the two key files. It is read
+# with the sample environment standing in for a deployment's, so no real
+# setting is resolved or printed.
+deployment_compose_isolation() {
+    sample=$(mktemp -d)
+    cp "$REPO_ROOT/.env.sample" "$sample/.env"
+
+    if ! resolved=$(OIDC_ID_SIGNING_KEY_FILE="$OIDC_ID_SIGNING_KEY_FILE" \
+        OAUTH_ACCESS_SIGNING_KEY_FILE="$OAUTH_ACCESS_SIGNING_KEY_FILE" \
+        docker compose -f "$(native_path "$REPO_ROOT/compose.yml")" --project-directory "$(native_path "$sample")" \
+        --env-file "$(native_path "$sample/.env")" config --format json 2>/dev/null); then
+        rm -rf "$sample"
+        die "compose.yml could not be resolved with the sample environment"
+    fi
+
+    rm -rf "$sample"
+
+    case "$resolved" in
+    *"$KEY_SENTINEL"*) die "key material reached compose.yml's resolved configuration" ;;
+    esac
+
+    printf '%s' "$resolved" | grep -q '"source": "abandonauth_oidc_id_signing_keys"' ||
+        die "compose.yml does not give the API the ID token key file"
+
+    if printf '%s' "$resolved" | awk '
+        /^    "[a-z_-]*": \{$/ { service = $1 }
+        /"source": "abandonauth_(oidc|oauth)/ && service != "\"abandonauth\":" { found = 1 }
+        END { exit !found }'; then
+        die "compose.yml gives a signing key file to a service other than the API"
+    fi
+}
+
+stream_stage "signing keys: throwaway keys made with openssl outside the repository" signing_keys
 stream_stage "deployment image: built from this tree" build_images
 stream_stage "migration controller: concurrent up converges" converge
 stream_stage "migration controller: a failed migration starts neither provisioning nor API, and leaks no password" gate
 stream_stage "provisioning: a refused input starts no API, writes nothing and repeats nothing" provisioning_gate
 stream_stage "provisioning: runs before the API, once, with no secret beyond the database" provisioning_order
+stream_stage "signing keys: the deployment image runs as its declared account" deployment_identity
+stream_stage "signing keys: only the image's account reads root:$API_ACCOUNT mode 0440 key files" key_file_ownership
+stream_stage "signing keys: only the API receives them, and nothing repeats them" signing_key_isolation
+stream_stage "signing keys: compose.yml gives them to the API alone" deployment_compose_isolation

@@ -51,6 +51,17 @@ const (
 	flagGoogleCallback        = "google-callback"
 )
 
+// signingKeyFiles are where Compose mounts the two key set secrets, so a
+// deployment chooses only the host files behind them. Tests point them elsewhere.
+var signingKeyFiles = struct{ idToken, accessToken string }{
+	idToken:     "/run/secrets/abandonauth_oidc_id_signing_keys",
+	accessToken: "/run/secrets/abandonauth_oauth_access_signing_keys",
+}
+
+// configurationValid is everything validate-config prints. It says only that
+// every setting and both key sets were accepted.
+const configurationValid = "configuration valid"
+
 // Command-line names of the provision command's inputs. Neither reads the
 // environment, so an unset one is never filled in from a deployment's settings.
 const (
@@ -108,6 +119,7 @@ func newCommand(perform operations) *cli.Command {
 			serveCommand(perform),
 			databaseCommand(perform),
 			provisionCommand(perform),
+			validateConfigCommand(),
 		},
 		// There is deliberately no default command. A mistyped command must not
 		// fall through to one that starts serving requests.
@@ -136,6 +148,31 @@ func serveCommand(perform operations) *cli.Command {
 	}
 }
 
+// validateConfigCommand checks every setting and both signing key sets exactly
+// as serving would, without opening the database or a listener, so a release
+// can be checked against a deployment's settings before it replaces anything.
+func validateConfigCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "validate-config",
+		Usage: "check every setting and both signing key sets without serving",
+		Description: "Prints only that the configuration is valid. A refusal names the setting to correct and " +
+			"never a value or a key.",
+		Action: func(_ context.Context, cmd *cli.Command) error {
+			if cmd.Args().Present() {
+				return errors.New("validate-config takes no positional arguments")
+			}
+
+			if _, err := configure(cmd); err != nil {
+				return err
+			}
+
+			_, err := fmt.Fprintln(cmd.Writer, configurationValid)
+
+			return err
+		},
+	}
+}
+
 func databaseCommand(perform operations) *cli.Command {
 	return &cli.Command{
 		Name:  "database",
@@ -144,9 +181,11 @@ func databaseCommand(perform operations) *cli.Command {
 			{
 				Name:  "rotate-auth-epoch",
 				Usage: "withdraw every issued credential and install a new authority",
-				Description: "Every access token, login in progress, one-time code and browser session " +
-					"stops being accepted, so every browser must sign in again and every login in progress " +
-					"must start over. Run it after every change of the signing secret.",
+				Description: "Every login in progress, one-time code and browser session, every public client's " +
+					"authorization, code and offline session, and every access token this service checks itself " +
+					"stops being accepted, so every browser must sign in again and every login in progress must " +
+					"start over. A resource server that validates OIDC access tokens locally keeps accepting one " +
+					"until it expires, up to fifteen minutes later. Run it after every change of the signing secret.",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					configuration, err := configure(cmd)
 					if err != nil {
@@ -349,6 +388,9 @@ func configure(cmd *cli.Command) (config.Config, error) {
 		GoogleClientID:     cmd.String(flagGoogleClientID),
 		GoogleClientSecret: os.Getenv(environmentGoogleClientSecret),
 		GoogleCallback:     cmd.String(flagGoogleCallback),
+
+		IDTokenSigningKeysFile:     signingKeyFiles.idToken,
+		AccessTokenSigningKeysFile: signingKeyFiles.accessToken,
 	})
 }
 

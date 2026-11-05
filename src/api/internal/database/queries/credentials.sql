@@ -33,6 +33,17 @@ DELETE FROM browser_session;
 -- name: DeleteAllRevocations :execrows
 DELETE FROM jwt_revocation;
 
+-- Pages, provider sign-ins and codes of every public client's authorization go
+-- with it.
+-- name: DeleteAllNativeAuthorizations :execrows
+DELETE FROM oauth_native_authorization;
+
+-- name: DeleteAllRefreshFamilies :execrows
+DELETE FROM oauth_refresh_family;
+
+-- name: DeleteAllAccessTokenRevocations :execrows
+DELETE FROM oauth_access_token_revocation;
+
 -- Withdrawing a token twice is not an error: the endpoint that does it reports
 -- success either way so it cannot be used to discover whether a token exists.
 -- name: RevokeToken :exec

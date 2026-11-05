@@ -1,23 +1,25 @@
+-- A public client is created with no credential; the table refuses one with a
+-- credential.
 -- name: CreateDeveloperApplication :one
-INSERT INTO "DeveloperApplication" ("owner_id", "refresh_token", "name")
-VALUES ($1, $2, $3)
-RETURNING "id", "owner_id", "name", "refresh_token", "credential_version";
+INSERT INTO "DeveloperApplication" ("owner_id", "refresh_token", "name", "client_type")
+VALUES ($1, $2, $3, $4)
+RETURNING "id", "owner_id", "name", "refresh_token", "credential_version", "client_type";
 
 -- The site's application keeps the identifier its deployment is configured
 -- with. No row affected means another transaction holds that identifier.
 -- name: CreateDeveloperApplicationWithID :execrows
-INSERT INTO "DeveloperApplication" ("id", "owner_id", "refresh_token", "name")
-VALUES ($1, $2, $3, $4)
+INSERT INTO "DeveloperApplication" ("id", "owner_id", "refresh_token", "name", "client_type")
+VALUES ($1, $2, $3, $4, 'confidential')
 ON CONFLICT ("id") DO NOTHING;
 
 -- name: GetDeveloperApplication :one
-SELECT "id", "owner_id", "name", "refresh_token", "credential_version"
+SELECT "id", "owner_id", "name", "refresh_token", "credential_version", "client_type"
 FROM "DeveloperApplication"
 WHERE "id" = $1;
 
 -- Ordered by name so the list a developer sees is stable between requests.
 -- name: ListDeveloperApplicationsByOwner :many
-SELECT "id", "owner_id", "name", "refresh_token", "credential_version"
+SELECT "id", "owner_id", "name", "refresh_token", "credential_version", "client_type"
 FROM "DeveloperApplication"
 WHERE "owner_id" = $1
 ORDER BY "name", "id";
@@ -25,17 +27,19 @@ ORDER BY "name", "id";
 -- name: DeleteDeveloperApplication :one
 DELETE FROM "DeveloperApplication"
 WHERE "id" = $1
-RETURNING "id", "owner_id", "name", "refresh_token", "credential_version";
+RETURNING "id", "owner_id", "name", "refresh_token", "credential_version", "client_type";
 
 -- Replaces the stored credential and invalidates every access token already
 -- issued to this application in the same statement, so no token can be minted
--- against the old credential and survive the reset.
+-- against the old credential and survive the reset. A public client has no
+-- credential and is never matched.
 -- name: ResetDeveloperApplicationCredential :one
 UPDATE "DeveloperApplication"
 SET "refresh_token" = $2,
     "credential_version" = "credential_version" + 1
 WHERE "id" = $1
-RETURNING "id", "owner_id", "name", "refresh_token", "credential_version";
+  AND "client_type" = 'confidential'
+RETURNING "id", "owner_id", "name", "refresh_token", "credential_version", "client_type";
 
 -- Taken before an application's callbacks are read and rewritten, so two
 -- replacements of the same set run one after the other and neither is left

@@ -26,13 +26,14 @@ const preflightMaxAge = 10 * time.Minute
 // with. Credentials are allowed, so a wildcard is not merely disallowed by the
 // specification but would hand every origin a signed-in person's session.
 //
-// Only an address the route table names is answered for. A preflight to
-// anything else is left to the router, which reports that it is not served,
-// rather than being told what a browser could do with an address there is
-// nothing at.
+// Only an address the route table names is answered for, and never one of the
+// public-client protocol addresses, which permit no cross-origin request. A
+// preflight to anything else is left to the router, which reports that it is
+// not served or not served for that method, rather than being told what a
+// browser could do there.
 func (s *Server) answerCORS(next http.Handler) http.Handler {
 	site := s.config.Site
-	declared := newDeclaredPaths()
+	declared := newDeclaredPaths(crossOriginRoutes())
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		served := declared.names(rawPath(request))
@@ -70,4 +71,17 @@ func (s *Server) answerCORS(next http.Handler) http.Handler {
 		// what stops the browser from making the request.
 		writer.WriteHeader(http.StatusNoContent)
 	})
+}
+
+// crossOriginRoutes are the routes the site may call from its own origin.
+func crossOriginRoutes() []Route {
+	var permitted []Route
+
+	for _, route := range Routes() {
+		if !route.SameOriginOnly {
+			permitted = append(permitted, route)
+		}
+	}
+
+	return permitted
 }

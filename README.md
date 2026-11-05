@@ -15,6 +15,25 @@ Currently supported:
 
 # Integrating your application
 
+An application is registered as one of two RFC 6749 client types, fixed when it
+is registered:
+
+- **Confidential client** — a server-side application that can protect a
+  credential. It receives an application token and signs people in with the
+  exchange below.
+- **Public client** — an installed application, such as a desktop or
+  command-line application, that cannot protect a shared credential. It receives
+  no credential and signs people in with OpenID Connect, PKCE and a loopback
+  redirect: see [Signing people in to an installed
+  application](./docs/INSTALLED-CLIENT-OIDC.md).
+
+Both kinds of client identify a person by the same value: the `sub` of the
+token they receive is the person's AbandonAuth user identifier, a canonical
+lower-case UUID that is the same at every application. An application with
+both a server-side and an installed part can key one record by it.
+
+The rest of this section describes a confidential client.
+
 ## Register a developer application
 
 1. Login to [AbandonAuth](https://auth.abandontech.cloud)
@@ -50,6 +69,8 @@ returned to. It must be absolute, and:
    `exchange-token` header and identifying your application in the body with its
    `id` and `refresh_token`. You get back a token for that person.
 4. Call `GET /api/me` with that token as a `Bearer` credential to identify them.
+   The token's `sub` is their AbandonAuth user identifier, the same `sub` an
+   installed application's OpenID Connect tokens carry for them.
 
 Spend the code from your server, not from the browser: it identifies your
 application with your application's own credential.
@@ -83,6 +104,7 @@ setting that is missing or unusable stops the process with a message naming it.
 | `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `ABANDON_AUTH_DISCORD_CALLBACK` | | yes | see [Discord](./docs/DISCORD-OAUTH2.md) |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `ABANDON_AUTH_GITHUB_CALLBACK` | | yes | see [GitHub](./docs/GITHUB-OAUTH2.md) |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK` | | yes | see [Google](./docs/GOOGLE-OAUTH2.md) |
+| `OIDC_ID_SIGNING_KEY_FILE`, `OAUTH_ACCESS_SIGNING_KEY_FILE` | | yes | host paths of the two RSA private key PEM files `compose.yml` mounts into the API. **See below** |
 
 Each `_CLIENT_SECRET` is environment only, alongside `DATABASE_URL` and
 `JWT_SECRET`. All three provider registrations are required. Steam sign-in
@@ -91,7 +113,9 @@ needs no settings: see [Steam](./docs/STEAM-OPENID.md).
 `ABANDON_AUTH_URL` and `ABANDON_AUTH_SITE_URL` are origins: scheme, host and an
 optional port, with no path. Every endpoint is under `/api`, which belongs to
 the API and is never part of either setting. Outside a loopback development
-build both must be `https`.
+build both must be `https`. Both must name the same host; only their ports may
+differ, and the API refuses to start otherwise. `ABANDON_AUTH_URL` followed by
+`/api` is the OpenID issuer installed applications pin.
 
 ## The signing secret
 
@@ -103,13 +127,62 @@ abandonauth database rotate-auth-epoch
 ```
 
 That withdraws every access token, login in progress, one-time code and browser
-session: every browser must sign in again, and every login in progress must
-start over.
+session, and every public client's authorization, code and offline session:
+every browser must sign in again, and every login in progress must start over.
+AbandonAuth's own UserInfo refuses every OIDC access token issued before it at
+once, but a resource server that validates one locally keeps accepting it until
+it expires, up to fifteen minutes later. A person's `sub`, their AbandonAuth
+user identifier, does not change.
+
+## Signing keys
+
+ID tokens and access tokens are signed with two separate RSA keys, one PEM
+file each, made with OpenSSL the same way for local development and for a
+deployment. For local development, run this from the repository root:
+
+```shell
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out oidc-id-signing-key.pem
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out oauth-access-signing-key.pem
+```
+
+That writes the two files `.env.sample` already names in
+`OIDC_ID_SIGNING_KEY_FILE` and `OAUTH_ACCESS_SIGNING_KEY_FILE`. Git ignores
+`*.pem`, and no image build context includes the repository root, so neither
+file is committed or copied into an image. Each file holds exactly one PKCS #8
+private key of at least 2048 bits, which is what that command writes, and the
+two must differ. The API publishes each key's public half under its RFC 7638
+thumbprint, so there is no key identifier to configure.
+
+A deployment runs the same commands elsewhere and sets both variables to the
+files' absolute paths. It keeps the files outside its backups, owned
+`root:65532` with mode 0440 in a directory only root can open; 65532 is the
+account the image runs as. Check them before rolling out:
+
+```shell
+abandonauth validate-config
+```
+
+Compose reads a secret file only when it creates a container, so recreate the
+API container after replacing a key. Replacing a key is how it is rotated:
+until clients fetch the published keys again, up to five minutes later, they
+reject tokens the new key signs, and tokens the old key signed stop being
+accepted at once by AbandonAuth. A validator holding a cached key set keeps
+trusting the replaced key for at most those five minutes. A key suspected to be
+compromised is replaced the same way; for the access token key, also rotate the
+authority (above) so no offline session can obtain another token. The two keys
+are independent: replacing one never affects tokens of the other class.
 
 ## Request limits
 
 Authenticated users are limited to 20 developer application changes (create,
 delete, credential reset, callback replacement) per minute.
+
+The public-client protocol needs no credential, so it is bounded by fixed
+capacity instead: each API process serves at most 64 of its requests and
+provider callbacks at once, the whole service holds at most 10,000 public-client
+authorizations in progress, and one person holds at most ten offline sessions
+and a thousand unexpired revoked access tokens per application. None of these
+is a setting.
 
 ## Deploying the API
 

@@ -2,8 +2,11 @@ package oauth_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -255,5 +258,123 @@ func TestDiscardingNothingDoesNotFail(t *testing.T) {
 
 	if err := codes.Discard(t.Context(), ""); err != nil {
 		t.Errorf("discarding nothing reported %v", err)
+	}
+}
+
+// A verifier is RFC 7636's: 43 to 128 unreserved characters, and its challenge
+// is the unpadded base64url SHA-256 of exactly those bytes.
+func TestCodeVerifierFollowsRFC7636(t *testing.T) {
+	t.Parallel()
+
+	for _, verifier := range []string{
+		strings.Repeat("a", 43), strings.Repeat("Z9-._~", 21) + "ab", strings.Repeat("v", 128),
+	} {
+		challenge, valid := oauth.ChallengeForVerifier(verifier)
+		digest := sha256.Sum256([]byte(verifier))
+
+		if !valid || challenge != base64.RawURLEncoding.EncodeToString(digest[:]) {
+			t.Errorf("a %d-character verifier was refused or digested wrongly", len(verifier))
+		}
+	}
+
+	for name, verifier := range map[string]string{
+		"42 characters":       strings.Repeat("a", 42),
+		"129 characters":      strings.Repeat("a", 129),
+		"empty":               "",
+		"padding":             strings.Repeat("a", 42) + "=",
+		"a plus":              strings.Repeat("a", 42) + "+",
+		"a slash":             strings.Repeat("a", 42) + "/",
+		"a space":             strings.Repeat("a", 42) + " ",
+		"a control character": strings.Repeat("a", 42) + "\x00",
+		"unicode":             strings.Repeat("a", 41) + "é",
+		"a percent escape":    strings.Repeat("a", 40) + "%41",
+	} {
+		if _, valid := oauth.ChallengeForVerifier(verifier); valid {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+}
+
+// Malformed credentials are refused before any database work: these services
+// are built over no database at all, and every call still answers.
+func TestMalformedNativeCredentialsAreRefusedBeforeLookup(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	valid, _ := oauth.ChallengeForVerifier(strings.Repeat("a", 43))
+	issued := strings.Repeat("A", 43)
+
+	requests := oauth.NewAuthorizationRequests(nil, nil)
+	codes := oauth.NewAuthorizationCodes(nil, nil)
+	refresh := oauth.NewRefreshTokens(nil)
+
+	for _, malformed := range []string{"", "short", issued + "A", issued[:42] + "=", issued[:42] + "B"} {
+		if _, err := requests.View(ctx, malformed, issued); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+			t.Errorf("viewing with a malformed handle = %v", err)
+		}
+
+		if _, err := requests.View(ctx, issued, malformed); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+			t.Errorf("viewing with a malformed binding = %v", err)
+		}
+
+		if _, err := requests.BeginProvider(ctx, malformed, issued, oauth.Google); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+			t.Errorf("choosing with a malformed handle = %v", err)
+		}
+
+		if _, err := requests.ViewConsent(ctx, malformed, issued); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+			t.Errorf("viewing a consent with a malformed handle = %v", err)
+		}
+
+		if _, err := requests.ViewConsent(ctx, issued, malformed); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+			t.Errorf("viewing a consent with a malformed binding = %v", err)
+		}
+
+		if _, _, err := requests.AllowConsent(ctx, malformed, issued); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+			t.Errorf("allowing with a malformed handle = %v", err)
+		}
+
+		if _, _, err := requests.AllowConsent(ctx, issued, malformed); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+			t.Errorf("allowing with a malformed binding = %v", err)
+		}
+
+		if _, err := requests.CancelConsent(ctx, malformed, issued); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+			t.Errorf("cancelling with a malformed handle = %v", err)
+		}
+
+		if _, err := requests.CancelConsent(ctx, issued, malformed); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+			t.Errorf("cancelling with a malformed binding = %v", err)
+		}
+
+		if _, err := codes.Redeem(ctx, oauth.Redemption{
+			ClientID: uuid.New(), Code: malformed, Verifier: strings.Repeat("a", 43),
+		}, nil); !errors.Is(err, oauth.ErrInvalidGrant) {
+			t.Errorf("redeeming a malformed code = %v", err)
+		}
+
+		if _, err := refresh.Rotate(ctx, oauth.Refresh{ClientID: uuid.New(), Token: malformed}, nil); !errors.Is(
+			err, oauth.ErrInvalidGrant,
+		) {
+			t.Errorf("rotating a malformed refresh token = %v", err)
+		}
+
+		if err := refresh.Revoke(ctx, uuid.New(), malformed); err != nil {
+			t.Errorf("revoking a malformed refresh token = %v, want nothing to revoke", err)
+		}
+	}
+
+	if _, err := requests.BeginProvider(ctx, issued, issued, oauth.Provider("myspace")); !errors.Is(
+		err, oauth.ErrNoSuchAuthorization,
+	) {
+		t.Errorf("choosing an unknown provider = %v", err)
+	}
+
+	if _, err := codes.Redeem(ctx, oauth.Redemption{ClientID: uuid.New(), Code: issued, Verifier: "plain"}, nil); !errors.Is(
+		err, oauth.ErrInvalidGrant,
+	) {
+		t.Errorf("redeeming with a malformed verifier = %v", err)
+	}
+
+	if valid == "" {
+		t.Error("no challenge was derived for a valid verifier")
 	}
 }

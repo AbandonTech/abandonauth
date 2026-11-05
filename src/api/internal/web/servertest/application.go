@@ -52,6 +52,39 @@ func (s *Service) RegisterApplication(name string, callbacks ...string) Applicat
 	return application
 }
 
+// RegisterPublicClient registers a public client for the signed-in browser and
+// gives it the portless loopback templates it may be returned to.
+func (s *Service) RegisterPublicClient(name string, templates ...string) Application {
+	s.t.Helper()
+
+	var registered struct {
+		ID         string `json:"id"`
+		Name       string `json:"name"`
+		OwnerID    string `json:"owner_id"`
+		ClientType string `json:"client_type"`
+	}
+
+	answer := s.POSTJSON("/developer_application", map[string]string{"name": name, "client_type": "public"},
+		s.Protected).
+		ExpectStatus(http.StatusOK).
+		DecodeInto(&registered)
+
+	if registered.ClientType != "public" {
+		s.t.Fatalf("a public client was registered as %q (body: %s)", registered.ClientType, answer.Body)
+	}
+
+	application := Application{Name: registered.Name, CallbackURIs: templates}
+	application.ID = s.identifier(registered.ID)
+	application.OwnerID = s.identifier(registered.OwnerID)
+
+	if len(templates) > 0 {
+		s.PATCHJSON("/developer_application/"+registered.ID+"/callback_uris", templates, s.Protected).
+			ExpectStatus(http.StatusOK)
+	}
+
+	return application
+}
+
 func (s *Service) identifier(value string) uuid.UUID {
 	s.t.Helper()
 

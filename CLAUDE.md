@@ -78,6 +78,20 @@ request is not a substitute.
   lives in a file guarded by that tag. Both carry the API documentation and its
   OpenAPI schema, which every build serves, and the Goose CLI and migration
   files, which the service binary never uses.
+- An environment variable or command-line setting exists only for a value that
+  differs between deployments, such as local development and production, or one
+  rotated often enough that changing it must not need a code change. A value
+  with one correct answer is a constant in code: a path fixed inside the image
+  or by Compose, a protocol constant, or anything derivable from another
+  setting. Before adding one, name the two deployments that set it differently
+  or the rotation that changes it; if you cannot, it is not a setting. A test
+  that needs a different value overrides the constant in Go, not through the
+  environment.
+- Secrets and keys are read in the formats standard tools produce: a PKCS #8
+  PEM from `openssl genpkey`, random bytes from `openssl rand`. The repository
+  ships no command, script or build target that generates a secret, and
+  anything derivable from a key, such as its `kid`, is derived in code rather
+  than configured.
 - Preserve unrelated user changes and ignored local configuration.
 
 ## Naming and documentation

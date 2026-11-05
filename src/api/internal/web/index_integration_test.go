@@ -161,3 +161,84 @@ func TestEscapedQueryOnExactPathReachesHandler(t *testing.T) {
 		ExpectStatus(http.StatusTemporaryRedirect).
 		ExpectRedirectTo(service.Site.CallbackURI)
 }
+
+// The public-client addresses have one spelling each too. A handle, a code or
+// a token sent to a spelling the router would clean or decode reaches nothing,
+// is redirected nowhere and spends nothing; a wrong method is told so.
+func TestPublicClientTargetsSpelledAnotherWayReachNothing(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	_, client := installedClient(t, service)
+
+	handle := service.PageHandle(client.Authorize(client.Pending(ipv4Template, 49152, "openid")))
+	page := "/api/oauth/authorization/" + handle
+	consent := "/api/oauth/consent/" + handle
+
+	for name, target := range map[string]string{
+		"a repeated slash":           "/api/oauth//authorization/" + handle,
+		"a trailing slash":           page + "/",
+		"a dot segment":              "/api/oauth/./authorization/" + handle,
+		"a parent segment":           "/api/oauth/authorization/x/../" + handle,
+		"a backslash":                `/api/oauth\authorization/` + handle,
+		"an escaped handle byte":     "/api/oauth/authorization/%41" + handle[1:],
+		"an escaped slash":           "/api/oauth/authorization%2F" + handle,
+		"an empty handle":            "/api/oauth/authorization/",
+		"a provider dot segment":     page + "/x/../discord",
+		"a provider trailing slash":  page + "/discord/",
+		"a consent trailing slash":   consent + "/",
+		"a consent dot segment":      "/api/oauth/./consent/" + handle,
+		"a consent parent segment":   "/api/oauth/consent/x/../" + handle,
+		"a consent backslash":        `/api/oauth\consent/` + handle,
+		"an escaped consent byte":    "/api/oauth/consent/%41" + handle[1:],
+		"an escaped consent slash":   "/api/oauth/consent%2F" + handle,
+		"an empty consent":           "/api/oauth/consent/",
+		"an allow dot segment":       consent + "/x/../allow",
+		"an allow trailing slash":    consent + "/allow/",
+		"an escaped allow":           consent + "/%61llow",
+		"a repeated slash to allow":  consent + "//allow",
+		"a cancel dot segment":       consent + "/x/../cancel",
+		"a cancel trailing slash":    consent + "/cancel/",
+		"an escaped cancel":          consent + "/%63ancel",
+		"an escaped provider":        page + "/%64iscord",
+		"an empty provider":          page + "//discord",
+		"a discovery trailing slash": "/api/.well-known/openid-configuration/",
+		"an escaped discovery":       "/api/%2Ewell-known/openid-configuration",
+		"a token trailing slash":     "/api/oauth/token/",
+		"an escaped token address":   "/api/oauth/%74oken",
+		"a repeated slash to revoke": "/api/oauth//revoke",
+		"an authorize dot segment":   "/api/oauth/../oauth/authorize",
+		"a key set trailing slash":   "/api/oidc/jwks/",
+		"a userinfo escaped byte":    "/api/oauth/userinf%6F",
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, method := range []string{http.MethodGet, http.MethodPost} {
+				answer := service.AtExactTarget(method, target, service.FromSite).ExpectStatus(http.StatusNotFound)
+
+				if location := answer.Header.Get("Location"); location != "" {
+					t.Errorf("%s %q was sent to %q", method, target, location)
+				}
+			}
+		})
+	}
+
+	for target, method := range map[string]string{
+		page:                                    http.MethodPost,
+		page + "/discord":                       http.MethodGet,
+		consent:                                 http.MethodPost,
+		consent + "/allow":                      http.MethodGet,
+		consent + "/cancel":                     http.MethodGet,
+		"/api/oauth/token":                      http.MethodGet,
+		"/api/oauth/revoke":                     http.MethodGet,
+		"/api/oauth/userinfo":                   http.MethodPost,
+		"/api/oauth/authorize":                  http.MethodPost,
+		"/api/.well-known/openid-configuration": http.MethodPost,
+	} {
+		service.AtExactTarget(method, target, service.FromSite).
+			ExpectStatus(http.StatusMethodNotAllowed).
+			ExpectDetail("Method Not Allowed")
+	}
+
+	// Nothing above consumed the request: it can still be chosen.
+	service.POSTForm("/oauth/authorization/"+handle+"/discord", "", service.FromSite).ExpectStatus(http.StatusSeeOther)
+}

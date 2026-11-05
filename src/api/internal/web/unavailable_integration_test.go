@@ -254,6 +254,38 @@ func TestNothingIsGrantedWhenSchemaIsEmpty(t *testing.T) {
 	service.GET("/").ExpectStatus(http.StatusTemporaryRedirect)
 }
 
+// A consent that was genuine a moment earlier grants nothing and names nothing
+// when the database answers with an empty schema.
+func TestConsentGrantsNothingWhenSchemaIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	_, client := installedClient(t, service)
+
+	consent := client.ReachConsent(client.Pending(ipv4Template, 49152, "openid"), oauth.Discord,
+		service.Providers.Someone(oauth.Discord, "someone"))
+
+	service.GET("/oauth/consent/" + consent).ExpectStatus(http.StatusOK)
+
+	testdatabase.Execute(t, service.Pool, `DROP SCHEMA public CASCADE; CREATE SCHEMA public`)
+
+	for what, answer := range map[string]*servertest.Response{
+		"reading":    service.GET("/oauth/consent/" + consent),
+		"allowing":   service.AllowConsent(consent),
+		"cancelling": service.CancelConsent(consent),
+	} {
+		t.Run(what, func(t *testing.T) {
+			answer.ExpectStatus(http.StatusInternalServerError).ExpectDetail("Internal Server Error")
+			expectPageHeaders(t, answer)
+			expectNoDatabaseDetail(t, answer)
+
+			if answer.Header.Get("Location") != "" || strings.Contains(string(answer.Body), "an installed application") {
+				t.Error("a consent the service could not check was redirected or named its application")
+			}
+		})
+	}
+}
+
 // expectNoDatabaseDetail fails the test if a response names anything the
 // database said.
 func expectNoDatabaseDetail(t *testing.T, response *servertest.Response) {
@@ -335,4 +367,85 @@ func TestApplicationThatNeverExistedIsRefusedLikeOneSomebodyElseOwns(t *testing.
 
 	service.GET("/developer_application/" + uuid.New().String()).
 		ExpectStatus(http.StatusNotFound)
+}
+
+// A public client's request the service cannot answer grants nothing: no
+// authorization, code, token, refresh, subject or claim, and each endpoint
+// says only that it failed, in its own terms. The published documents need no
+// database and are still served.
+func TestPublicClientEndpointsGrantNothingWhenDatabaseCannotBeReached(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	_, client := installedClient(t, service)
+
+	_, issued := client.Tokens(ipv4Template, "openid offline_access", service.Providers.Someone(oauth.Discord, "p"))
+
+	pending := client.Pending(ipv4Template, 49152, "openid")
+	code := client.SignIn(pending, oauth.Discord, "q")
+
+	handle := service.PageHandle(client.Authorize(client.Pending(ipv4Template, 49153, "openid")))
+	waiting := client.Pending(ipv4Template, 49154, "openid")
+	started := client.BeginPublicSignIn(waiting, oauth.Discord)
+
+	deciding := client.Pending(ipv4Template, 49155, "openid")
+	consent := client.ReachConsent(deciding, oauth.Discord, service.Providers.Someone(oauth.Discord, "s"))
+
+	service.Pool.Close()
+
+	for what, answer := range map[string]*servertest.Response{
+		"beginning an authorization": client.Authorize(client.Pending(ipv4Template, 1, "openid")),
+		"redeeming a code":           client.Exchange(pending, code),
+		"refreshing":                 client.Refresh(issued.RefreshToken, ""),
+		"describing the person":      service.GET("/oauth/userinfo", servertest.Bearer(issued.AccessToken)),
+		"revoking":                   client.Revoke(issued.RefreshToken),
+	} {
+		t.Run(what, func(t *testing.T) {
+			expectOAuthError(t, answer, http.StatusInternalServerError, "server_error")
+
+			if answer.Header.Get("Location") != "" {
+				t.Error("an unanswerable request was redirected")
+			}
+		})
+	}
+
+	for what, answer := range map[string]*servertest.Response{
+		"reading the authorization page": service.GET("/oauth/authorization/" + handle),
+		"choosing a provider":            service.POSTForm("/oauth/authorization/"+handle+"/discord", "", service.FromSite),
+		"reading the consent":            service.GET("/oauth/consent/" + consent),
+		"allowing":                       service.AllowConsent(consent),
+		"cancelling":                     service.CancelConsent(consent),
+	} {
+		t.Run(what, func(t *testing.T) {
+			answer.ExpectStatus(http.StatusInternalServerError).ExpectDetail("Internal Server Error")
+			expectPageHeaders(t, answer)
+
+			if answer.Header.Get("Location") != "" {
+				t.Error("an unanswerable request was redirected")
+			}
+
+			if strings.Contains(string(answer.Body), "an installed application") {
+				t.Error("an unanswerable request named the application")
+			}
+		})
+	}
+
+	t.Run("returning from a provider", func(t *testing.T) {
+		returned := service.FinishLogin(started, service.Providers.Someone(oauth.Discord, "r")).
+			ExpectStatus(http.StatusInternalServerError)
+
+		if returned.Header.Get("Location") != "" {
+			t.Error("a callback the service could not record was redirected")
+		}
+	})
+
+	for _, path := range []string{"/.well-known/openid-configuration", "/oidc/jwks", "/oauth/access-jwks"} {
+		service.GET(path).ExpectStatus(http.StatusOK)
+	}
+
+	for _, secret := range []string{code, issued.RefreshToken, issued.AccessToken, pending.Verifier, handle, consent} {
+		if strings.Contains(service.Logs.String(), secret) {
+			t.Error("a credential reached the log")
+		}
+	}
 }

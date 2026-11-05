@@ -55,7 +55,38 @@ const (
 	DomainBrowserSession     Domain = "abandonauth/browser-session/v1"
 	DomainCSRFToken          Domain = "abandonauth/csrf-token/v1"
 	DomainIdentityNonce      Domain = "abandonauth/identity-token-nonce/v1"
+
+	DomainAuthorizationPage       Domain = "abandonauth/oidc-authorization-page/v1"
+	DomainAuthorizationConsent    Domain = "abandonauth/oidc-authorization-consent/v1"
+	DomainNativeBrowserBinding    Domain = "abandonauth/oidc-browser-binding/v1"
+	DomainNativeAuthorizationCode Domain = "abandonauth/oidc-authorization-code/v1"
+	DomainRefreshToken            Domain = "abandonauth/oidc-refresh-token/v1"
 )
+
+// IsOpaqueValue reports whether a value has the exact shape NewOpaqueValue
+// produces, so anything else is refused before a digest or a lookup is made.
+func IsOpaqueValue(value string) bool {
+	if len(value) != base64.RawURLEncoding.EncodedLen(OpaqueValueBytes) {
+		return false
+	}
+
+	for index := range len(value) {
+		if !isBase64URLCharacter(value[index]) {
+			return false
+		}
+	}
+
+	// The last character carries two bits of padding, which must be zero for
+	// the value to have one spelling.
+	_, err := base64.RawURLEncoding.Strict().DecodeString(value)
+
+	return err == nil
+}
+
+func isBase64URLCharacter(character byte) bool {
+	return (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z') ||
+		(character >= '0' && character <= '9') || character == '-' || character == '_'
+}
 
 // domainSeparator ends the label so that a long label and a short value cannot
 // be spelled as a short label and a long value.

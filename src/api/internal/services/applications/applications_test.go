@@ -68,3 +68,58 @@ func TestEmptyCallbackIsNotRegistered(t *testing.T) {
 		t.Error("an empty callback URI was treated as one an application registered")
 	}
 }
+
+func TestClientTypesAreExactlyTheTwoStandardValues(t *testing.T) {
+	t.Parallel()
+
+	for _, value := range []string{"confidential", "public"} {
+		if parsed, known := applications.ParseClientType(value); !known || string(parsed) != value {
+			t.Errorf("%q was not recognised", value)
+		}
+	}
+
+	for _, value := range []string{"", "Public", "CONFIDENTIAL", "native", "public ", "public-native"} {
+		if _, known := applications.ParseClientType(value); known {
+			t.Errorf("%q was recognised", value)
+		}
+	}
+}
+
+// Which callbacks an application may register follows its client type, and is
+// decided before anything is stored, so a refusal needs no database.
+func TestCallbackPolicyFollowsClientType(t *testing.T) {
+	t.Parallel()
+
+	service := applications.New(nil, nil)
+
+	for name, refusal := range map[string]struct {
+		clientType applications.ClientType
+		uri        string
+		reason     error
+	}{
+		"a confidential application given a portless loopback template": {
+			applications.Confidential, "http://127.0.0.1/oauth/callback", urlpolicy.ErrMissingPort,
+		},
+		"a public client given an HTTPS callback": {
+			applications.Public, "https://app.example.test/callback", urlpolicy.ErrNativeScheme,
+		},
+		"a public client given a registered port": {
+			applications.Public, "http://127.0.0.1:8080/oauth/callback", urlpolicy.ErrNativePort,
+		},
+		"a public client given localhost": {
+			applications.Public, "http://localhost/oauth/callback", urlpolicy.ErrNativeHost,
+		},
+		"a public client given a reserved key": {
+			applications.Public, "http://[::1]/cb?iss=1", urlpolicy.ErrReservedQueryKey,
+		},
+	} {
+		application := applications.Application{ID: uuid.New(), ClientType: refusal.clientType}
+
+		err := service.ReplaceCallbackURIs(t.Context(), application, []string{refusal.uri})
+
+		var unsafe applications.UnsafeCallbackError
+		if !errors.As(err, &unsafe) || unsafe.Index != 0 || !errors.Is(err, refusal.reason) {
+			t.Errorf("%s: refused with %v, want the first entry refused for %v", name, err, refusal.reason)
+		}
+	}
+}

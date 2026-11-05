@@ -46,11 +46,17 @@
       <div class="flex flex-col">
         <h1 class="text-4xl">{{ application?.name }}</h1>
         <CopyString class="mt-4" :content="application?.id" />
+        <p v-if="application" class="mt-2" data-test="client-type">{{ clientTypeLabels[application.client_type] }}</p>
 
-        <button class="btn btn-warning mt-4" @click="openResetTokenModal">Reset Token</button>
+        <button v-if="application?.client_type === 'confidential'" class="btn btn-warning mt-4" @click="openResetTokenModal">Reset Token</button>
 
         <button class="btn btn-error mt-4" @click="openDeleteAppModal">Delete Application</button>
       </div>
+
+        <div v-if="application?.client_type === 'public'" class="mt-10 max-w-2xl text-sm" data-test="loopback-help">
+          <p>A public client registers portless loopback redirects, such as <code>http://127.0.0.1/oauth/callback</code> and <code>http://[::1]/oauth/callback</code>.</p>
+          <p class="mt-2">Each redirect uses <code>http</code>, a host of <code>127.0.0.1</code> or <code>[::1]</code>, and a path. Never use a host name such as <code>localhost</code>, and leave out the port. The application adds the port it listens on when it signs someone in.</p>
+        </div>
 
         <h2 class="mt-10 text-lg  ">Add Callback URI</h2>
         <div class="pt-2 w-96">
@@ -78,6 +84,7 @@
 </template>
 
 <script setup lang="ts">
+import { clientTypeLabels } from '~/types/developerApplicationDto';
 import type { CreateDeveloperApplicationDto, DeveloperApplicationDto, DeveloperApplicationUpdateCallbackDto } from '~/types/developerApplicationDto';
 import { faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
 
@@ -145,10 +152,12 @@ async function resetDeveloperApplicationToken() {
       return null
     })
 
-    if (resp !== null) {
+    if (resp !== null && resp.token) {
+      const token = resp.token
+
       closeResetTokenAppModal()
       setTimeout(() => {
-        newToken.value = resp.token
+        newToken.value = token
         showNewTokenModal.value = true
       }, 500)
     }
