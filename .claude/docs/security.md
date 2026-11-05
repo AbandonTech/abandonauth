@@ -117,14 +117,16 @@ the work was about.
 | An immutable RFC 6749 client type: a public client holds no credential (a database constraint ties a null credential to `public`), cannot authenticate, reset, or use the confidential sign-in, and is the only type the OIDC endpoints accept | `internal/services/applications`, `src/api/migrations/`, `internal/web/developerapplication.go`, `providerlogin.go` |
 | Public-client redirects: portless `http` templates on an IPv4 loopback literal or `[::1]`, a path, no response keys; a request matches a template with exactly one numeric port added and nothing else changed; the exact spelling is stored and required again at redemption; nothing is redirected before client and redirect are proven | `internal/urlpolicy/nativecallback.go`, `internal/web/nativeauthorization.go` |
 | OAuth input read whole or not at all: bounded bytes, fields and name length, no `;`, no encoded or case-varied names, no bad escape, control character or invalid UTF-8; recognized members at most once; query and form never merged; `token_type_hint` never read | `internal/web/request/oauthform.go` |
-| One authorization root per public authorization, in one of 10,000 slots counted under a lock, with one absolute five-minute deadline; page handle, provider state and code single-use digests bound to the browser's separate `abandonauth_native_oauth` cookie, the client, redirect, scopes, state, nonce, challenge and epoch | `internal/services/oauth/authorizationrequest.go`, `authorizationstate.go`, `internal/web/nativeauthorization.go`, `cookies.go` |
+| One authorization root per public authorization, in one of 10,000 slots counted under a lock, with one absolute five-minute deadline; page handle, provider state, consent handle and code single-use digests bound to the browser's separate `abandonauth_native_oauth` cookie, the client, redirect, scopes, state, nonce, challenge and epoch | `internal/services/oauth/authorizationrequest.go`, `authorizationstate.go`, `internal/web/nativeauthorization.go`, `cookies.go` |
+| Authentication separated from client authorization: a provider callback resolves the account and moves the root to `consent` under the auth-epoch lock and creates no code, session, relationship or token; only `POST /api/oauth/consent/{consent}/allow`, with the exact site `Origin` checked before the handle and the binding cookie, creates a code. The consent handle is 32 random bytes under its own digest domain and stage, handed over only in a fragment, and neither handle satisfies the other's lookup. Allow and Cancel lock one row, so exactly one wins and every loser is one fixed 404. Consent is asked every time, is all-or-nothing, and always discloses the cross-application user ID, the username only under `profile` and the 90-day session only under `offline_access`. Cancel leaves the client nothing, while an account a first sign-in created stays by explicit decision | `internal/services/oauth/authorizationrequest.go`, `internal/services/credentials`, `internal/web/providerlogin.go`, `internal/web/nativeauthorization.go`, `src/api/migrations/`, `src/website/app/pages/consent.vue` |
 | PKCE `S256` mandatory; a code redeemed by one delete only when client, redirect, epoch and the verifier's challenge all match, so a wrong attempt leaves it; issuance under the shared auth-epoch lock in one transaction with signing | `internal/services/oauth/authorizationcode.go`, `internal/web/nativetoken.go` |
 | Two RS256 key files, one per token class, PKCS #8 of at least 2048 bits, `kid` the RFC 7638 thumbprint, never the same key; two published key sets; ID and access tokens each accepted only in their exact profile with no clock tolerance | `internal/services/oidc`, `internal/config`, `internal/web/oidcdiscovery.go` |
-| Pairwise subjects: 43 random characters unique per application and person, never the user identifier, kept across rotation | `internal/services/oauth/subject.go` |
-| Rotating refresh tokens with reuse revoking the family, ten families per person and application, ten thousand members per family, no scope widening | `internal/services/oauth/refreshtoken.go` |
-| UserInfo and revocation accepting only the OIDC access token class; a thousand unexpired revocations per person and application, beyond which revocation answers 503 rather than claiming success; a resource server's local acceptance up to fifteen minutes after withdrawal documented as the profile's limit | `internal/web/nativeuserinfo.go`, `nativerevocation.go`, `docs/INSTALLED-CLIENT-OIDC.md` |
+| Public OIDC subjects: `sub` is the user's canonical lower-case non-nil `User.id`, deliberately the same at every application and equal to the user access token's `sub`, released under `openid` without `profile`, with no `user_id` claim; issuers refuse the nil UUID, and the access token verifier and the test validators refuse any other spelling, a member named twice and trailing JSON. The subject grants nothing on its own: UserInfo and revocation resolve it only together with the token's exact client to one `oauth_public_client_user` row, which is never logged and is kept across rotation as a lock anchor, not a credential | `internal/services/oidc`, `internal/services/oauth/clientuser.go`, `internal/web/nativeuserinfo.go`, `nativerevocation.go`, `internal/web/servertest/oidcclient.go` |
+| Rotating refresh tokens with reuse revoking the family, ten families per person and application counted under that pair's `oauth_public_client_user` row lock, ten thousand members per family, no scope widening, and no rotation once the pair's row is gone | `internal/services/oauth/refreshtoken.go`, `authorizationcode.go` |
+| UserInfo and revocation accepting only the OIDC access token class; a thousand unexpired revocations per person and application, counted under the exact pair's row lock, beyond which revocation answers 503 rather than claiming success; a token naming a deleted user, a deleted client or a pair with no row revoking nothing and answered like an unknown token; a resource server's local acceptance up to fifteen minutes after withdrawal documented as the profile's limit | `internal/web/nativeuserinfo.go`, `nativerevocation.go`, `internal/services/oauth/clientuser.go`, `docs/INSTALLED-CLIENT-OIDC.md` |
 | At most 64 public-protocol requests per process, provider callbacks included and admitted before their state is read, refused at once with a fixed answer | `internal/web/publicprotocol.go` |
-| Authorization page answers never cached, framed or used as a referrer; OAuth answers `no-store` and `Pragma: no-cache`; no cross-origin permission on any public-client address | `internal/web/response/oauth.go`, `cors.go`, `routes.go` |
+| Authorization and consent page answers never cached or framed; the site's `/authorize` and `/consent` documents are `Referrer-Policy: same-origin`, so their form POSTs carry the exact site `Origin` and no cross-origin request receives a referrer, while the API's authorization and consent answers and 303 redirects stay `no-referrer`; OAuth answers `no-store` and `Pragma: no-cache`; no cross-origin permission on any public-client address | `internal/web/response/oauth.go`, `cors.go`, `routes.go`, `src/website/server/utils/authorizationHeaders.ts` |
+| A consent failure logged only as the fixed public-client failure, its request identifier and the matched route pattern: never the error, target, handle, cookie, application name, user, scopes or anything the request carried | `internal/web/nativeauthorization.go`, `internal/web/middleware.go` |
 
 ## Where the negative tests are
 
@@ -186,7 +188,9 @@ A change to a control above extends these rather than replacing them:
   or without a trailing slash, changing nothing when run again, carrying no
   database connection in its arguments, and held to its own allowlist.
 - `scripts/containercheck.sh` — the migration lifecycle on the template: a
-  no-op second up, one down removing the Steam layer and its accounts, the next
+  no-op second up, offline grants and revocations anchored to the
+  public-client/user row, one down removing the public-client layer, the next
+  removing the Steam layer and its accounts, the next
   removing exactly the auth-state layer, `down-to 0` removing the baseline, and
   up rebuilding the schema every test is cloned from.
 - `internal/web/requestlimit_integration_test.go` — the developer application
@@ -252,22 +256,57 @@ A change to a control above extends these rather than replacing them:
 - `internal/web/nativeauthorization_integration_test.go` — no redirect before
   client and redirect are proven, the fragment handoff, Origin and binding
   refusals consuming nothing, one winner of racing choices, the separate cookie,
-  capacity and recovery, hostile application names.
+  capacity and recovery, hostile application names; for consent, the exact model
+  for every scope set, a code only on Allow, Cancel granting nothing and keeping
+  the account, Origin refused before the handle and binding refused consuming
+  nothing, page and consent handles never interchangeable, one winner of racing
+  answers, expiry, a code cut short by the deadline, a deleted person or
+  application, and a forced failure's log carrying none of what it handled.
+- `internal/web/providercallback_integration_test.go` — a public sign-in reaching
+  only the fragment-only consent handoff with no code, relationship, session or
+  grant on every provider, its callback spent once, and refusal, cancellation,
+  an unusable identity and an internal failure returning directly to the client
+  without consent.
+- `src/website/test/authorizationPage.spec.ts`, `consentPage.spec.ts`,
+  `loginPage.spec.ts`, `authorizationHeaders.spec.ts` — provider selection drawn
+  as the login page is and disclosing no scope, the exact conditional consent
+  copy, unknown, duplicate and noncanonical scopes failing closed, empty forms,
+  hostile names, fragment and query abuse asking the API nothing, invalid and
+  elapsed deadlines, actions removed when the deadline arrives, and the document
+  headers on exact paths only.
 - `internal/web/nativetoken_integration_test.go`,
   `nativeuserinfo_integration_test.go`, `nativerevocation_integration_test.go`,
   `oidcdiscovery_integration_test.go` — exact token profiles validated from
   discovery alone, code binding and replay, racing redemption, refresh rotation,
-  reuse and narrowing, pairwise subjects, the JOSE and claim abuse matrix,
+  reuse and narrowing, one canonical UUID subject across a confidential
+  application and two public clients, refresh and UserInfo with another
+  provider account another UUID, non-canonical, nil, unknown and unserved
+  subjects refused at UserInfo and by the validators, duplicate members and
+  trailing JSON under each genuine key, the JOSE and claim abuse matrix,
   cross-purpose forgeries with each key, credential-class swaps, revocation
-  indistinguishability and its ceiling, zero clock tolerance, and local
-  acceptance continuing after withdrawal.
+  indistinguishability, its ceiling and its no-op for deleted users, deleted
+  clients and unserved subjects, every endpoint failing closed without the
+  public-client/user table while the confidential flow continues, zero clock
+  tolerance, and local acceptance continuing after withdrawal.
+- `internal/services/oidc/oidc_test.go` — the nil subject never signed, the
+  canonical spelling issued, and missing, repeated, wrong-type, nil,
+  upper-case, braced, compact, URN, malformed and opaque subjects and trailing
+  JSON refused under the genuine access key, with a re-signed canonical subject
+  as the positive control.
 - `internal/web/publicprotocol_test.go`, `publicprotocol_integration_test.go` —
   the 64-permit bound, permits returned after panic and cancellation, and a
-  callback refused while every permit is held spending nothing and succeeding
-  on retry.
+  callback or consent answer refused while every permit is held spending nothing
+  and succeeding on retry.
 - `internal/database/nativeauthorization_integration_test.go` — lock ordering
-  against rotation, the capacity, family and revocation ceilings under races,
-  subject collisions, and the null-credential constraint.
+  against rotation, a consent answer and a callback waiting on a rotation granting
+  nothing, consent values existing only at the consent stage, the person and
+  authentication time moving onto the code only on Allow, a failed approval
+  leaving the consent usable, the capacity, family and revocation ceilings under races,
+  racing issuances converging on one public-client/user row with every other
+  pair kept apart, revocation and holder lookups only for the exact pair, a
+  removed relationship granting and recording nothing, a redemption that
+  cannot record the relationship keeping its code and no offline grant, and the
+  null-credential constraint.
 
 Credential hashing is one production path: `credentials.Hash` creates bcrypt at
 `credentials.HashCost` and `credentials.Matches` verifies it, and neither takes

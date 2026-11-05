@@ -254,6 +254,38 @@ func TestNothingIsGrantedWhenSchemaIsEmpty(t *testing.T) {
 	service.GET("/").ExpectStatus(http.StatusTemporaryRedirect)
 }
 
+// A consent that was genuine a moment earlier grants nothing and names nothing
+// when the database answers with an empty schema.
+func TestConsentGrantsNothingWhenSchemaIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	_, client := installedClient(t, service)
+
+	consent := client.ReachConsent(client.Pending(ipv4Template, 49152, "openid"), oauth.Discord,
+		service.Providers.Someone(oauth.Discord, "someone"))
+
+	service.GET("/oauth/consent/" + consent).ExpectStatus(http.StatusOK)
+
+	testdatabase.Execute(t, service.Pool, `DROP SCHEMA public CASCADE; CREATE SCHEMA public`)
+
+	for what, answer := range map[string]*servertest.Response{
+		"reading":    service.GET("/oauth/consent/" + consent),
+		"allowing":   service.AllowConsent(consent),
+		"cancelling": service.CancelConsent(consent),
+	} {
+		t.Run(what, func(t *testing.T) {
+			answer.ExpectStatus(http.StatusInternalServerError).ExpectDetail("Internal Server Error")
+			expectPageHeaders(t, answer)
+			expectNoDatabaseDetail(t, answer)
+
+			if answer.Header.Get("Location") != "" || strings.Contains(string(answer.Body), "an installed application") {
+				t.Error("a consent the service could not check was redirected or named its application")
+			}
+		})
+	}
+}
+
 // expectNoDatabaseDetail fails the test if a response names anything the
 // database said.
 func expectNoDatabaseDetail(t *testing.T, response *servertest.Response) {
@@ -356,6 +388,9 @@ func TestPublicClientEndpointsGrantNothingWhenDatabaseCannotBeReached(t *testing
 	waiting := client.Pending(ipv4Template, 49154, "openid")
 	started := client.BeginPublicSignIn(waiting, oauth.Discord)
 
+	deciding := client.Pending(ipv4Template, 49155, "openid")
+	consent := client.ReachConsent(deciding, oauth.Discord, service.Providers.Someone(oauth.Discord, "s"))
+
 	service.Pool.Close()
 
 	for what, answer := range map[string]*servertest.Response{
@@ -377,11 +412,21 @@ func TestPublicClientEndpointsGrantNothingWhenDatabaseCannotBeReached(t *testing
 	for what, answer := range map[string]*servertest.Response{
 		"reading the authorization page": service.GET("/oauth/authorization/" + handle),
 		"choosing a provider":            service.POSTForm("/oauth/authorization/"+handle+"/discord", "", service.FromSite),
-		"cancelling":                     service.POSTForm("/oauth/authorization/"+handle+"/cancel", "", service.FromSite),
+		"reading the consent":            service.GET("/oauth/consent/" + consent),
+		"allowing":                       service.AllowConsent(consent),
+		"cancelling":                     service.CancelConsent(consent),
 	} {
 		t.Run(what, func(t *testing.T) {
 			answer.ExpectStatus(http.StatusInternalServerError).ExpectDetail("Internal Server Error")
 			expectPageHeaders(t, answer)
+
+			if answer.Header.Get("Location") != "" {
+				t.Error("an unanswerable request was redirected")
+			}
+
+			if strings.Contains(string(answer.Body), "an installed application") {
+				t.Error("an unanswerable request named the application")
+			}
 		})
 	}
 
@@ -398,7 +443,7 @@ func TestPublicClientEndpointsGrantNothingWhenDatabaseCannotBeReached(t *testing
 		service.GET(path).ExpectStatus(http.StatusOK)
 	}
 
-	for _, secret := range []string{code, issued.RefreshToken, issued.AccessToken, pending.Verifier, handle} {
+	for _, secret := range []string{code, issued.RefreshToken, issued.AccessToken, pending.Verifier, handle, consent} {
 		if strings.Contains(service.Logs.String(), secret) {
 			t.Error("a credential reached the log")
 		}

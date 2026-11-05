@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -138,6 +139,52 @@ func (c *InstalledClient) BeginPublicSignIn(pending PendingAuthorization, provid
 	return c.service.ChooseProvider(c.service.PageHandle(c.Authorize(pending)), provider)
 }
 
+// ConsentHandle reads the handle from where a provider's successful callback
+// sent the browser: an empty 303 to exactly the site's consent page, with the
+// handle alone in the fragment.
+func (s *Service) ConsentHandle(returned *Response) string {
+	s.t.Helper()
+
+	returned.ExpectStatus(http.StatusSeeOther)
+
+	prefix := s.Config.Site.String() + "/consent#request="
+
+	handle, found := strings.CutPrefix(returned.Header.Get("Location"), prefix)
+	if !found || !canonicalOpaqueValue.MatchString(handle) {
+		s.t.Fatalf("the browser was not sent to the consent page: %q", returned.Header.Get("Location"))
+	}
+
+	if len(returned.Body) != 0 {
+		s.t.Fatalf("the consent handoff carries a body: %q", returned.Body)
+	}
+
+	return handle
+}
+
+// AllowConsent submits the consent page's Allow form.
+func (s *Service) AllowConsent(handle string, prepare ...func(*http.Request)) *Response {
+	s.t.Helper()
+
+	return s.POSTForm("/oauth/consent/"+handle+"/allow", "", append([]func(*http.Request){s.FromSite}, prepare...)...)
+}
+
+// CancelConsent submits the consent page's Cancel form.
+func (s *Service) CancelConsent(handle string, prepare ...func(*http.Request)) *Response {
+	s.t.Helper()
+
+	return s.POSTForm("/oauth/consent/"+handle+"/cancel", "", append([]func(*http.Request){s.FromSite}, prepare...)...)
+}
+
+// ReachConsent runs a browser journey up to the consent page for one provider
+// identity and returns the consent handle.
+func (c *InstalledClient) ReachConsent(
+	pending PendingAuthorization, provider oauth.Provider, identity providertest.Identity,
+) string {
+	c.service.t.Helper()
+
+	return c.service.ConsentHandle(c.service.FinishLogin(c.BeginPublicSignIn(pending, provider), identity))
+}
+
 // SignIn runs a whole browser journey and returns the code the client's
 // listener received.
 func (c *InstalledClient) SignIn(pending PendingAuthorization, provider oauth.Provider, person string) string {
@@ -146,15 +193,15 @@ func (c *InstalledClient) SignIn(pending PendingAuthorization, provider oauth.Pr
 	return c.SignInAs(pending, provider, c.service.Providers.Someone(provider, person))
 }
 
-// SignInAs runs a whole browser journey for one provider identity, so a test
-// can sign the same person in more than once.
+// SignInAs runs a whole browser journey for one provider identity, through the
+// person's approval, so a test can sign the same person in more than once.
 func (c *InstalledClient) SignInAs(
 	pending PendingAuthorization, provider oauth.Provider, identity providertest.Identity,
 ) string {
 	c.service.t.Helper()
 
-	started := c.BeginPublicSignIn(pending, provider)
-	returned := c.service.FinishLogin(started, identity).ExpectStatus(http.StatusSeeOther)
+	handle := c.ReachConsent(pending, provider, identity)
+	returned := c.service.AllowConsent(handle).ExpectStatus(http.StatusSeeOther)
 
 	answer, err := pending.Read(returned.Header.Get("Location"), OpenIDIssuer)
 	if err != nil || answer.Code == "" {
@@ -439,9 +486,15 @@ func (s *Service) validatorFrom(expectedIssuer, member string, now func() time.T
 }
 
 var (
-	pairwiseSubject = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
-	canonicalUUID   = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	canonicalUUID        = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	canonicalOpaqueValue = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 )
+
+// isUserSubject accepts only the canonical lower-case spelling of a UUID other
+// than the nil UUID.
+func isUserSubject(subject string) bool {
+	return canonicalUUID.MatchString(subject) && subject != uuid.Nil.String()
+}
 
 // ValidateIDToken accepts exactly the ID token profile for one client. A code
 // response's token must carry the pending nonce; a refreshed one carries none.
@@ -466,7 +519,7 @@ func (v *TokenValidator) ValidateIDToken(token, clientID, nonce string) (map[str
 	audience, _ := claims["aud"].(string)
 	presented, hasNonce := claims["nonce"].(string)
 
-	if !issued || !expires || !authenticated || claims["iss"] != v.issuer || !pairwiseSubject.MatchString(subject) ||
+	if !issued || !expires || !authenticated || claims["iss"] != v.issuer || !isUserSubject(subject) ||
 		audience != clientID || expiresAt-issuedAt != 300 || !v.within(issuedAt, expiresAt) {
 		return nil, ErrTokenRefused
 	}
@@ -504,7 +557,7 @@ func (v *TokenValidator) ValidateAccessToken(token, clientID string) (map[string
 	}
 
 	if !issued || !valid || !expires || texts["iss"] != v.issuer || texts["aud"] != clientID ||
-		texts["client_id"] != clientID || !pairwiseSubject.MatchString(texts["sub"]) ||
+		texts["client_id"] != clientID || !isUserSubject(texts["sub"]) ||
 		!canonicalUUID.MatchString(texts["jti"]) || !canonicalUUID.MatchString(texts["auth_epoch"]) ||
 		notBefore != issuedAt || expiresAt-issuedAt != 900 || !v.within(notBefore, expiresAt) {
 		return nil, ErrTokenRefused
@@ -552,6 +605,8 @@ func (v *TokenValidator) verify(token, tokenType string) (map[string]any, error)
 	return decodeSegment(segments[1])
 }
 
+// decodeSegment reads exactly one JSON object. A member named twice or anything
+// after the object is refused, so no reading of an ambiguous token is chosen.
 func decodeSegment(segment string) (map[string]any, error) {
 	raw, err := base64.RawURLEncoding.Strict().DecodeString(segment)
 	if err != nil {
@@ -561,9 +616,41 @@ func decodeSegment(segment string) (map[string]any, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 
-	var members map[string]any
-	if err := decoder.Decode(&members); err != nil {
-		return nil, err
+	if opening, err := decoder.Token(); err != nil || opening != json.Delim('{') {
+		return nil, ErrTokenRefused
+	}
+
+	members := make(map[string]any)
+
+	for decoder.More() {
+		name, err := decoder.Token()
+		if err != nil {
+			return nil, ErrTokenRefused
+		}
+
+		key, isText := name.(string)
+		if !isText {
+			return nil, ErrTokenRefused
+		}
+
+		if _, repeated := members[key]; repeated {
+			return nil, ErrTokenRefused
+		}
+
+		var value any
+		if err := decoder.Decode(&value); err != nil {
+			return nil, ErrTokenRefused
+		}
+
+		members[key] = value
+	}
+
+	if closing, err := decoder.Token(); err != nil || closing != json.Delim('}') {
+		return nil, ErrTokenRefused
+	}
+
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return nil, ErrTokenRefused
 	}
 
 	return members, nil
@@ -599,18 +686,24 @@ func DecodeClaims(token string) map[string]any {
 // SignAs signs claims with a private key under a header, so a test can present
 // a token this service never issued.
 func SignAs(key *rsa.PrivateKey, header, claims map[string]any) (string, error) {
-	encodedHeader, err := json.Marshal(header)
-	if err != nil {
-		return "", err
-	}
-
 	encodedClaims, err := json.Marshal(claims)
 	if err != nil {
 		return "", err
 	}
 
+	return SignPayload(key, header, encodedClaims)
+}
+
+// SignPayload signs a payload exactly as written, so a test can present a token
+// whose JSON no encoder would produce.
+func SignPayload(key *rsa.PrivateKey, header map[string]any, payload []byte) (string, error) {
+	encodedHeader, err := json.Marshal(header)
+	if err != nil {
+		return "", err
+	}
+
 	input := base64.RawURLEncoding.EncodeToString(encodedHeader) + "." +
-		base64.RawURLEncoding.EncodeToString(encodedClaims)
+		base64.RawURLEncoding.EncodeToString(payload)
 	digest := sha256.Sum256([]byte(input))
 
 	signature, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])

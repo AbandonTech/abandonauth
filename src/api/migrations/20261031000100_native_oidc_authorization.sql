@@ -3,8 +3,8 @@
 --
 -- Every value a browser or client carries is stored only as a domain-separated
 -- digest, every lifetime is measured by the database clock, and every native
--- row is withdrawn by authority rotation except the pairwise subjects, which
--- identify a person to one application and must stay stable.
+-- row is withdrawn by authority rotation except the public-client/user
+-- relationships, which are lock anchors rather than credentials.
 
 -- +goose Up
 -- +goose StatementBegin
@@ -65,10 +65,19 @@ CREATE TABLE oauth_native_authorization (
         CHECK (code_challenge ~ '^[A-Za-z0-9_-]{43}$'),
 
     stage TEXT NOT NULL
-        CHECK (stage IN ('page', 'provider', 'code')),
+        CHECK (stage IN ('page', 'provider', 'consent', 'code')),
 
     page_handle_hash BYTEA UNIQUE
         CHECK (page_handle_hash IS NULL OR octet_length(page_handle_hash) = 32),
+
+    consent_handle_hash BYTEA UNIQUE
+        CHECK (consent_handle_hash IS NULL OR octet_length(consent_handle_hash) = 32),
+
+    -- Who the provider authenticated and when, held only while the person
+    -- decides. This is server-side state and grants the client nothing.
+    consent_user_id UUID
+        REFERENCES "User"("id") ON DELETE CASCADE,
+    consent_authenticated_at TIMESTAMPTZ,
 
     auth_epoch UUID NOT NULL,
 
@@ -79,7 +88,14 @@ CREATE TABLE oauth_native_authorization (
         CHECK (expires_at = created_at + interval '5 minutes'),
 
     CONSTRAINT oauth_native_authorization_handle_matches_stage
-        CHECK ((stage = 'page') = (page_handle_hash IS NOT NULL))
+        CHECK ((stage = 'page') = (page_handle_hash IS NOT NULL)),
+
+    CONSTRAINT oauth_native_authorization_consent_matches_stage
+        CHECK (
+            (stage = 'consent') = (consent_handle_hash IS NOT NULL)
+            AND (stage = 'consent') = (consent_user_id IS NOT NULL)
+            AND (stage = 'consent') = (consent_authenticated_at IS NOT NULL)
+        )
 );
 
 CREATE INDEX oauth_native_authorization_expires_at_idx
@@ -94,7 +110,7 @@ ALTER TABLE oauth_authorization_state
     ADD CONSTRAINT oauth_authorization_state_one_continuation
         CHECK ((native_authorization_id IS NULL) = (callback_uri IS NOT NULL));
 
--- The code a provider sign-in ends in. The redirect, challenge, nonce and
+-- The code the person's approval ends in. The redirect, challenge, nonce and
 -- scopes it is bound to are its authorization's, which it cannot outlive.
 CREATE TABLE oauth_native_authorization_code (
     code_hash BYTEA PRIMARY KEY
@@ -115,22 +131,18 @@ CREATE TABLE oauth_native_authorization_code (
         CHECK (expires_at > created_at AND expires_at <= created_at + interval '120 seconds')
 );
 
--- The identifier one application knows a person by. It is random rather than
--- derived, so nothing about the person or another application can be computed
--- from it, and unique within the application so two people never share one.
-CREATE TABLE oauth_pairwise_subject (
+-- A person who has been issued tokens by one public client. The row is the
+-- lock that serialises everything bounded per person and application, and the
+-- anchor whose deletion ends their offline grants and revocations.
+CREATE TABLE oauth_public_client_user (
     application_id UUID NOT NULL
         REFERENCES "DeveloperApplication"("id") ON DELETE CASCADE,
     user_id UUID NOT NULL
         REFERENCES "User"("id") ON DELETE CASCADE,
 
-    subject TEXT NOT NULL
-        CHECK (subject ~ '^[A-Za-z0-9_-]{43}$'),
-
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT oauth_pairwise_subject_pkey PRIMARY KEY (application_id, user_id),
-    CONSTRAINT oauth_pairwise_subject_unique_within_application UNIQUE (application_id, subject)
+    CONSTRAINT oauth_public_client_user_pkey PRIMARY KEY (application_id, user_id)
 );
 
 -- An offline grant. Its tokens rotate; a consumed token stays until the family
@@ -162,9 +174,9 @@ CREATE TABLE oauth_refresh_family (
     CONSTRAINT oauth_refresh_family_active_within_lifetime
         CHECK (active_until <= expires_at),
 
-    CONSTRAINT oauth_refresh_family_subject_fkey
+    CONSTRAINT oauth_refresh_family_client_user_fkey
         FOREIGN KEY (application_id, user_id)
-        REFERENCES oauth_pairwise_subject (application_id, user_id) ON DELETE CASCADE
+        REFERENCES oauth_public_client_user (application_id, user_id) ON DELETE CASCADE
 );
 
 CREATE INDEX oauth_refresh_family_pair_idx
@@ -202,9 +214,9 @@ CREATE TABLE oauth_access_token_revocation (
 
     expires_at TIMESTAMPTZ NOT NULL,
 
-    CONSTRAINT oauth_access_token_revocation_subject_fkey
+    CONSTRAINT oauth_access_token_revocation_client_user_fkey
         FOREIGN KEY (application_id, user_id)
-        REFERENCES oauth_pairwise_subject (application_id, user_id) ON DELETE CASCADE
+        REFERENCES oauth_public_client_user (application_id, user_id) ON DELETE CASCADE
 );
 
 CREATE INDEX oauth_access_token_revocation_pair_idx
@@ -217,9 +229,9 @@ CREATE INDEX oauth_access_token_revocation_expires_at_idx
 -- +goose Down
 -- +goose StatementBegin
 -- Ends every native authorization, offline session and revocation and forgets
--- every pairwise subject. A public client is given a credential no one holds,
--- so it cannot authenticate until its owner resets it under a build that knows
--- client types.
+-- which people each public client has served. A public client is given a
+-- credential no one holds, so it cannot authenticate until its owner resets it
+-- under a build that knows client types.
 LOCK TABLE oauth_authorization_state, oauth_exchange_code IN ACCESS EXCLUSIVE MODE;
 
 DELETE FROM oauth_authorization_state WHERE native_authorization_id IS NOT NULL;
@@ -232,7 +244,7 @@ ALTER TABLE oauth_authorization_state
 DROP TABLE oauth_access_token_revocation;
 DROP TABLE oauth_refresh_token;
 DROP TABLE oauth_refresh_family;
-DROP TABLE oauth_pairwise_subject;
+DROP TABLE oauth_public_client_user;
 DROP TABLE oauth_native_authorization_code;
 DROP TABLE oauth_native_authorization;
 DROP TABLE oauth_native_authorization_capacity;

@@ -140,6 +140,12 @@ func TestPublicProtocolRefusesAtOnceAndRecovers(t *testing.T) {
 	started := client.BeginPublicSignIn(pending, oauth.Discord)
 	code := service.Providers.Issue(oauth.Discord, providerGrant(service, started))
 
+	deciding := client.Pending(ipv4Template, 49153, "openid")
+	consent := client.ReachConsent(deciding, oauth.Discord, service.Providers.Someone(oauth.Discord, "someone deciding"))
+
+	cancelling := client.Pending(ipv4Template, 49154, "openid")
+	declined := client.ReachConsent(cancelling, oauth.Discord, service.Providers.Someone(oauth.Discord, "someone declining"))
+
 	held := gate.hold(t, service, publicProtocolPermits)
 
 	refused := service.ReturnFromProvider(oauth.Discord, code, started.State).
@@ -165,16 +171,48 @@ func TestPublicProtocolRefusesAtOnceAndRecovers(t *testing.T) {
 		ExpectStatus(http.StatusServiceUnavailable).
 		ExpectDetail("Service temporarily unavailable")
 
+	for what, refusal := range map[string]*servertest.Response{
+		"reading a consent":    service.GET("/oauth/consent/" + consent),
+		"allowing a consent":   service.AllowConsent(consent),
+		"cancelling a consent": service.CancelConsent(consent),
+	} {
+		t.Run(what, func(t *testing.T) {
+			refusal.ExpectStatus(http.StatusServiceUnavailable).ExpectDetail("Service temporarily unavailable")
+			expectPageHeaders(t, refusal)
+
+			if refusal.Header.Get("Location") != "" {
+				t.Error("an overloaded consent answer was redirected")
+			}
+		})
+	}
+
 	held.release()
 
 	returned := service.ReturnFromProvider(oauth.Discord, code, started.State).ExpectStatus(http.StatusSeeOther)
+	handle := service.ConsentHandle(returned)
+	allowed := service.AllowConsent(handle).ExpectStatus(http.StatusSeeOther)
 
-	answer, err := pending.Read(returned.Header.Get("Location"), servertest.OpenIDIssuer)
+	answer, err := pending.Read(allowed.Header.Get("Location"), servertest.OpenIDIssuer)
 	if err != nil || answer.Code == "" {
-		t.Fatalf("the retried callback did not return a code: %v %+v", err, answer)
+		t.Fatalf("the retried callback did not lead to a code: %v %+v", err, answer)
 	}
 
 	client.Exchange(pending, answer.Code).ExpectStatus(http.StatusOK)
+
+	// Overload consumed nothing, so both refused consents can still be answered.
+	service.GET("/oauth/consent/" + consent).ExpectStatus(http.StatusOK)
+
+	retried := service.AllowConsent(consent).ExpectStatus(http.StatusSeeOther)
+	if retriedAnswer, err := deciding.Read(retried.Header.Get("Location"), servertest.OpenIDIssuer); err != nil ||
+		retriedAnswer.Code == "" {
+		t.Errorf("the retried approval did not return a code: %v %+v", err, retriedAnswer)
+	}
+
+	cancelled := service.CancelConsent(declined).ExpectStatus(http.StatusSeeOther)
+	if cancelledAnswer, err := cancelling.Read(cancelled.Header.Get("Location"), servertest.OpenIDIssuer); err != nil ||
+		cancelledAnswer.Error != "access_denied" {
+		t.Errorf("the retried cancellation did not tell the client: %v %+v", err, cancelledAnswer)
+	}
 }
 
 // Steam's callback is admitted before its assertion is even read, so a Steam
@@ -202,5 +240,5 @@ func TestSteamCallbackIsAdmittedBeforeItsAssertionIsRead(t *testing.T) {
 
 	held.release()
 
-	service.ReturnFromProvider(oauth.Steam, assertion, started.State).ExpectStatus(http.StatusSeeOther)
+	service.ConsentHandle(service.ReturnFromProvider(oauth.Steam, assertion, started.State))
 }

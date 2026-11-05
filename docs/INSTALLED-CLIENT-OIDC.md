@@ -74,11 +74,24 @@ against the other class of token.
    `nonce`, `code_challenge` and `code_challenge_method=S256`. Never use an
    embedded web view. `scope` is `openid`, optionally with `profile` and
    `offline_access`. The query is at most 8,192 bytes.
-4. **The person chooses.** AbandonAuth shows the registered application name,
-   the permissions requested and, with `offline_access`, the 90-day session,
-   and asks the person to choose Discord, GitHub, Google or Steam, or to
-   cancel. Nothing is approved silently, and the application cannot choose the
-   provider. The person has five minutes from the authorization request.
+4. **The person signs in, then decides.** AbandonAuth shows the standard sign-in
+   page with the registered application name and asks the person to choose
+   Discord, GitHub, Google or Steam; the application cannot choose the provider.
+   Once the provider has authenticated them, AbandonAuth shows a separate
+   approval screen that names the application and says what it is asking for:
+
+   - always, `Identify you with your AbandonAuth user ID. This ID is the same
+     for every application.`
+   - with `profile`, `See your AbandonAuth username.`
+   - with `offline_access`, `Keep you signed in for up to 90 days.`
+
+   The screen offers `Allow` and `Cancel`, and it asks every time: approval is
+   never remembered, and nothing is approved silently. Only `Allow` creates the
+   code your listener receives; `Cancel` answers `access_denied` and leaves your
+   application nothing. A first sign-in creates the person's AbandonAuth account
+   before this screen, and that account stays whichever they choose. The person
+   has five minutes from the authorization request for the whole of this step,
+   and neither signing in nor approving extends it.
 5. **Accept exactly one answer on the listener.** Accept a request only to the
    exact redirect path. Refuse an answer that repeats `code`, `state`, `iss` or
    `error`, carries both `code` and `error`, or lacks `state` or `iss`. Require
@@ -92,7 +105,7 @@ against the other class of token.
    single-use and expires within 120 seconds.
 
 An answer carrying `error` instead of `code` means: `access_denied`, the person
-cancelled, declined at the provider, or could not be signed in;
+chose `Cancel`, declined at the provider, or could not be signed in;
 `temporarily_unavailable`, AbandonAuth is busy and the attempt can start again
 later; `invalid_request`, `invalid_scope` or `unsupported_response_type`, the
 request itself is wrong; `server_error`, the attempt failed and can start again.
@@ -114,12 +127,15 @@ The ID token identifies the person to the application. Accept it only when:
   key set, and the signature verifies with that key;
 - `iss` equals the pinned issuer, and `aud` is a single string equal to the
   `client_id`;
+- `sub` is a UUID in its canonical lower-case hyphenated spelling, and not the
+  nil UUID `00000000-0000-0000-0000-000000000000`;
 - `exp` is exactly 300 seconds after `iat`, and now is at or after `iat` and
   before `exp`, with **no clock tolerance**;
 - `nonce` equals this attempt's nonce;
 - it carries only `iss`, `sub`, `aud`, `exp`, `iat`, `auth_time`, `nonce` and,
   with `profile`, `preferred_username`. Refuse `typ` `at+jwt` and any access
-  token claim such as `scope`, `client_id`, `jti` or `auth_epoch`.
+  token claim such as `scope`, `client_id`, `jti` or `auth_epoch`;
+- its payload names no member twice and nothing follows the JSON object.
 
 ### Validating an access token on a resource server
 
@@ -129,10 +145,12 @@ Accept it only when:
 - its header is `alg` `RS256`, `typ` `at+jwt`, and a `kid` found in the
   `access_token_jwks_uri` key set, and the signature verifies with that key;
 - it carries exactly `iss`, `sub`, `aud`, `client_id`, `scope`, `jti`,
-  `auth_epoch`, `iat`, `nbf` and `exp`;
+  `auth_epoch`, `iat`, `nbf` and `exp`, and its payload names no member twice
+  and nothing follows the JSON object;
 - `iss` equals the pinned issuer; `aud` is one string equal to `client_id`,
-  which is the expected application; `client_id`, `jti` and `auth_epoch` are
-  canonical lower-case UUIDs; `scope` holds the scopes the operation needs;
+  which is the expected application; `sub` is a canonical lower-case UUID other
+  than the nil UUID; `client_id`, `jti` and `auth_epoch` are canonical
+  lower-case UUIDs; `scope` holds the scopes the operation needs;
 - `nbf` equals `iat`, `exp` is exactly 900 seconds later, and now is at or
   after `nbf` and before `exp`, with **no clock tolerance**.
 
@@ -161,14 +179,23 @@ second, and alert when an observed offset reaches one second.
 
 ## Who the person is
 
-`sub` is a **pairwise subject**: 43 opaque characters that identify the person
-to this application only. It is stable for that person and application, is
-different at every other application, and is never the AbandonAuth user
-identifier. Key the application's own records by `sub`.
+`sub` is the person's **AbandonAuth user identifier**: a UUID in its canonical
+lower-case hyphenated spelling, never the nil UUID. It is the only machine
+identifier for the person; there is no `user_id` claim. Key the application's
+own records by `sub`, compared exactly as the string it is.
 
-`preferred_username` is released only with `profile`. It is not pairwise: the
-same username can appear at every application the person uses, so it can be
-correlated across applications. Use it only for display.
+`sub` is the same at every application the person signs in to, and it is the
+same value a confidential application reads as the `sub` of its user token.
+Applications can therefore recognise the same person across one another, which
+is what lets a service with an installed application and a server-side one bind
+both to one record; it also means any two applications can correlate the
+person. AbandonAuth does not link provider accounts: a sign-in with a provider
+account that is not the one behind that AbandonAuth user is another user with
+another `sub`. `sub` is released under `openid` alone and never needs
+`profile`.
+
+`preferred_username` is released only with `profile`. It is not an identifier;
+use it only for display.
 
 `GET` the UserInfo endpoint with the access token as a `Bearer` credential to
 read the current claims. It answers `401` with `WWW-Authenticate: Bearer

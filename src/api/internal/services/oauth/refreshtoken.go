@@ -122,7 +122,7 @@ func (r *RefreshTokens) Rotate(ctx context.Context, refresh Refresh, sign TokenS
 
 	if issued.SignedTokens, err = sign(Grant{
 		ClientID:  refresh.ClientID,
-		Subject:   held.Subject,
+		UserID:    held.UserID,
 		Username:  held.Username,
 		Scopes:    scopes,
 		AuthTime:  held.AuthenticatedAt,

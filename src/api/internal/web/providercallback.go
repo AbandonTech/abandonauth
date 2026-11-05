@@ -11,7 +11,8 @@ import (
 // admitCallback serves a provider callback only while it holds a public-
 // protocol permit, taken before anything of the callback is read: one refused
 // for want of a permit has consumed no state and asked no provider anything,
-// so the same callback can be retried.
+// so the same callback can be retried. For a public client a callback only
+// authenticates the person and hands them to consent.
 func (s *Server) admitCallback(callback http.HandlerFunc) http.Handler {
 	return withPublicProtocolAdmission(s.admission, refuseCallbackOverload, callback)
 }

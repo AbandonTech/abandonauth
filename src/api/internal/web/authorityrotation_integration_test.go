@@ -103,8 +103,9 @@ func userAccessToken(
 
 // Rotating the authority withdraws every public client's authority at once: a
 // page waiting for a choice, a sign-in at the provider, an unredeemed code, an
-// offline grant and AbandonAuth's acceptance of an access token. The subject
-// each application knows a person by is kept.
+// offline grant and AbandonAuth's acceptance of an access token. A sign-in
+// afterwards names the person by the same canonical UUID, their user
+// identifier, which no rotation touches.
 func TestRotationWithdrawsEveryPublicClientAuthority(t *testing.T) {
 	t.Parallel()
 
@@ -122,6 +123,9 @@ func TestRotationWithdrawsEveryPublicClientAuthority(t *testing.T) {
 	unredeemed := client.Pending(ipv4Template, 49155, "openid")
 	code := client.SignIn(unredeemed, oauth.Discord, "someone")
 
+	consent := client.ReachConsent(client.Pending(ipv4Template, 49156, "openid"), oauth.Discord,
+		service.Providers.Someone(oauth.Discord, "someone deciding"))
+
 	if _, err := database.RotateAuthority(t.Context(), service.Pool); err != nil {
 		t.Fatalf("rotating the authority: %v", err)
 	}
@@ -130,13 +134,17 @@ func TestRotationWithdrawsEveryPublicClientAuthority(t *testing.T) {
 	service.FinishLogin(started, service.Providers.Someone(oauth.GitHub, "someone")).
 		ExpectStatus(http.StatusForbidden).
 		ExpectDetail("Sign-in validation failed")
+	expectUnavailable(t, service.GET("/oauth/consent/"+consent))
+	expectUnavailable(t, service.AllowConsent(consent))
+	expectUnavailable(t, service.CancelConsent(consent))
 	expectOAuthError(t, client.Exchange(unredeemed, code), http.StatusBadRequest, "invalid_grant")
 	expectOAuthError(t, client.Refresh(issued.RefreshToken, ""), http.StatusBadRequest, "invalid_grant")
 	expectInvalidToken(t, service.GET("/oauth/userinfo", servertest.Bearer(issued.AccessToken)))
 
 	_, after := client.Tokens(ipv4Template, "openid", person)
 
-	if servertest.DecodeClaims(after.AccessToken)["sub"] != servertest.DecodeClaims(issued.AccessToken)["sub"] {
-		t.Error("rotating the authority changed the person's subject")
+	if subject := servertest.DecodeClaims(after.AccessToken)["sub"]; subject != userIDOf(t, service, "the person") ||
+		subject != servertest.DecodeClaims(issued.AccessToken)["sub"] {
+		t.Errorf("a sign-in after the rotation named the person %v", subject)
 	}
 }

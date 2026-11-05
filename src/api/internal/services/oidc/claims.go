@@ -3,6 +3,8 @@ package oidc
 import (
 	"errors"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 // Scopes is a set of the three scopes this profile supports.
@@ -110,9 +112,10 @@ func (s Scopes) String() string {
 	return strings.Join(s.Names(), " ")
 }
 
-// IDTokenClaims are an ID token's claims, and the only ones it carries. Nonce
-// is present on the ID token issued for a code and absent from every refreshed
-// one; PreferredUsername is present only when profile was granted.
+// IDTokenClaims are an ID token's claims, and the only ones it carries. Subject
+// is the canonical AbandonAuth user identifier; Nonce is present on the ID
+// token issued for a code and absent from every refreshed one;
+// PreferredUsername is present only when profile was granted.
 type IDTokenClaims struct {
 	Issuer            string  `json:"iss"`
 	Subject           string  `json:"sub"`
@@ -125,7 +128,8 @@ type IDTokenClaims struct {
 }
 
 // AccessTokenClaims are an RFC 9068 access token's claims, and the only ones it
-// carries. It names no username and no AbandonAuth user identifier.
+// carries. Subject is the canonical AbandonAuth user identifier; it names no
+// username.
 type AccessTokenClaims struct {
 	Issuer    string `json:"iss"`
 	Subject   string `json:"sub"`
@@ -142,4 +146,10 @@ type AccessTokenClaims struct {
 // accessTokenClaimNames are exactly the members an access token's payload has.
 var accessTokenClaimNames = []string{
 	"iss", "sub", "aud", "client_id", "scope", "jti", "auth_epoch", "iat", "nbf", "exp",
+}
+
+// SubjectIdentifier is the token's sub as the user's UUID, or the nil UUID for
+// claims Verify did not return.
+func (c AccessTokenClaims) SubjectIdentifier() uuid.UUID {
+	return canonicalNonNilUUID(c.Subject)
 }

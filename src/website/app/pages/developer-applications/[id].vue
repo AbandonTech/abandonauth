@@ -55,7 +55,7 @@
 
         <div v-if="application?.client_type === 'public'" class="mt-10 max-w-2xl text-sm" data-test="loopback-help">
           <p>A public client registers portless loopback redirects, such as <code>http://127.0.0.1/oauth/callback</code> and <code>http://[::1]/oauth/callback</code>.</p>
-          <p class="mt-2">Use <code>http</code>, the IPv4 loopback address or <code>[::1]</code> and never a host name such as <code>localhost</code>, a path, and no port: the application adds the port it listens on when it signs someone in.</p>
+          <p class="mt-2">Each redirect uses <code>http</code>, a host of <code>127.0.0.1</code> or <code>[::1]</code>, and a path. Never use a host name such as <code>localhost</code>, and leave out the port. The application adds the port it listens on when it signs someone in.</p>
         </div>
 
         <h2 class="mt-10 text-lg  ">Add Callback URI</h2>

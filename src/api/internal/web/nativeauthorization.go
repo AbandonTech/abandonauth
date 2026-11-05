@@ -25,10 +25,13 @@ const (
 	detailAuthorizationRequestForbidden   = "Authorization request forbidden"
 )
 
-// authorizationPagePath is where the site shows a pending authorization. The
-// handle travels after it in the fragment, which a browser never sends to a
-// server or puts in a referrer.
-const authorizationPagePath = "/authorize#request="
+// Where the site shows a pending authorization's provider selection and its
+// consent. The handle travels after each in the fragment, which a browser never
+// sends to a server or puts in a referrer.
+const (
+	authorizationPagePath = "/authorize#request="
+	consentPagePath       = "/consent#request="
+)
 
 // expiresAtLayout is the UTC instant in whole seconds with a trailing Z.
 const expiresAtLayout = "2006-01-02T15:04:05Z"
@@ -288,6 +291,14 @@ func readAuthorizationPageHandle(request *http.Request) (string, bool) {
 	return handle, credentials.IsOpaqueValue(handle)
 }
 
+// readConsentHandle reads the consent handle from the path. Only an opaque value
+// of the exact length a handle has is looked up.
+func readConsentHandle(request *http.Request) (string, bool) {
+	handle := request.PathValue("consent")
+
+	return handle, credentials.IsOpaqueValue(handle)
+}
+
 // readProviderSelection reads the handle and the provider the person chose.
 func readProviderSelection(request *http.Request) (string, oauth.Provider, bool) {
 	handle, readable := readAuthorizationPageHandle(request)
@@ -296,8 +307,8 @@ func readProviderSelection(request *http.Request) (string, oauth.Provider, bool)
 	return handle, provider, readable && known
 }
 
-// nativeAuthorizationView answers what the authorization page shows, and only
-// to the browser the authorization is bound to. Reading changes nothing.
+// nativeAuthorizationView answers what provider selection shows, and only to the
+// browser the authorization is bound to. Reading changes nothing.
 func (s *Server) nativeAuthorizationView() http.Handler {
 	return withPublicProtocolAdmission(s.admission, refusePageOverload, http.HandlerFunc(
 		func(writer http.ResponseWriter, request *http.Request) {
@@ -310,7 +321,7 @@ func (s *Server) nativeAuthorizationView() http.Handler {
 				return
 			}
 
-			pending, err := s.authorizations.View(request.Context(), handle, s.nativeBinding(request))
+			selection, err := s.authorizations.View(request.Context(), handle, s.nativeBinding(request))
 			if errors.Is(err, oauth.ErrNoSuchAuthorization) {
 				response.Error(writer, http.StatusNotFound, detailAuthorizationRequestUnavailable)
 
@@ -328,10 +339,9 @@ func (s *Server) nativeAuthorizationView() http.Handler {
 				providers = append(providers, string(provider))
 			}
 
-			response.JSON(writer, http.StatusOK, models.PendingAuthorizationDto{
-				ApplicationName: pending.ApplicationName,
-				Scopes:          pending.Scopes.Names(),
-				ExpiresAt:       pending.ExpiresAt.UTC().Truncate(time.Second).Format(expiresAtLayout),
+			response.JSON(writer, http.StatusOK, models.ProviderSelectionDto{
+				ApplicationName: selection.ApplicationName,
+				ExpiresAt:       selection.ExpiresAt.UTC().Truncate(time.Second).Format(expiresAtLayout),
 				Providers:       providers,
 			})
 		}))
@@ -376,9 +386,45 @@ func (s *Server) nativeProviderSelection() http.Handler {
 		}))
 }
 
-// cancelNativeAuthorization spends a pending authorization without a sign-in
-// and tells the client the person declined.
-func (s *Server) cancelNativeAuthorization() http.Handler {
+// nativeConsentView answers what the consent screen shows, and only to the
+// browser the authorization is bound to. Reading changes nothing.
+func (s *Server) nativeConsentView() http.Handler {
+	return withPublicProtocolAdmission(s.admission, refusePageOverload, http.HandlerFunc(
+		func(writer http.ResponseWriter, request *http.Request) {
+			response.AuthorizationPage(writer)
+
+			handle, readable := readConsentHandle(request)
+			if !readable {
+				response.Error(writer, http.StatusNotFound, detailAuthorizationRequestUnavailable)
+
+				return
+			}
+
+			pending, err := s.authorizations.ViewConsent(request.Context(), handle, s.nativeBinding(request))
+			if errors.Is(err, oauth.ErrNoSuchAuthorization) {
+				response.Error(writer, http.StatusNotFound, detailAuthorizationRequestUnavailable)
+
+				return
+			}
+
+			if err != nil {
+				s.refusePageFailure(writer, request)
+
+				return
+			}
+
+			response.JSON(writer, http.StatusOK, models.PendingConsentDto{
+				ApplicationName: pending.ApplicationName,
+				Scopes:          pending.Scopes.Names(),
+				ExpiresAt:       pending.ExpiresAt.UTC().Truncate(time.Second).Format(expiresAtLayout),
+			})
+		}))
+}
+
+// nativeConsentAllow issues the authorization's code on the person's approval
+// and returns the browser to the client with it. This is the only place a public
+// client's code is created.
+func (s *Server) nativeConsentAllow() http.Handler {
 	return withPublicProtocolAdmission(s.admission, refusePageOverload, http.HandlerFunc(
 		func(writer http.ResponseWriter, request *http.Request) {
 			response.AuthorizationPage(writer)
@@ -389,14 +435,51 @@ func (s *Server) cancelNativeAuthorization() http.Handler {
 				return
 			}
 
-			handle, readable := readAuthorizationPageHandle(request)
+			handle, readable := readConsentHandle(request)
 			if !readable {
 				response.Error(writer, http.StatusNotFound, detailAuthorizationRequestUnavailable)
 
 				return
 			}
 
-			cancelled, err := s.authorizations.Cancel(request.Context(), handle, s.nativeBinding(request))
+			allowed, code, err := s.authorizations.AllowConsent(request.Context(), handle, s.nativeBinding(request))
+			if errors.Is(err, oauth.ErrNoSuchAuthorization) {
+				response.Error(writer, http.StatusNotFound, detailAuthorizationRequestUnavailable)
+
+				return
+			}
+
+			if err != nil {
+				s.refusePageFailure(writer, request)
+
+				return
+			}
+
+			s.returnCodeToClient(writer, allowed.RedirectURI, allowed.ClientState, code)
+		}))
+}
+
+// nativeConsentCancel ends the authorization on the person's refusal and tells
+// the client the person declined.
+func (s *Server) nativeConsentCancel() http.Handler {
+	return withPublicProtocolAdmission(s.admission, refusePageOverload, http.HandlerFunc(
+		func(writer http.ResponseWriter, request *http.Request) {
+			response.AuthorizationPage(writer)
+
+			if !s.fromSiteOnly(request) {
+				response.Error(writer, http.StatusForbidden, detailAuthorizationRequestForbidden)
+
+				return
+			}
+
+			handle, readable := readConsentHandle(request)
+			if !readable {
+				response.Error(writer, http.StatusNotFound, detailAuthorizationRequestUnavailable)
+
+				return
+			}
+
+			cancelled, err := s.authorizations.CancelConsent(request.Context(), handle, s.nativeBinding(request))
 			if errors.Is(err, oauth.ErrNoSuchAuthorization) {
 				response.Error(writer, http.StatusNotFound, detailAuthorizationRequestUnavailable)
 

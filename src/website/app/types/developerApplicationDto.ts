@@ -3,8 +3,8 @@ export type ClientType = "confidential" | "public"
 
 /** What each client type is offered as when an application is registered. */
 export const clientTypeLabels: Record<ClientType, string> = {
-    confidential: "Confidential client — server-side application that can protect a credential",
-    public: "Public client — installed application that cannot protect a shared credential",
+    confidential: "Confidential client: a server-side application that can protect a credential",
+    public: "Public client: an installed application that cannot protect a shared credential",
 }
 
 export type DeveloperApplicationDto = {

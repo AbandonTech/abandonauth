@@ -321,7 +321,27 @@ func TestMalformedNativeCredentialsAreRefusedBeforeLookup(t *testing.T) {
 			t.Errorf("choosing with a malformed handle = %v", err)
 		}
 
-		if _, err := requests.Cancel(ctx, issued, malformed); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+		if _, err := requests.ViewConsent(ctx, malformed, issued); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+			t.Errorf("viewing a consent with a malformed handle = %v", err)
+		}
+
+		if _, err := requests.ViewConsent(ctx, issued, malformed); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+			t.Errorf("viewing a consent with a malformed binding = %v", err)
+		}
+
+		if _, _, err := requests.AllowConsent(ctx, malformed, issued); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+			t.Errorf("allowing with a malformed handle = %v", err)
+		}
+
+		if _, _, err := requests.AllowConsent(ctx, issued, malformed); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+			t.Errorf("allowing with a malformed binding = %v", err)
+		}
+
+		if _, err := requests.CancelConsent(ctx, malformed, issued); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+			t.Errorf("cancelling with a malformed handle = %v", err)
+		}
+
+		if _, err := requests.CancelConsent(ctx, issued, malformed); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
 			t.Errorf("cancelling with a malformed binding = %v", err)
 		}
 

@@ -295,7 +295,8 @@ func TestIssuedTokensCarryExactlyTheirProfile(t *testing.T) {
 	signer, verifier, at, keys := issuerAndVerifier(t)
 	client := uuid.New()
 	epoch := uuid.New()
-	subject := strings.Repeat("s", 43)
+	subject := uuid.New()
+	canonical := strings.ToLower(subject.String())
 	username := "someone"
 
 	access, claims, err := signer.IssueAccessToken(oidc.Access{
@@ -312,20 +313,27 @@ func TestIssuedTokensCarryExactlyTheirProfile(t *testing.T) {
 		t.Errorf("access token header = %v", header)
 	}
 
-	if len(payload) != 10 || payload["iss"] != issuer || payload["sub"] != subject || payload["aud"] != client.String() ||
+	if len(payload) != 10 || payload["iss"] != issuer || payload["sub"] != canonical || payload["aud"] != client.String() ||
 		payload["client_id"] != client.String() || payload["scope"] != "openid profile offline_access" ||
 		payload["auth_epoch"] != epoch.String() || payload["iat"] != payload["nbf"] ||
 		payload["exp"].(float64)-payload["iat"].(float64) != 900 {
 		t.Errorf("access token claims = %v", payload)
 	}
 
-	if _, present := payload["preferred_username"]; present {
-		t.Error("an access token names the person")
+	for _, absent := range []string{"preferred_username", "user_id"} {
+		if _, present := payload[absent]; present {
+			t.Errorf("an access token carries %s", absent)
+		}
 	}
 
 	verified, err := verifier.Verify(access)
-	if err != nil || verified != claims || verified.Identifier().String() != claims.TokenID {
+	if err != nil || verified != claims || verified.Identifier().String() != claims.TokenID ||
+		verified.SubjectIdentifier() != subject {
 		t.Errorf("the verifier refuses the issued token: %v", err)
+	}
+
+	if (oidc.AccessTokenClaims{}).SubjectIdentifier() != uuid.Nil {
+		t.Error("claims Verify did not return named a user")
 	}
 
 	authenticated := at.now.Add(-time.Minute)
@@ -342,10 +350,15 @@ func TestIssuedTokensCarryExactlyTheirProfile(t *testing.T) {
 		t.Errorf("ID token header = %v", header)
 	}
 
-	if len(payload) != 8 || payload["aud"] != client.String() || payload["nonce"] != "n0nce" ||
-		payload["preferred_username"] != username || payload["auth_time"] != float64(authenticated.Unix()) ||
+	if len(payload) != 8 || payload["sub"] != canonical || payload["aud"] != client.String() ||
+		payload["nonce"] != "n0nce" || payload["preferred_username"] != username ||
+		payload["auth_time"] != float64(authenticated.Unix()) ||
 		payload["exp"].(float64)-payload["iat"].(float64) != 300 {
 		t.Errorf("ID token claims = %v", payload)
+	}
+
+	if _, present := payload["user_id"]; present {
+		t.Error("an ID token carries user_id")
 	}
 
 	refreshed, err := signer.IssueIDToken(oidc.Identity{Subject: subject, ClientID: client, AuthTime: authenticated})
@@ -376,6 +389,10 @@ func TestIssuedTokensCarryExactlyTheirProfile(t *testing.T) {
 		t.Error("an ID token was issued without an authentication time")
 	}
 
+	if _, err := signer.IssueIDToken(oidc.Identity{ClientID: client, AuthTime: authenticated}); err == nil {
+		t.Error("an ID token was issued for the nil user")
+	}
+
 	if _, err := oidc.NewIssuer("", keys, nil); err == nil {
 		t.Error("an issuer was built without an identifier")
 	}
@@ -394,7 +411,7 @@ func TestAccessTokensAreAcceptedForExactlyTheirLifetime(t *testing.T) {
 	issuedAt := at.now
 
 	token, _, err := signer.IssueAccessToken(oidc.Access{
-		Subject: strings.Repeat("s", 43), ClientID: uuid.New(), Scopes: oidc.ScopeOpenID, AuthEpoch: uuid.New(),
+		Subject: uuid.New(), ClientID: uuid.New(), Scopes: oidc.ScopeOpenID, AuthEpoch: uuid.New(),
 	})
 	if err != nil {
 		t.Fatalf("issuing: %v", err)
@@ -452,8 +469,10 @@ func TestVerifierRefusesEveryAlteredToken(t *testing.T) {
 	_, idKey, accessKey := signingKeys(t)
 	client := uuid.New()
 
+	subject := uuid.New().String()
+
 	genuine, claims, err := signer.IssueAccessToken(oidc.Access{
-		Subject: strings.Repeat("s", 43), ClientID: client, Scopes: oidc.ScopeOpenID, AuthEpoch: uuid.New(),
+		Subject: uuid.MustParse(subject), ClientID: client, Scopes: oidc.ScopeOpenID, AuthEpoch: uuid.New(),
 	})
 	if err != nil {
 		t.Fatalf("issuing: %v", err)
@@ -482,6 +501,13 @@ func TestVerifierRefusesEveryAlteredToken(t *testing.T) {
 		}
 
 		return changed
+	}
+
+	another := uuid.New()
+
+	reassigned, err := verifier.Verify(forge(t, accessKey, header, with(payload, "sub", another.String())))
+	if err != nil || reassigned.SubjectIdentifier() != another {
+		t.Fatalf("a canonical subject re-signed with the genuine key was refused, so the subject cases prove nothing: %v", err)
 	}
 
 	hmacToken := func() string {
@@ -523,7 +549,18 @@ func TestVerifierRefusesEveryAlteredToken(t *testing.T) {
 		"x5c":                          forge(t, accessKey, with(header, "x5c", []string{"AAAA"}), payload),
 		"ID token type":                forge(t, accessKey, with(header, "typ", "JWT"), payload),
 		"duplicate alg":                forge(t, accessKey, `{"alg":"RS256","alg":"RS256","kid":"`+keys.AccessToken().ActiveKeyID()+`","typ":"at+jwt"}`, payload),
-		"duplicate sub":                forge(t, accessKey, header, strings.Replace(mustJSON(t, payload), `"sub":`, `"sub":"`+strings.Repeat("x", 43)+`","sub":`, 1)),
+		"duplicate sub":                forge(t, accessKey, header, strings.Replace(mustJSON(t, payload), `"sub":`, `"sub":"`+another.String()+`","sub":`, 1)),
+		"trailing JSON":                forge(t, accessKey, header, mustJSON(t, payload)+`{}`),
+		"no subject":                   forge(t, accessKey, header, with(payload, "sub", nil)),
+		"the nil subject":              forge(t, accessKey, header, with(payload, "sub", uuid.Nil.String())),
+		"an upper-case subject":        forge(t, accessKey, header, with(payload, "sub", strings.ToUpper(subject))),
+		"a braced subject":             forge(t, accessKey, header, with(payload, "sub", "{"+subject+"}")),
+		"a compact subject":            forge(t, accessKey, header, with(payload, "sub", strings.ReplaceAll(subject, "-", ""))),
+		"a URN subject":                forge(t, accessKey, header, with(payload, "sub", "urn:uuid:"+subject)),
+		"a malformed subject":          forge(t, accessKey, header, with(payload, "sub", subject[:35]+"g")),
+		"an opaque subject":            forge(t, accessKey, header, with(payload, "sub", strings.Repeat("s", 43))),
+		"a numeric subject":            forge(t, accessKey, header, with(payload, "sub", 7)),
+		"a subject array":              forge(t, accessKey, header, with(payload, "sub", []string{subject})),
 		"another issuer":               forge(t, accessKey, header, with(payload, "iss", "https://evil.example/api")),
 		"audience as an array":         forge(t, accessKey, header, with(payload, "aud", []string{client.String()})),
 		"another audience":             forge(t, accessKey, header, with(payload, "aud", uuid.New().String())),
@@ -533,7 +570,6 @@ func TestVerifierRefusesEveryAlteredToken(t *testing.T) {
 		"scope out of order":           forge(t, accessKey, header, with(payload, "scope", "profile openid")),
 		"a non-UUID token identifier":  forge(t, accessKey, header, with(payload, "jti", "not-a-uuid")),
 		"a non-UUID epoch":             forge(t, accessKey, header, with(payload, "auth_epoch", "epoch")),
-		"a short subject":              forge(t, accessKey, header, with(payload, "sub", "short")),
 		"a username":                   forge(t, accessKey, header, with(payload, "preferred_username", "someone")),
 		"no auth_epoch":                forge(t, accessKey, header, with(payload, "auth_epoch", nil)),
 		"a string expiry":              forge(t, accessKey, header, with(payload, "exp", "1800000900")),

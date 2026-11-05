@@ -27,11 +27,11 @@ const (
 // authority. Every case is the same refusal.
 var ErrInvalidGrant = errors.New("the grant is not valid")
 
-// Grant is what a set of tokens is issued for. Nothing in it is the AbandonAuth
-// user identifier: the person is named by the pairwise subject.
+// Grant is what a set of tokens is issued for. UserID is the AbandonAuth user
+// identifier every token for the grant carries as its subject.
 type Grant struct {
 	ClientID  uuid.UUID
-	Subject   string
+	UserID    uuid.UUID
 	Username  string
 	Scopes    oidc.Scopes
 	AuthTime  time.Time
@@ -88,14 +88,14 @@ func ChallengeForVerifier(verifier string) (string, bool) {
 
 // AuthorizationCodes redeems the codes public clients' authorizations end in.
 type AuthorizationCodes struct {
-	pool     *pgxpool.Pool
-	queries  *query.Queries
-	subjects *PairwiseSubjects
+	pool    *pgxpool.Pool
+	queries *query.Queries
+	users   *PublicClientUsers
 }
 
 // NewAuthorizationCodes builds the service.
-func NewAuthorizationCodes(pool *pgxpool.Pool, subjects *PairwiseSubjects) *AuthorizationCodes {
-	return &AuthorizationCodes{pool: pool, queries: query.New(pool), subjects: subjects}
+func NewAuthorizationCodes(pool *pgxpool.Pool, users *PublicClientUsers) *AuthorizationCodes {
+	return &AuthorizationCodes{pool: pool, queries: query.New(pool), users: users}
 }
 
 // Redemption is what a client presents for a code.
@@ -108,8 +108,9 @@ type Redemption struct {
 
 // Redeem spends a code and issues its tokens in one transaction under the
 // shared authority lock: the code and its authorization are deleted, the
-// pairwise subject resolved, an offline grant's refresh family created, and the
-// tokens signed, and nothing is issued unless all of it commits.
+// client's relationship with the person recorded, an offline grant's refresh
+// family created, and the tokens signed, and nothing is issued unless all of
+// it commits.
 //
 // The code is spent only when the client, the exact redirect, the current
 // authority and the verifier's challenge all match, so a wrong attempt leaves
@@ -158,14 +159,13 @@ func (c *AuthorizationCodes) Redeem(ctx context.Context, redemption Redemption, 
 		return IssuedTokens{}, fmt.Errorf("redeeming a code: %w", err)
 	}
 
-	subject, err := c.subjects.Resolve(ctx, queries, redemption.ClientID, redeemed.UserID)
-	if err != nil {
+	if err := c.users.Ensure(ctx, queries, redemption.ClientID, redeemed.UserID); err != nil {
 		return IssuedTokens{}, err
 	}
 
 	grant := Grant{
 		ClientID:  redemption.ClientID,
-		Subject:   subject,
+		UserID:    redeemed.UserID,
 		Username:  redeemed.Username,
 		Scopes:    scopes,
 		AuthTime:  redeemed.AuthenticatedAt,
@@ -176,7 +176,7 @@ func (c *AuthorizationCodes) Redeem(ctx context.Context, redemption Redemption, 
 	issued := IssuedTokens{Scopes: scopes}
 
 	if scopes.Has(oidc.ScopeOfflineAccess) {
-		issued.RefreshToken, issued.RefreshExpiresIn, err = startRefreshFamily(ctx, queries, grant, redeemed.UserID)
+		issued.RefreshToken, issued.RefreshExpiresIn, err = startRefreshFamily(ctx, queries, grant)
 		if err != nil {
 			return IssuedTokens{}, err
 		}
@@ -197,30 +197,28 @@ func (c *AuthorizationCodes) Redeem(ctx context.Context, redemption Redemption, 
 // within the caller's transaction, under the person and application's lock.
 // Ended families are removed first, and at ten the least recently created are
 // revoked to make room, so one person and application hold at most ten.
-func startRefreshFamily(
-	ctx context.Context, queries *query.Queries, grant Grant, userID uuid.UUID,
-) (string, int64, error) {
-	if _, err := queries.LockPairwiseSubject(ctx, query.LockPairwiseSubjectParams{
-		ApplicationID: grant.ClientID, UserID: userID,
+func startRefreshFamily(ctx context.Context, queries *query.Queries, grant Grant) (string, int64, error) {
+	if _, err := queries.LockPublicClientUser(ctx, query.LockPublicClientUserParams{
+		ApplicationID: grant.ClientID, UserID: grant.UserID,
 	}); err != nil {
 		return "", 0, fmt.Errorf("locking an offline grant's holder: %w", err)
 	}
 
 	if _, err := queries.DeleteEndedRefreshFamiliesForPair(ctx, query.DeleteEndedRefreshFamiliesForPairParams{
-		ApplicationID: grant.ClientID, UserID: userID,
+		ApplicationID: grant.ClientID, UserID: grant.UserID,
 	}); err != nil {
 		return "", 0, fmt.Errorf("removing ended offline grants: %w", err)
 	}
 
 	if _, err := queries.EvictOldestRefreshFamilies(ctx, query.EvictOldestRefreshFamiliesParams{
-		ApplicationID: grant.ClientID, UserID: userID,
+		ApplicationID: grant.ClientID, UserID: grant.UserID,
 	}); err != nil {
 		return "", 0, fmt.Errorf("making room for an offline grant: %w", err)
 	}
 
 	family, err := queries.CreateRefreshFamily(ctx, query.CreateRefreshFamilyParams{
 		ApplicationID:   grant.ClientID,
-		UserID:          userID,
+		UserID:          grant.UserID,
 		Scopes:          grant.Scopes.String(),
 		AuthenticatedAt: grant.AuthTime,
 		AuthEpoch:       grant.AuthEpoch,

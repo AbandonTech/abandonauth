@@ -580,7 +580,9 @@ func TestAPISchemaAuthenticationBoundaries(t *testing.T) {
 		"GET /api/oauth/authorize":                                        public,
 		"GET /api/oauth/authorization/{request}":                          public,
 		"POST /api/oauth/authorization/{request}/{provider}":              public,
-		"POST /api/oauth/authorization/{request}/cancel":                  public,
+		"GET /api/oauth/consent/{consent}":                                public,
+		"POST /api/oauth/consent/{consent}/allow":                         public,
+		"POST /api/oauth/consent/{consent}/cancel":                        public,
 		"POST /api/oauth/token":                                           public,
 		"GET /api/oauth/userinfo":                                         {oidcAccess},
 		"POST /api/oauth/revoke":                                          public,
@@ -697,9 +699,9 @@ func TestAPISchemaSecuritySchemes(t *testing.T) {
 	for _, statement := range []string{
 		"`typ` `at+jwt`, `alg` `RS256`",
 		"published only at `GET /api/oauth/access-jwks`",
-		"its subject the pairwise subject",
+		"its subject the AbandonAuth user's canonical UUID",
 		"its audience the client identifier as one string",
-		"never a username or an AbandonAuth user identifier",
+		"never a username or a `user_id` claim",
 		"exactly fifteen minutes after it is issued",
 		"refuses it at once after revocation",
 		"accepts a correctly signed token until it expires",
@@ -824,7 +826,8 @@ func TestAPISchemaBrowserSessionContract(t *testing.T) {
 // stand where a session-authenticated change would need a CSRF token.
 var authorizationPageSubmissions = []string{
 	"POST /api/oauth/authorization/{request}/{provider}",
-	"POST /api/oauth/authorization/{request}/cancel",
+	"POST /api/oauth/consent/{consent}/allow",
+	"POST /api/oauth/consent/{consent}/cancel",
 }
 
 // nativeBindingCookie is the published name of the cookie binding a public
@@ -1702,7 +1705,9 @@ func TestAPISchemaOpenIDConnectStatuses(t *testing.T) {
 		"GET /api/oauth/authorize":                           {"303", "400", "500", "503"},
 		"GET /api/oauth/authorization/{request}":             {"200", "404", "500", "503"},
 		"POST /api/oauth/authorization/{request}/{provider}": {"303", "403", "404", "500", "503"},
-		"POST /api/oauth/authorization/{request}/cancel":     {"303", "403", "404", "500", "503"},
+		"GET /api/oauth/consent/{consent}":                   {"200", "404", "500", "503"},
+		"POST /api/oauth/consent/{consent}/allow":            {"303", "403", "404", "500", "503"},
+		"POST /api/oauth/consent/{consent}/cancel":           {"303", "403", "404", "500", "503"},
 		"POST /api/oauth/token":                              {"200", "400", "500", "503"},
 		"GET /api/oauth/userinfo":                            {"200", "401", "403", "500", "503"},
 		"POST /api/oauth/revoke":                             {"200", "400", "500", "503"},
@@ -1756,7 +1761,13 @@ func TestAPISchemaOpenIDConnectStatuses(t *testing.T) {
 		"GET /api/oauth/authorize":                           {"303"},
 		"GET /api/oauth/authorization/{request}":             {"200", "404"},
 		"POST /api/oauth/authorization/{request}/{provider}": {"303", "403", "404"},
-		"POST /api/oauth/authorization/{request}/cancel":     {"303", "403", "404"},
+		"GET /api/oauth/consent/{consent}":                   {"200", "404"},
+		"POST /api/oauth/consent/{consent}/allow":            {"303", "403", "404"},
+		"POST /api/oauth/consent/{consent}/cancel":           {"303", "403", "404"},
+		"GET /api/ui/discord-callback":                       {"303"},
+		"GET /api/ui/github-callback":                        {"303"},
+		"GET /api/google":                                    {"303"},
+		"GET /api/ui/steam-callback":                         {"303"},
 	} {
 		for _, status := range statuses {
 			for header, value := range pageHeaders {
@@ -1764,9 +1775,11 @@ func TestAPISchemaOpenIDConnectStatuses(t *testing.T) {
 			}
 		}
 
-		expectStatements(t, key, document.operation(t, key).Description,
-			"Every answer carries `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, "+
-				"`X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'`.")
+		if strings.Contains(key, "/api/oauth/") {
+			expectStatements(t, key, document.operation(t, key).Description,
+				"Every answer carries `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, "+
+					"`X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'`.")
+		}
 	}
 
 	for key, operation := range document.operations() {
@@ -1808,7 +1821,7 @@ func TestAPISchemaOpenIDDiscoveryDocument(t *testing.T) {
 		"response_types_supported":                   {"code"},
 		"response_modes_supported":                   {"query"},
 		"grant_types_supported":                      {"authorization_code", "refresh_token"},
-		"subject_types_supported":                    {"pairwise"},
+		"subject_types_supported":                    {"public"},
 		"id_token_signing_alg_values_supported":      {"RS256"},
 		"scopes_supported":                           {"openid", "profile", "offline_access"},
 		"token_endpoint_auth_methods_supported":      {"none"},
@@ -1952,6 +1965,7 @@ func TestAPISchemaAuthorizationRequestBounds(t *testing.T) {
 
 	for name, pattern := range map[string]string{
 		"AuthorizationRequestHandle": "^[A-Za-z0-9_-]{43}$",
+		"ConsentHandle":              "^[A-Za-z0-9_-]{43}$",
 		"NativeAuthorizationBinding": "^[A-Za-z0-9_-]{43}$",
 	} {
 		if parameters[name].Schema.Pattern != pattern {
@@ -1994,43 +2008,76 @@ func TestAPISchemaAuthorizationRequestBounds(t *testing.T) {
 	)
 }
 
-// The authorization page reads a sanitized request and nothing that would let
-// the page or anything it loads complete the authorization itself.
-func TestAPISchemaPendingAuthorizationDisclosure(t *testing.T) {
+// Provider selection and consent each read a sanitized model and nothing that
+// would let the page or anything it loads complete the authorization itself.
+func TestAPISchemaProviderSelectionAndConsentDisclosure(t *testing.T) {
 	t.Parallel()
 
 	document := canonicalOpenAPI(t)
-	pending := document.Components.Schemas["PendingAuthorization"]
+	selection := document.Components.Schemas["ProviderSelection"]
+	consent := document.Components.Schemas["PendingConsent"]
 
-	members := []string{"application_name", "scopes", "expires_at", "providers"}
-	expectExactObject(t, "PendingAuthorization", pending, members, members)
+	selectionMembers := []string{"application_name", "expires_at", "providers"}
+	expectExactObject(t, "ProviderSelection", selection, selectionMembers, selectionMembers)
 
-	if scopes := pending.Properties["scopes"]; scopes.Items == nil ||
+	consentMembers := []string{"application_name", "scopes", "expires_at"}
+	expectExactObject(t, "PendingConsent", consent, consentMembers, consentMembers)
+
+	if scopes := consent.Properties["scopes"]; scopes.Items == nil ||
 		!slices.Equal(scopes.Items.Enum, []any{"openid", "profile", "offline_access"}) {
 		t.Error("the requested scopes are not the canonical three")
 	}
 
-	if providers := pending.Properties["providers"]; providers.Items == nil ||
+	if providers := selection.Properties["providers"]; providers.Items == nil ||
 		!slices.Equal(providers.Items.Enum, []any{"discord", "github", "google", "steam"}) ||
 		intValue(providers.MinItems) != 4 || intValue(providers.MaxItems) != 4 {
 		t.Error("the providers are not exactly the four, in order")
 	}
 
-	if expiry := pending.Properties["expires_at"]; expiry.Pattern !=
-		"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" {
-		t.Error("the expiry is not whole-second UTC with a trailing Z")
+	for name, model := range map[string]openAPISchema{"ProviderSelection": selection, "PendingConsent": consent} {
+		if expiry := model.Properties["expires_at"]; expiry.Pattern !=
+			"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" {
+			t.Errorf("%s's expiry is not whole-second UTC with a trailing Z", name)
+		}
 	}
 
-	expectStatements(t, "PendingAuthorization", pending.Description,
-		"one person can hold ten active offline sessions with one application",
-		"another grant ends the least recently created",
-		"can be the same at every application")
+	expectStatements(t, "PendingConsent", consent.Description,
+		"the same at every application",
+		"up to 90 days")
 
 	expectStatements(t, "GET /api/oauth/authorization/{request}",
 		document.operation(t, "GET /api/oauth/authorization/{request}").Description,
-		"never carries the redirect URI, the client's state, nonce or challenge, a user identifier or anything a provider returned",
+		"never carries the requested scopes, the redirect URI, the client's state, nonce or challenge, a user identifier or anything a provider returned",
 		"Reading consumes nothing and extends nothing.",
 		"same 404 `Authorization request unavailable`")
+
+	expectStatements(t, "GET /api/oauth/consent/{consent}",
+		document.operation(t, "GET /api/oauth/consent/{consent}").Description,
+		"never carries a user identifier, a username, the redirect URI, the client's state, nonce or challenge, or anything a provider returned",
+		"Reading consumes nothing and extends nothing.",
+		"same 404 `Authorization request unavailable`")
+
+	allow := document.operation(t, "POST /api/oauth/consent/{consent}/allow")
+	expectStatements(t, "POST /api/oauth/consent/{consent}/allow", allow.Description,
+		"the only operation that creates its authorization code",
+		"before the handle is read",
+		"does not say which won",
+		"at most 120 seconds and never beyond the authorization's five-minute deadline",
+		"Approval is never remembered.")
+
+	cancel := document.operation(t, "POST /api/oauth/consent/{consent}/cancel")
+	expectStatements(t, "POST /api/oauth/consent/{consent}/cancel", cancel.Description,
+		"`error` `access_denied`",
+		"no code, token, refresh family or relationship",
+		"account the provider sign-in resolved or created stays")
+
+	for key, operation := range map[string]openAPIOperation{
+		"POST /api/oauth/consent/{consent}/allow": allow, "POST /api/oauth/consent/{consent}/cancel": cancel,
+	} {
+		if operation.Responses["303"].Ref != "#/components/responses/RedirectToPublicClient" {
+			t.Errorf("%s does not document the 303 to the public client", key)
+		}
+	}
 
 	responses := document.Components.Responses
 	for name, detail := range map[string]string{
@@ -2119,17 +2166,33 @@ func TestAPISchemaTokenContract(t *testing.T) {
 		[]string{"iss", "sub", "aud", "client_id", "scope", "jti", "auth_epoch", "iat", "nbf", "exp"})
 	expectExactObject(t, "UserInfo", schemas["UserInfo"], []string{"sub", "preferred_username"}, []string{"sub"})
 
-	if subject := schemas["PairwiseSubject"]; subject.Pattern != "^[A-Za-z0-9_-]{43}$" {
-		t.Error("a pairwise subject is not exactly 43 unpadded base64url characters")
+	for _, name := range []string{"IDTokenClaims", "AccessTokenClaims", "UserInfo"} {
+		if ref := schemas[name].Properties["sub"].Ref; ref != "#/components/schemas/UserSubject" {
+			t.Errorf("%s sub is %q, want the user subject", name, ref)
+		}
 	}
 
-	expectStatements(t, "PairwiseSubject", schemas["PairwiseSubject"].Description,
-		"32 random bytes", "never the AbandonAuth user identifier")
+	if subject := schemas["UserSubject"]; subject.Type != "string" || subject.Format != "uuid" || subject.Pattern !=
+		"^(?!00000000-0000-0000-0000-000000000000$)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" {
+		t.Error("a user subject is not exactly a canonical lower-case non-nil UUID")
+	}
+
+	expectStatements(t, "UserSubject", schemas["UserSubject"].Description,
+		"The AbandonAuth user identifier", "canonical lower-case hyphenated UUID", "never the nil UUID",
+		"the same for one user at every application and in every token class",
+		"including the `sub` of a `UserAccessToken`", "correlate it across applications",
+		"there is no `user_id` claim", "refuses an upper-case, braced, compact, nil or otherwise non-canonical spelling")
 	expectStatements(t, "IDTokenClaims", schemas["IDTokenClaims"].Description,
-		"`alg` `RS256`", "ID token key set", "exactly five minutes", "rejects `typ` `at+jwt`")
+		"`alg` `RS256`", "ID token key set", "exactly five minutes", "canonical non-nil UUID",
+		"rejects `typ` `at+jwt`", "naming any member twice")
 	expectStatements(t, "AccessTokenClaims", schemas["AccessTokenClaims"].Description,
 		"`typ` `at+jwt`", "access token key set", "exactly 900 seconds later", "no clock tolerance",
+		"`sub` to be a canonical lower-case non-nil UUID", "naming any member twice",
 		"does not compare `auth_epoch` with the current authority")
+
+	if strings.Contains(strings.ToLower(string(embeddedOpenAPISchema)), "pairwise") {
+		t.Error("the contract still describes pairwise subjects")
+	}
 
 	expectStatements(t, "POST /api/oauth/token", document.operation(t, "POST /api/oauth/token").Description,
 		"Client authentication is `none`",
@@ -2165,7 +2228,10 @@ func TestAPISchemaTokenContract(t *testing.T) {
 	expectStatements(t, "GET /api/oauth/userinfo", document.operation(t, "GET /api/oauth/userinfo").Description,
 		"`preferred_username` only when `profile` was granted",
 		"No other claim is ever returned.",
-		"can be correlated across them; the pairwise subject cannot",
+		"the AbandonAuth user's canonical UUID, under `openid` alone",
+		"`sub` is the same at every application the user signs in to",
+		"canonical non-nil UUID `sub`",
+		"that client's relationship with the user",
 		"An ID token, a `UserAccessToken` and a `DeveloperApplicationAccessToken` are refused.",
 		"Neither challenge quotes the token or a claim.",
 	)
@@ -2243,9 +2309,9 @@ func TestAPISchemaApplicationClientType(t *testing.T) {
 		"Only a confidential application spends a code here.")
 }
 
-// A provider callback finishing a public client's authorization returns the
-// browser to the client, never with a session or a confidential code, and a
-// saturated worker leaves the callback retryable.
+// A provider callback continuing a public client's authorization hands the
+// browser to consent, never with a session, a confidential code or the client's
+// code, and a saturated worker leaves the callback retryable.
 func TestAPISchemaProviderCallbacksContinuePublicAuthorization(t *testing.T) {
 	t.Parallel()
 
@@ -2256,8 +2322,8 @@ func TestAPISchemaProviderCallbacksContinuePublicAuthorization(t *testing.T) {
 	} {
 		operation := document.operation(t, key)
 
-		if operation.Responses["303"].Ref != "#/components/responses/RedirectToPublicClient" {
-			t.Errorf("%s does not document the 303 to a public client", key)
+		if operation.Responses["303"].Ref != "#/components/responses/PublicClientSignInContinued" {
+			t.Errorf("%s does not document the 303 continuing a public client's sign-in", key)
 		}
 
 		if operation.Responses["503"].Ref != "#/components/responses/ServiceTemporarilyUnavailable" {
@@ -2266,17 +2332,21 @@ func TestAPISchemaProviderCallbacksContinuePublicAuthorization(t *testing.T) {
 
 		expectStatements(t, key, operation.Description,
 			"never ends in a browser session or in a one-time code for `POST /api/login`",
+			"it creates no authorization code",
 			"Every provider check above applies unchanged.",
 			"A state that cannot be trusted is refused with the same 403.",
-			"with `code`, the client's `state` and `iss` on success",
+			"an empty 303 to the AbandonAuth site's origin followed by `/consent#request=`",
+			"The handle travels only in the fragment",
+			"the client receives nothing unless the person allows it",
 			"`error` `access_denied`",
 			"`error` `server_error`",
-			"at most 120 seconds and never beyond the authorization's five-minute deadline",
 			"answered 503 before its parameters are read or its state is consumed",
 			"the provider is not contacted",
 		)
 	}
 
+	expectStatements(t, "PublicClientSignInContinued", document.Components.Responses["PublicClientSignInContinued"].Description,
+		"`/consent#request=`", "No code or token is ever put in this address.")
 	expectStatements(t, "RedirectToPublicClient", document.Components.Responses["RedirectToPublicClient"].Description,
 		"rebuilt from its exact stored spelling with no existing byte rewritten", "No token is ever put in this address.")
 }

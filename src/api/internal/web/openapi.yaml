@@ -26,9 +26,9 @@ tags:
       revocation. No public client holds a secret.
   - name: Authorization Page
     description: >-
-      What the AbandonAuth site's authorization page reads and submits for a
-      public client's pending authorization: the sanitized request, the
-      provider choice and cancellation.
+      What the AbandonAuth site's provider selection and consent pages read
+      and submit for a public client's pending authorization: the sanitized
+      request, the provider choice, and the person's approval or cancellation.
   - name: Development Sign-In
     description: >-
       Password accounts for local development without a provider. A deployment
@@ -646,18 +646,25 @@ paths:
 
 
         A sign-in started from a public client's authorization page never
-        ends in a browser session or in a one-time code for `POST /api/login`.
-        Every provider check above applies unchanged. A state that cannot be
-        trusted is refused with the same 403. Once the state, the browser and
-        the pending authorization are proven, the browser is sent with 303 to
-        the client's validated loopback redirect, built from the exact
-        spelling stored when the authorization began: with `code`, the
-        client's `state` and `iss` on success; with `error` `access_denied`,
-        `state` and `iss` when the provider does not authenticate the person,
-        the person declines, or the identity cannot be used; and with `error`
-        `server_error`, `state` and `iss` on an internal failure. The native
-        authorization code lives at most 120 seconds and never beyond the
-        authorization's five-minute deadline.
+        ends in a browser session or in a one-time code for `POST /api/login`,
+        and it creates no authorization code. Every provider check above
+        applies unchanged. A state that cannot be trusted is refused with the
+        same 403. Once the state, the browser and the pending authorization
+        are proven and the provider has authenticated the person, the identity
+        is resolved to an AbandonAuth account, one being created at a first
+        sign-in, and the browser is sent with an empty 303 to the AbandonAuth
+        site's origin followed by `/consent#request=` and an opaque
+        43-character consent handle. The handle travels only in the fragment,
+        and no client or person value appears anywhere in that address. The
+        account stays whatever the person answers; the client receives nothing
+        unless the person allows it at
+        `POST /api/oauth/consent/{consent}/allow`. When the provider does not
+        authenticate the person, the person declines at the provider, or the
+        identity cannot be used, the browser is instead sent with 303 to the
+        client's validated loopback redirect, built from the exact spelling
+        stored when the authorization began, with `error` `access_denied`,
+        `state` and `iss`; and with `error` `server_error`, `state` and `iss`
+        on an internal failure. Neither reaches consent.
 
 
         Every worker serves at most 64 public-protocol requests at once,
@@ -675,7 +682,7 @@ paths:
         - $ref: "#/components/parameters/ProviderAuthorizationCode"
       responses:
         "303":
-          $ref: "#/components/responses/RedirectToPublicClient"
+          $ref: "#/components/responses/PublicClientSignInContinued"
         "307":
           $ref: "#/components/responses/RedirectToCallback"
         "403":
@@ -722,18 +729,25 @@ paths:
 
 
         A sign-in started from a public client's authorization page never
-        ends in a browser session or in a one-time code for `POST /api/login`.
-        Every provider check above applies unchanged. A state that cannot be
-        trusted is refused with the same 403. Once the state, the browser and
-        the pending authorization are proven, the browser is sent with 303 to
-        the client's validated loopback redirect, built from the exact
-        spelling stored when the authorization began: with `code`, the
-        client's `state` and `iss` on success; with `error` `access_denied`,
-        `state` and `iss` when the provider does not authenticate the person,
-        the person declines, or the identity cannot be used; and with `error`
-        `server_error`, `state` and `iss` on an internal failure. The native
-        authorization code lives at most 120 seconds and never beyond the
-        authorization's five-minute deadline.
+        ends in a browser session or in a one-time code for `POST /api/login`,
+        and it creates no authorization code. Every provider check above
+        applies unchanged. A state that cannot be trusted is refused with the
+        same 403. Once the state, the browser and the pending authorization
+        are proven and the provider has authenticated the person, the identity
+        is resolved to an AbandonAuth account, one being created at a first
+        sign-in, and the browser is sent with an empty 303 to the AbandonAuth
+        site's origin followed by `/consent#request=` and an opaque
+        43-character consent handle. The handle travels only in the fragment,
+        and no client or person value appears anywhere in that address. The
+        account stays whatever the person answers; the client receives nothing
+        unless the person allows it at
+        `POST /api/oauth/consent/{consent}/allow`. When the provider does not
+        authenticate the person, the person declines at the provider, or the
+        identity cannot be used, the browser is instead sent with 303 to the
+        client's validated loopback redirect, built from the exact spelling
+        stored when the authorization began, with `error` `access_denied`,
+        `state` and `iss`; and with `error` `server_error`, `state` and `iss`
+        on an internal failure. Neither reaches consent.
 
 
         Every worker serves at most 64 public-protocol requests at once,
@@ -751,7 +765,7 @@ paths:
         - $ref: "#/components/parameters/ProviderAuthorizationCode"
       responses:
         "303":
-          $ref: "#/components/responses/RedirectToPublicClient"
+          $ref: "#/components/responses/PublicClientSignInContinued"
         "307":
           $ref: "#/components/responses/RedirectToCallback"
         "403":
@@ -811,18 +825,25 @@ paths:
 
 
         A sign-in started from a public client's authorization page never
-        ends in a browser session or in a one-time code for `POST /api/login`.
-        Every provider check above applies unchanged. A state that cannot be
-        trusted is refused with the same 403. Once the state, the browser and
-        the pending authorization are proven, the browser is sent with 303 to
-        the client's validated loopback redirect, built from the exact
-        spelling stored when the authorization began: with `code`, the
-        client's `state` and `iss` on success; with `error` `access_denied`,
-        `state` and `iss` when the provider does not authenticate the person,
-        the person declines, or the identity cannot be used; and with `error`
-        `server_error`, `state` and `iss` on an internal failure. The native
-        authorization code lives at most 120 seconds and never beyond the
-        authorization's five-minute deadline.
+        ends in a browser session or in a one-time code for `POST /api/login`,
+        and it creates no authorization code. Every provider check above
+        applies unchanged. A state that cannot be trusted is refused with the
+        same 403. Once the state, the browser and the pending authorization
+        are proven and the provider has authenticated the person, the identity
+        is resolved to an AbandonAuth account, one being created at a first
+        sign-in, and the browser is sent with an empty 303 to the AbandonAuth
+        site's origin followed by `/consent#request=` and an opaque
+        43-character consent handle. The handle travels only in the fragment,
+        and no client or person value appears anywhere in that address. The
+        account stays whatever the person answers; the client receives nothing
+        unless the person allows it at
+        `POST /api/oauth/consent/{consent}/allow`. When the provider does not
+        authenticate the person, the person declines at the provider, or the
+        identity cannot be used, the browser is instead sent with 303 to the
+        client's validated loopback redirect, built from the exact spelling
+        stored when the authorization began, with `error` `access_denied`,
+        `state` and `iss`; and with `error` `server_error`, `state` and `iss`
+        on an internal failure. Neither reaches consent.
 
 
         Every worker serves at most 64 public-protocol requests at once,
@@ -840,7 +861,7 @@ paths:
         - $ref: "#/components/parameters/ProviderAuthorizationCode"
       responses:
         "303":
-          $ref: "#/components/responses/RedirectToPublicClient"
+          $ref: "#/components/responses/PublicClientSignInContinued"
         "307":
           $ref: "#/components/responses/RedirectToCallback"
         "403":
@@ -915,18 +936,25 @@ paths:
 
 
         A sign-in started from a public client's authorization page never
-        ends in a browser session or in a one-time code for `POST /api/login`.
-        Every provider check above applies unchanged. A state that cannot be
-        trusted is refused with the same 403. Once the state, the browser and
-        the pending authorization are proven, the browser is sent with 303 to
-        the client's validated loopback redirect, built from the exact
-        spelling stored when the authorization began: with `code`, the
-        client's `state` and `iss` on success; with `error` `access_denied`,
-        `state` and `iss` when the provider does not authenticate the person,
-        the person declines, or the identity cannot be used; and with `error`
-        `server_error`, `state` and `iss` on an internal failure. The native
-        authorization code lives at most 120 seconds and never beyond the
-        authorization's five-minute deadline.
+        ends in a browser session or in a one-time code for `POST /api/login`,
+        and it creates no authorization code. Every provider check above
+        applies unchanged. A state that cannot be trusted is refused with the
+        same 403. Once the state, the browser and the pending authorization
+        are proven and the provider has authenticated the person, the identity
+        is resolved to an AbandonAuth account, one being created at a first
+        sign-in, and the browser is sent with an empty 303 to the AbandonAuth
+        site's origin followed by `/consent#request=` and an opaque
+        43-character consent handle. The handle travels only in the fragment,
+        and no client or person value appears anywhere in that address. The
+        account stays whatever the person answers; the client receives nothing
+        unless the person allows it at
+        `POST /api/oauth/consent/{consent}/allow`. When the provider does not
+        authenticate the person, the person declines at the provider, or the
+        identity cannot be used, the browser is instead sent with 303 to the
+        client's validated loopback redirect, built from the exact spelling
+        stored when the authorization began, with `error` `access_denied`,
+        `state` and `iss`; and with `error` `server_error`, `state` and `iss`
+        on an internal failure. Neither reaches consent.
 
 
         Every worker serves at most 64 public-protocol requests at once,
@@ -953,7 +981,7 @@ paths:
         - $ref: "#/components/parameters/OpenIDSignature"
       responses:
         "303":
-          $ref: "#/components/responses/RedirectToPublicClient"
+          $ref: "#/components/responses/PublicClientSignInContinued"
         "307":
           $ref: "#/components/responses/RedirectToCallback"
         "403":
@@ -1014,7 +1042,7 @@ paths:
         `code`, response mode `query`, grant types `authorization_code` and
         `refresh_token`, token and revocation endpoint authentication method
         `none`, scopes `openid`, `profile` and `offline_access`, subject type
-        `pairwise`, ID token signing algorithm `RS256`, PKCE method `S256`,
+        `public`, ID token signing algorithm `RS256`, PKCE method `S256`,
         and RFC 9207 issuer identification in the authorization response. It
         publishes no dynamic registration, introspection, DPoP, device
         authorization or logout capability.
@@ -1173,10 +1201,12 @@ paths:
         fragment, and no client value appears anywhere in that address.
 
 
-        Nothing is approved silently. The page always names the registered
-        application, describes `profile` and the offline session when they are
-        requested, and requires the person to choose Discord, GitHub, Google
-        or Steam; the client cannot choose a provider for them.
+        Nothing is approved silently. The page names the registered
+        application and requires the person to choose Discord, GitHub, Google
+        or Steam; the client cannot choose a provider for them. After the
+        provider authenticates the person, the consent page states what the
+        requested scopes release and requires the person's approval every
+        time, and only that approval creates a code.
 
 
         Every worker serves at most 64 public-protocol requests at once. A
@@ -1215,17 +1245,17 @@ paths:
       tags: [Authorization Page]
       summary: Read a pending authorization request
       description: >-
-        Read what the authorization page displays for a public client's
-        pending request. The handle is the one the site read from its address
+        Read what provider selection displays for a public client's pending
+        request. The handle is the one the site read from its address
         fragment, and it must be presented by the browser holding the
         `NativeAuthorizationBinding` cookie the request was bound to.
 
 
-        The answer holds exactly `application_name`, the canonical requested
-        `scopes`, `expires_at` and the `providers` to choose from. It never
-        carries the redirect URI, the client's state, nonce or challenge, a
-        user identifier or anything a provider returned. Reading consumes
-        nothing and extends nothing.
+        The answer holds exactly `application_name`, `expires_at` and the
+        `providers` to choose from. It never carries the requested scopes, the
+        redirect URI, the client's state, nonce or challenge, a user
+        identifier or anything a provider returned. Reading consumes nothing
+        and extends nothing.
 
 
         An unknown, expired, consumed or malformed handle, or one presented
@@ -1262,7 +1292,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PendingAuthorization"
+                $ref: "#/components/schemas/ProviderSelection"
         "404":
           $ref: "#/components/responses/AuthorizationRequestUnavailable"
         "500":
@@ -1282,10 +1312,9 @@ paths:
         request forbidden`. An unknown, expired, consumed or malformed handle,
         or one presented without the binding cookie it was bound to, is
         answered with the same 404 `Authorization request unavailable`. The
-        handle is consumed atomically, so of concurrent choices and
-        cancellations for one request exactly one succeeds. The form body
-        carries nothing and is never read, so the browser's empty form
-        submission is accepted.
+        handle is consumed atomically, so of concurrent choices for one
+        request exactly one succeeds. The form body carries nothing and is
+        never read, so the browser's empty form submission is accepted.
 
 
         The browser is sent with 303 to the provider exactly as a confidential
@@ -1329,23 +1358,98 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceTemporarilyUnavailable"
 
-  /api/oauth/authorization/{request}/cancel:
+  /api/oauth/consent/{consent}:
+    get:
+      tags: [Authorization Page]
+      summary: Read a pending consent
+      description: >-
+        Read what the consent page displays once a provider has authenticated
+        the person for a public client's authorization. The handle is the one
+        the site read from its address fragment, and it must be presented by
+        the browser holding the `NativeAuthorizationBinding` cookie the
+        authorization was bound to.
+
+
+        The answer holds exactly `application_name`, the canonical requested
+        `scopes` and `expires_at`. It never carries a user identifier, a
+        username, the redirect URI, the client's state, nonce or challenge, or
+        anything a provider returned. Reading consumes nothing and extends
+        nothing.
+
+
+        A page handle, or an unknown, expired, answered or malformed handle,
+        or one presented without the binding cookie it was bound to or under
+        a rotated authority, or one whose person or application has been
+        deleted, is answered with the same 404 `Authorization request
+        unavailable`.
+
+
+        Every worker serves at most 64 public-protocol requests at once. A
+        request arriving when they are all in use is answered 503 `Service
+        temporarily unavailable` and changes nothing.
+
+
+        Every answer carries `Cache-Control: no-store`, `Referrer-Policy:
+        no-referrer`, `X-Frame-Options: DENY` and `Content-Security-Policy:
+        frame-ancestors 'none'`.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/ConsentHandle"
+        - $ref: "#/components/parameters/NativeAuthorizationBinding"
+      responses:
+        "200":
+          description: >-
+            The sanitized consent. The page renders the application name as
+            text, never as markup.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+            Referrer-Policy:
+              $ref: "#/components/headers/ReferrerPolicyNoReferrer"
+            X-Frame-Options:
+              $ref: "#/components/headers/FrameOptionsDeny"
+            Content-Security-Policy:
+              $ref: "#/components/headers/ContentSecurityPolicyNoFraming"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PendingConsent"
+        "404":
+          $ref: "#/components/responses/AuthorizationRequestUnavailable"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+        "503":
+          $ref: "#/components/responses/ServiceTemporarilyUnavailable"
+
+  /api/oauth/consent/{consent}/allow:
     post:
       tags: [Authorization Page]
-      summary: Cancel a pending authorization request
+      summary: Allow a pending consent
       description: >-
-        Spend a public client's pending authorization request without signing
-        in. The same exact site `Origin`, `NativeAuthorizationBinding` cookie
-        and handle checks apply, with the same 403 `Authorization request
-        forbidden` and 404 `Authorization request unavailable` refusals, and
-        the handle is consumed atomically, so of concurrent choices and
-        cancellations for one request exactly one succeeds. The form body
-        carries nothing and is never read.
+        Approve a public client's authorization, the only operation that
+        creates its authorization code. The request must carry the exact site
+        `Origin`, the `NativeAuthorizationBinding` cookie and the handle. A
+        missing, `null`, repeated or wrong `Origin` is answered 403
+        `Authorization request forbidden` before the handle is read, and
+        consumes nothing. A page handle, or an unknown, expired, answered or
+        malformed handle, or one presented without the binding cookie it was
+        bound to or under a rotated authority, or one whose person or
+        application has been deleted, is answered with the same 404
+        `Authorization request unavailable` and creates no code. The handle is
+        consumed atomically, so of concurrent approvals and cancellations for
+        one consent exactly one succeeds, and every other answers that same
+        404, which does not say which won. The form body carries nothing and is
+        never read, and no query is merged with it.
 
 
         The browser is sent with 303 to the client's validated loopback
         redirect, built from the exact spelling stored when the authorization
-        began, with `error` `access_denied`, the client's `state` and `iss`.
+        began, with `code`, the client's `state` and `iss`. The code is 256
+        bits of randomness stored only as a digest, bound to the client, the
+        exact redirect, the PKCE challenge, the scopes, the nonce, the person,
+        the time the provider authenticated them and the auth epoch. It lives
+        at most 120 seconds and never beyond the authorization's five-minute
+        deadline, which consent does not extend. Approval is never remembered.
 
 
         Every worker serves at most 64 public-protocol requests at once. A
@@ -1358,7 +1462,61 @@ paths:
         frame-ancestors 'none'`.
       security: []
       parameters:
-        - $ref: "#/components/parameters/AuthorizationRequestHandle"
+        - $ref: "#/components/parameters/ConsentHandle"
+        - $ref: "#/components/parameters/NativeAuthorizationBinding"
+        - $ref: "#/components/parameters/RequiredOrigin"
+      requestBody:
+        required: false
+        description: The browser's empty form submission. Nothing in it is read.
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+      responses:
+        "303":
+          $ref: "#/components/responses/RedirectToPublicClient"
+        "403":
+          $ref: "#/components/responses/AuthorizationRequestForbidden"
+        "404":
+          $ref: "#/components/responses/AuthorizationRequestUnavailable"
+        "500":
+          $ref: "#/components/responses/Unavailable"
+        "503":
+          $ref: "#/components/responses/ServiceTemporarilyUnavailable"
+
+  /api/oauth/consent/{consent}/cancel:
+    post:
+      tags: [Authorization Page]
+      summary: Cancel a pending consent
+      description: >-
+        Refuse a public client's authorization and end it. The same exact site
+        `Origin`, `NativeAuthorizationBinding` cookie and handle checks apply,
+        with the same 403 `Authorization request forbidden` and 404
+        `Authorization request unavailable` refusals, and the handle is
+        consumed atomically, so of concurrent approvals and cancellations for
+        one consent exactly one succeeds. The form body carries nothing and is
+        never read, and no query is merged with it.
+
+
+        The browser is sent with 303 to the client's validated loopback
+        redirect, built from the exact spelling stored when the authorization
+        began, with `error` `access_denied`, the client's `state` and `iss`.
+        The client is left with no code, token, refresh family or relationship
+        to the person. An AbandonAuth account the provider sign-in resolved or
+        created stays.
+
+
+        Every worker serves at most 64 public-protocol requests at once. A
+        request arriving when they are all in use is answered 503 `Service
+        temporarily unavailable` and consumes nothing.
+
+
+        Every answer carries `Cache-Control: no-store`, `Referrer-Policy:
+        no-referrer`, `X-Frame-Options: DENY` and `Content-Security-Policy:
+        frame-ancestors 'none'`.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/ConsentHandle"
         - $ref: "#/components/parameters/NativeAuthorizationBinding"
         - $ref: "#/components/parameters/RequiredOrigin"
       requestBody:
@@ -1487,17 +1645,19 @@ paths:
       tags: [OpenID Connect]
       summary: Describe the person an OIDC access token was issued for
       description: >-
-        Return `sub`, the pairwise subject for the token's client, and
-        `preferred_username` only when `profile` was granted. No other claim
-        is ever returned. A username can be the same at every application, so
-        it can be correlated across them; the pairwise subject cannot.
+        Return `sub`, the AbandonAuth user's canonical UUID, under `openid`
+        alone, and `preferred_username` only when `profile` was granted. No
+        other claim is ever returned. `sub` is the same at every application
+        the user signs in to, so applications can correlate it across them;
+        a username can be correlated the same way and is display data only.
 
 
         Only an `OIDCAccessToken` is accepted. Its signature is checked against
         the access token key set, and its issuer, audience, `typ` `at+jwt`,
-        exact fifteen-minute validity, the `openid` scope, auth epoch,
-        revocation, its public client, its user and the pairwise subject
-        mapping are all checked before anything is returned. An ID token, a
+        exact fifteen-minute validity, canonical non-nil UUID `sub`, the
+        `openid` scope, auth epoch, revocation, its public client, its user
+        and that client's relationship with the user are all checked before
+        anything is returned. An ID token, a
         `UserAccessToken` and a `DeveloperApplicationAccessToken` are refused.
         AbandonAuth refuses a token at once after it is revoked, its family or
         application or user is deleted, or authority is rotated.
@@ -1562,8 +1722,10 @@ paths:
 
         A well-formed request is answered with the same empty 200 when the
         token was revoked, was already revoked, was never issued, belongs to
-        another application or class, or names an unknown, deleted or
-        confidential application. The single exception: one person and one
+        another application or class, names an unknown, deleted or
+        confidential application, or names a user who has been deleted or to
+        whom the application never issued tokens. The single exception: one
+        person and one
         application hold at most 1,000 revoked access tokens that have not yet
         expired, a deliberately high fixed ceiling against abuse. Revoking a
         genuine, unexpired access token beyond it is answered 503
@@ -1726,11 +1888,11 @@ components:
         `POST /api/oauth/token`, sent in the `Authorization` header with the
         `Bearer` scheme. Its header carries `typ` `at+jwt`, `alg` `RS256` and
         the `kid` of a key published only at `GET /api/oauth/access-jwks`. Its
-        issuer is the OpenID issuer, its subject the pairwise subject, its
-        audience the client identifier as one string, and it carries `iat`,
-        `nbf`, `exp`, a UUID `jti`, `client_id`, the canonical granted `scope`
-        and `auth_epoch`, and never a username or an AbandonAuth user
-        identifier. It expires exactly fifteen minutes after it is issued.
+        issuer is the OpenID issuer, its subject the AbandonAuth user's
+        canonical UUID, its audience the client identifier as one string, and
+        it carries `iat`, `nbf`, `exp`, a UUID `jti`, `client_id`, the
+        canonical granted `scope` and `auth_epoch`, and never a username or a
+        `user_id` claim. It expires exactly fifteen minutes after it is issued.
 
 
         AbandonAuth's own UserInfo refuses it at once after revocation,
@@ -2065,6 +2227,19 @@ components:
         fragment: exactly 43 unpadded base64url characters. It is single-use,
         stored only as a digest, and expires with its authorization five
         minutes after it began.
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9_-]{43}$"
+    ConsentHandle:
+      name: consent
+      in: path
+      required: true
+      description: >-
+        The opaque consent handle the consent page read from its address
+        fragment: exactly 43 unpadded base64url characters, generated when the
+        provider authenticated the person. It is single-use, stored only as a
+        digest under a purpose of its own so a page handle never satisfies it,
+        and expires at the authorization's unchanged five-minute deadline.
       schema:
         type: string
         pattern: "^[A-Za-z0-9_-]{43}$"
@@ -2432,7 +2607,7 @@ components:
           maxItems: 1
           items:
             type: string
-            enum: [pairwise]
+            enum: [public]
         id_token_signing_alg_values_supported:
           type: array
           minItems: 1
@@ -2514,16 +2689,43 @@ components:
           type: string
           description: The public exponent, unpadded base64url.
           pattern: "^[A-Za-z0-9_-]+$"
-    PendingAuthorization:
+    ProviderSelection:
       type: object
       description: >-
-        What the authorization page displays, and nothing else. The offline
-        session it describes lasts up to 90 days; one person can hold ten
-        active offline sessions with one application, and another grant ends
-        the least recently created. `profile` releases the username, which
-        can be the same at every application.
+        What provider selection displays, and nothing else. It names the
+        application and offers the providers; what the client is asking for
+        is disclosed at consent, after the provider authenticates the person.
       additionalProperties: false
-      required: [application_name, scopes, expires_at, providers]
+      required: [application_name, expires_at, providers]
+      properties:
+        application_name:
+          type: string
+          description: The name the application was registered under, to be shown as text.
+        expires_at:
+          type: string
+          format: date-time
+          description: >-
+            When the request expires: five minutes after the authorization
+            began, in UTC, with whole seconds and a trailing `Z`.
+          pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        providers:
+          type: array
+          description: Exactly `discord`, `github`, `google` then `steam`.
+          minItems: 4
+          maxItems: 4
+          uniqueItems: true
+          items:
+            type: string
+            enum: [discord, github, google, steam]
+    PendingConsent:
+      type: object
+      description: >-
+        What the consent page displays, and nothing else. `openid` releases
+        the person's AbandonAuth user ID, the same at every application;
+        `profile` releases their username; `offline_access` keeps them signed
+        in for up to 90 days. It names no person.
+      additionalProperties: false
+      required: [application_name, scopes, expires_at]
       properties:
         application_name:
           type: string
@@ -2541,18 +2743,10 @@ components:
           type: string
           format: date-time
           description: >-
-            When the request expires: five minutes after the authorization
-            began, in UTC, with whole seconds and a trailing `Z`.
+            When the consent expires: the authorization's unchanged deadline,
+            five minutes after it began, in UTC, with whole seconds and a
+            trailing `Z`.
           pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
-        providers:
-          type: array
-          description: Exactly `discord`, `github`, `google` then `steam`.
-          minItems: 4
-          maxItems: 4
-          uniqueItems: true
-          items:
-            type: string
-            enum: [discord, github, google, steam]
     AuthorizationCodeGrant:
       type: object
       description: >-
@@ -2668,7 +2862,9 @@ components:
         The payload of an ID token, with exactly these claims. Its header
         carries `alg` `RS256`, `typ` `JWT` and the `kid` of a key in the ID
         token key set at `jwks_uri`. It is valid for exactly five minutes from
-        `iat`. A validator rejects `typ` `at+jwt` and any access token claim.
+        `iat`. `sub` is the AbandonAuth user's canonical non-nil UUID. A
+        validator rejects `typ` `at+jwt`, any access token claim and a payload
+        naming any member twice.
       additionalProperties: false
       required: [iss, sub, aud, exp, iat, auth_time]
       properties:
@@ -2676,7 +2872,7 @@ components:
           type: string
           description: The issuer.
         sub:
-          $ref: "#/components/schemas/PairwiseSubject"
+          $ref: "#/components/schemas/UserSubject"
         aud:
           type: string
           description: The client identifier, as one string.
@@ -2702,10 +2898,11 @@ components:
         header carries `typ` `at+jwt`, `alg` `RS256` and the `kid` of a key in
         the access token key set at `access_token_jwks_uri`. `nbf` and `iat`
         are equal and `exp` is exactly 900 seconds later; validators allow no
-        clock tolerance. A resource server requires `auth_epoch`, `client_id`
-        and `jti` to be canonical lower-case UUIDs but does not compare
-        `auth_epoch` with the current authority: the token stays valid until
-        it expires.
+        clock tolerance. A resource server requires `sub` to be a canonical
+        lower-case non-nil UUID and `auth_epoch`, `client_id` and `jti` to be
+        canonical lower-case UUIDs, and refuses a payload naming any member
+        twice. It does not compare `auth_epoch` with the current authority:
+        the token stays valid until it expires.
       additionalProperties: false
       required: [iss, sub, aud, client_id, scope, jti, auth_epoch, iat, nbf, exp]
       properties:
@@ -2713,7 +2910,7 @@ components:
           type: string
           description: The issuer.
         sub:
-          $ref: "#/components/schemas/PairwiseSubject"
+          $ref: "#/components/schemas/UserSubject"
         aud:
           type: string
           description: The client identifier, as one string.
@@ -2735,14 +2932,18 @@ components:
           type: integer
         exp:
           type: integer
-    PairwiseSubject:
+    UserSubject:
       type: string
+      format: uuid
       description: >-
-        The person's identifier at one application: 32 random bytes as exactly
-        43 unpadded base64url characters, stable for that person and
-        application, different at every other application, and never the
-        AbandonAuth user identifier.
-      pattern: "^[A-Za-z0-9_-]{43}$"
+        The AbandonAuth user identifier: a canonical lower-case hyphenated
+        UUID, never the nil UUID. It is the same for one user at every
+        application and in every token class, including the `sub` of a
+        `UserAccessToken`, so applications can bind a record to it and
+        correlate it across applications. It is the only machine identifier
+        for the user; there is no `user_id` claim. A validator refuses an
+        upper-case, braced, compact, nil or otherwise non-canonical spelling.
+      pattern: "^(?!00000000-0000-0000-0000-000000000000$)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
     UserInfo:
       type: object
       description: The claims an `OIDCAccessToken`'s grant releases, and no others.
@@ -2750,7 +2951,7 @@ components:
       required: [sub]
       properties:
         sub:
-          $ref: "#/components/schemas/PairwiseSubject"
+          $ref: "#/components/schemas/UserSubject"
         preferred_username:
           type: string
           description: Present only when `profile` is granted.
@@ -3053,6 +3254,26 @@ components:
         for an OAuth provider and, for Google, the nonce; Steam is sent only
         the opaque state, inside the return address. The response has no
         body.
+      headers:
+        Location:
+          $ref: "#/components/headers/Location"
+        Cache-Control:
+          $ref: "#/components/headers/CacheControlNoStore"
+        Referrer-Policy:
+          $ref: "#/components/headers/ReferrerPolicyNoReferrer"
+        X-Frame-Options:
+          $ref: "#/components/headers/FrameOptionsDeny"
+        Content-Security-Policy:
+          $ref: "#/components/headers/ContentSecurityPolicyNoFraming"
+    PublicClientSignInContinued:
+      description: >-
+        When the provider authenticated the person, the browser is sent to the
+        AbandonAuth site's origin followed by `/consent#request=` and the
+        consent handle. When it did not, or the sign-in could not be
+        completed, the browser is sent to the public client's validated
+        loopback redirect, rebuilt from its exact stored spelling, with only
+        `error`, `state` and `iss`. No code or token is ever put in this
+        address. The response has no body.
       headers:
         Location:
           $ref: "#/components/headers/Location"

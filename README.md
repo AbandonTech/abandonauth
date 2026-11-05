@@ -27,6 +27,11 @@ is registered:
   redirect: see [Signing people in to an installed
   application](./docs/INSTALLED-CLIENT-OIDC.md).
 
+Both kinds of client identify a person by the same value: the `sub` of the
+token they receive is the person's AbandonAuth user identifier, a canonical
+lower-case UUID that is the same at every application. An application with
+both a server-side and an installed part can key one record by it.
+
 The rest of this section describes a confidential client.
 
 ## Register a developer application
@@ -64,6 +69,8 @@ returned to. It must be absolute, and:
    `exchange-token` header and identifying your application in the body with its
    `id` and `refresh_token`. You get back a token for that person.
 4. Call `GET /api/me` with that token as a `Bearer` credential to identify them.
+   The token's `sub` is their AbandonAuth user identifier, the same `sub` an
+   installed application's OpenID Connect tokens carry for them.
 
 Spend the code from your server, not from the browser: it identifies your
 application with your application's own credential.
@@ -124,8 +131,8 @@ session, and every public client's authorization, code and offline session:
 every browser must sign in again, and every login in progress must start over.
 AbandonAuth's own UserInfo refuses every OIDC access token issued before it at
 once, but a resource server that validates one locally keeps accepting it until
-it expires, up to fifteen minutes later. The subject each application knows a
-person by does not change.
+it expires, up to fifteen minutes later. A person's `sub`, their AbandonAuth
+user identifier, does not change.
 
 ## Signing keys
 

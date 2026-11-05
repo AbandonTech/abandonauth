@@ -77,8 +77,7 @@ func expectOAuthError(t *testing.T, answer *servertest.Response, status int, cod
 
 // A successful authorization is an empty 303 to the site's page with the
 // handle only in the fragment; the browser is bound by its own cookie; and the
-// page learns only the application, the scopes, the deadline and the
-// providers.
+// page learns only the application, the deadline and the providers.
 func TestAuthorizationHandsBrowserToPageThroughFragment(t *testing.T) {
 	t.Parallel()
 
@@ -135,13 +134,12 @@ func TestAuthorizationHandsBrowserToPageThroughFragment(t *testing.T) {
 
 	slices.Sort(names)
 
-	if !slices.Equal(names, []string{"application_name", "expires_at", "providers", "scopes"}) {
+	if !slices.Equal(names, []string{"application_name", "expires_at", "providers"}) {
 		t.Errorf("the page model has %v", names)
 	}
 
 	var page struct {
 		ApplicationName string   `json:"application_name"`
-		Scopes          []string `json:"scopes"`
 		ExpiresAt       string   `json:"expires_at"`
 		Providers       []string `json:"providers"`
 	}
@@ -149,7 +147,6 @@ func TestAuthorizationHandsBrowserToPageThroughFragment(t *testing.T) {
 	view.DecodeInto(&page)
 
 	if page.ApplicationName != "an installed application" ||
-		!slices.Equal(page.Scopes, []string{"openid", "profile", "offline_access"}) ||
 		!slices.Equal(page.Providers, []string{"discord", "github", "google", "steam"}) {
 		t.Errorf("the page model is %+v", page)
 	}
@@ -330,12 +327,10 @@ func TestAuthorizationPageRequestsNeedSiteOriginAndBinding(t *testing.T) {
 				}
 			}
 
-			for _, path := range []string{choose, "/oauth/authorization/" + handle + "/cancel"} {
-				answer := service.POSTForm(path, "", withOrigins).
-					ExpectStatus(http.StatusForbidden).
-					ExpectDetail("Authorization request forbidden")
-				expectPageHeaders(t, answer)
-			}
+			answer := service.POSTForm(choose, "", withOrigins).
+				ExpectStatus(http.StatusForbidden).
+				ExpectDetail("Authorization request forbidden")
+			expectPageHeaders(t, answer)
 		})
 	}
 
@@ -376,16 +371,34 @@ func TestAuthorizationPageRequestsNeedSiteOriginAndBinding(t *testing.T) {
 
 	service.POSTForm(choose, "", genuine).ExpectStatus(http.StatusSeeOther)
 
-	for _, unknown := range []string{"twitter", "Discord"} {
+	for _, unknown := range []string{"twitter", "Discord", "cancel"} {
 		service.POSTForm("/oauth/authorization/"+handle+"/"+unknown, "", genuine).
 			ExpectStatus(http.StatusNotFound).
 			ExpectDetail("Authorization request unavailable")
 	}
 }
 
-// A handle works once: of a choice and a cancellation, and of two choices,
-// exactly one finds it, and what is spent cannot be read or spent again.
-func TestExactlyOneChoiceOrCancellationWins(t *testing.T) {
+// Provider selection offers no cancellation: the address that would name one is
+// no provider, and asking for it ends nothing.
+func TestProviderSelectionCannotBeCancelled(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	_, client := installedClient(t, service)
+
+	handle := service.PageHandle(client.Authorize(client.Pending(ipv4Template, 49152, "openid")))
+
+	answer := service.POSTForm("/oauth/authorization/"+handle+"/cancel", "", service.FromSite).
+		ExpectStatus(http.StatusNotFound).
+		ExpectDetail("Authorization request unavailable")
+	expectPageHeaders(t, answer)
+
+	service.GET("/oauth/authorization/" + handle).ExpectStatus(http.StatusOK)
+}
+
+// A handle works once: of several choices exactly one finds it, and what is
+// spent cannot be read or spent again.
+func TestExactlyOneProviderChoiceWins(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
@@ -396,7 +409,7 @@ func TestExactlyOneChoiceOrCancellationWins(t *testing.T) {
 	paths := []string{
 		"/oauth/authorization/" + handle + "/discord",
 		"/oauth/authorization/" + handle + "/google",
-		"/oauth/authorization/" + handle + "/cancel",
+		"/oauth/authorization/" + handle + "/steam",
 	}
 
 	answers := make([]int, len(paths))
@@ -438,18 +451,194 @@ func TestExactlyOneChoiceOrCancellationWins(t *testing.T) {
 	service.GET("/oauth/authorization/" + handle).ExpectStatus(http.StatusNotFound)
 }
 
-// Cancelling tells the client the person declined, at its exact redirect.
-func TestCancellationTellsClientPersonDeclined(t *testing.T) {
+// consentModel is exactly what the consent page is given.
+type consentModel struct {
+	ApplicationName string   `json:"application_name"`
+	Scopes          []string `json:"scopes"`
+	ExpiresAt       string   `json:"expires_at"`
+}
+
+func expectUnavailable(t *testing.T, answer *servertest.Response) {
+	t.Helper()
+
+	answer.ExpectStatus(http.StatusNotFound).ExpectDetail("Authorization request unavailable")
+	expectPageHeaders(t, answer)
+}
+
+func expectForbidden(t *testing.T, answer *servertest.Response) {
+	t.Helper()
+
+	answer.ExpectStatus(http.StatusForbidden).ExpectDetail("Authorization request forbidden")
+	expectPageHeaders(t, answer)
+}
+
+// expectNoGrant states that no client has been given anything: no code, no
+// relationship with a person, no offline grant and no browser session beyond
+// the ones a test started with.
+func expectNoGrant(t *testing.T, service *servertest.Service, sessions int) {
+	t.Helper()
+
+	for table, want := range map[string]int{
+		"oauth_native_authorization_code": 0,
+		"oauth_public_client_user":        0,
+		"oauth_refresh_family":            0,
+		"oauth_exchange_code":             0,
+		"browser_session":                 sessions,
+	} {
+		if held := countRows(t, service, table); held != want {
+			t.Errorf("%s holds %d rows, want %d", table, held, want)
+		}
+	}
+}
+
+// The consent model states exactly what each scope set asks for, in canonical
+// order whatever order was requested, and carries nothing else: no person, no
+// client value. Reading it changes nothing, and the deadline is the one the
+// authorization began with.
+func TestConsentModelIsExactForEveryScopeSet(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
 	_, client := installedClient(t, service)
 
-	pending := client.Pending(ipv4Template, 61000, "openid profile")
-	handle := service.PageHandle(client.Authorize(pending))
+	for requested, want := range map[string][]string{
+		"openid":                        {"openid"},
+		"openid profile":                {"openid", "profile"},
+		"openid offline_access":         {"openid", "offline_access"},
+		"offline_access profile openid": {"openid", "profile", "offline_access"},
+	} {
+		t.Run(requested, func(t *testing.T) {
+			pending := client.Pending(ipv4Template, 49152, requested)
+			page := service.PageHandle(client.Authorize(pending))
 
-	answer := service.POSTForm("/oauth/authorization/"+handle+"/cancel", "", service.FromSite).
-		ExpectStatus(http.StatusSeeOther)
+			var selection struct {
+				ExpiresAt string `json:"expires_at"`
+			}
+
+			service.GET("/oauth/authorization/" + page).ExpectStatus(http.StatusOK).DecodeInto(&selection)
+
+			person := service.Providers.Someone(oauth.Discord, "person "+requested)
+			handle := service.ConsentHandle(service.FinishLogin(service.ChooseProvider(page, oauth.Discord), person))
+
+			view := service.GET("/oauth/consent/" + handle).ExpectStatus(http.StatusOK)
+			expectPageHeaders(t, view)
+
+			var members map[string]json.RawMessage
+
+			view.DecodeInto(&members)
+
+			if len(members) != 3 {
+				t.Errorf("the consent model has %d members: %s", len(members), view.Body)
+			}
+
+			var model consentModel
+
+			view.DecodeInto(&model)
+
+			if model.ApplicationName != "an installed application" || !slices.Equal(model.Scopes, want) {
+				t.Errorf("the consent model is %+v", model)
+			}
+
+			if model.ExpiresAt != selection.ExpiresAt {
+				t.Errorf("consent moved the deadline from %s to %s", selection.ExpiresAt, model.ExpiresAt)
+			}
+
+			body := string(view.Body)
+
+			for _, secret := range []string{
+				pending.State, pending.Nonce, pending.Challenge, "127.0.0.1", userIDOf(t, service, "person "+requested),
+				"person " + requested,
+			} {
+				if strings.Contains(body, secret) {
+					t.Error("the consent model discloses a client or person value")
+				}
+			}
+
+			service.GET("/oauth/consent/" + handle).ExpectStatus(http.StatusOK)
+		})
+	}
+}
+
+// Allow alone creates a code. It returns the browser to the exact redirect with
+// that code, the exact state and the issuer; the code redeems; and nothing about
+// the consent survives to be read or answered again.
+func TestAllowingReturnsExactlyOneCodeToClient(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	_, client := installedClient(t, service)
+
+	sessions := countRows(t, service, "browser_session")
+
+	pending := client.Pending(ipv4Template, 49152, "openid profile")
+	handle := client.ReachConsent(pending, oauth.GitHub, service.Providers.Someone(oauth.GitHub, "the person"))
+
+	expectNoGrant(t, service, sessions)
+
+	answer := service.AllowConsent(handle).ExpectStatus(http.StatusSeeOther)
+	expectPageHeaders(t, answer)
+
+	if len(answer.Body) != 0 || answer.Cookie(service.SessionCookieName()) != nil {
+		t.Errorf("the answer carries a body or a session: %q", answer.Body)
+	}
+
+	returned, err := pending.Read(answer.Header.Get("Location"), servertest.OpenIDIssuer)
+	if err != nil || len(returned.Code) != 43 {
+		t.Fatalf("the client was not returned one code: %v %+v", err, returned)
+	}
+
+	if held := countRows(t, service, "oauth_native_authorization_code"); held != 1 {
+		t.Errorf("%d codes are held, want the one", held)
+	}
+
+	var (
+		stage     string
+		leftovers int
+		lifetime  time.Duration
+	)
+
+	if err := service.Pool.QueryRow(t.Context(), `SELECT r.stage,
+			(r.consent_handle_hash IS NOT NULL)::int + (r.consent_user_id IS NOT NULL)::int +
+				(r.consent_authenticated_at IS NOT NULL)::int,
+			c.expires_at - c.created_at
+		FROM oauth_native_authorization r
+		JOIN oauth_native_authorization_code c ON c.authorization_id = r.id`).Scan(&stage, &leftovers, &lifetime); err != nil {
+		t.Fatalf("reading the authorization: %v", err)
+	}
+
+	if stage != "code" || leftovers != 0 {
+		t.Errorf("the authorization is at %q holding %d consent values", stage, leftovers)
+	}
+
+	if lifetime <= 0 || lifetime > 120*time.Second {
+		t.Errorf("the code lives %v", lifetime)
+	}
+
+	expectUnavailable(t, service.GET("/oauth/consent/"+handle))
+	expectUnavailable(t, service.AllowConsent(handle))
+	expectUnavailable(t, service.CancelConsent(handle))
+
+	if held := countRows(t, service, "oauth_native_authorization_code"); held != 1 {
+		t.Errorf("a replay left %d codes", held)
+	}
+
+	client.Exchange(pending, returned.Code).ExpectStatus(http.StatusOK)
+}
+
+// Cancel tells the client the person declined, at its exact redirect, and leaves
+// it nothing, while the account the provider sign-in created stays.
+func TestCancellingConsentTellsClientPersonDeclinedAndGrantsNothing(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	_, client := installedClient(t, service)
+
+	sessions := countRows(t, service, "browser_session")
+
+	pending := client.Pending(ipv4Template, 61000, "openid profile offline_access")
+	handle := client.ReachConsent(pending, oauth.Discord, service.Providers.Someone(oauth.Discord, "a new person"))
+
+	answer := service.CancelConsent(handle).ExpectStatus(http.StatusSeeOther)
 
 	answer.ExpectRedirectTo(pending.RedirectURI + "?error=access_denied&state=" + pending.State +
 		"&iss=" + url.QueryEscape(servertest.OpenIDIssuer))
@@ -462,6 +651,391 @@ func TestCancellationTellsClientPersonDeclined(t *testing.T) {
 
 	if held := countRows(t, service, "oauth_native_authorization"); held != 0 {
 		t.Errorf("a cancelled authorization still holds %d slots", held)
+	}
+
+	expectNoGrant(t, service, sessions)
+
+	if userIDOf(t, service, "a new person") == "" {
+		t.Error("the account the provider sign-in created did not stay")
+	}
+
+	expectUnavailable(t, service.GET("/oauth/consent/"+handle))
+	expectUnavailable(t, service.AllowConsent(handle))
+	expectUnavailable(t, service.CancelConsent(handle))
+}
+
+// Consent's answers are refused unless they carry exactly the site's origin and
+// the browser's binding. The origin is judged before the handle is even read,
+// and no refusal consumes the consent.
+func TestConsentAnswersNeedSiteOriginAndBinding(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	_, client := installedClient(t, service)
+
+	handle := client.ReachConsent(client.Pending(ipv4Template, 49152, "openid"), oauth.Discord,
+		service.Providers.Someone(oauth.Discord, "the person"))
+
+	answers := []string{"/oauth/consent/" + handle + "/allow", "/oauth/consent/" + handle + "/cancel"}
+
+	for name, origins := range map[string][]string{
+		"no origin":            nil,
+		"null":                 {"null"},
+		"a trailing slash":     {servertest.SiteOrigin + "/"},
+		"a path":               {servertest.SiteOrigin + "/consent"},
+		"another port":         {servertest.SiteOrigin + ":444"},
+		"plain HTTP":           {"http://auth.example.test"},
+		"the API's origin":     {servertest.APIOrigin},
+		"a foreign origin":     {"https://elsewhere.example.test"},
+		"two origins":          {servertest.SiteOrigin, servertest.SiteOrigin},
+		"comma-joined origins": {servertest.SiteOrigin + ", " + servertest.SiteOrigin},
+		"credentials":          {"https://user@auth.example.test"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			withOrigins := func(request *http.Request) {
+				for _, origin := range origins {
+					request.Header.Add("Origin", origin)
+				}
+			}
+
+			for _, path := range answers {
+				expectForbidden(t, service.POSTForm(path, "", withOrigins))
+			}
+
+			// A handle that could never be looked up is refused for its origin
+			// first, so the two refusals cannot be told apart by what they read.
+			for _, path := range []string{"/oauth/consent/short/allow", "/oauth/consent/short/cancel"} {
+				expectForbidden(t, service.POSTForm(path, "", withOrigins))
+			}
+		})
+	}
+
+	binding := service.CookieValue(service.NativeLoginCookieName())
+	service.Forget(service.NativeLoginCookieName())
+
+	for name, cookies := range map[string]string{
+		"no binding":           "",
+		"another binding":      service.NativeLoginCookieName() + "=" + strings.Repeat("B", 42) + "A",
+		"conflicting bindings": service.NativeLoginCookieName() + "=" + binding + "; " + service.NativeLoginCookieName() + "=" + strings.Repeat("B", 42) + "A",
+		"a quoted binding":     service.NativeLoginCookieName() + `="` + binding + `"`,
+		"the login cookie":     service.LoginCookieName() + "=" + binding,
+	} {
+		t.Run(name, func(t *testing.T) {
+			carrying := func(request *http.Request) {
+				service.FromSite(request)
+
+				if cookies != "" {
+					request.Header.Set("Cookie", cookies)
+				}
+			}
+
+			expectUnavailable(t, service.GET("/oauth/consent/"+handle, carrying))
+
+			for _, path := range answers {
+				expectUnavailable(t, service.POSTForm(path, "", carrying))
+			}
+		})
+	}
+
+	genuine := func(request *http.Request) {
+		service.FromSite(request)
+		request.Header.Set("Cookie", service.NativeLoginCookieName()+"="+binding)
+	}
+
+	for _, malformed := range []string{"short", strings.Repeat("A", 44), strings.Repeat("A", 42) + "B", strings.Repeat("A", 42) + "="} {
+		expectUnavailable(t, service.GET("/oauth/consent/"+malformed, genuine))
+		expectUnavailable(t, service.POSTForm("/oauth/consent/"+malformed+"/allow", "", genuine))
+		expectUnavailable(t, service.POSTForm("/oauth/consent/"+malformed+"/cancel", "", genuine))
+	}
+
+	if held := countRows(t, service, "oauth_native_authorization_code"); held != 0 {
+		t.Errorf("a refused answer created %d codes", held)
+	}
+
+	// The genuine browser is the positive control, and nothing above consumed the
+	// consent. Nothing in the form is read, whatever it says.
+	service.GET("/oauth/consent/"+handle, genuine).ExpectStatus(http.StatusOK)
+	service.POSTForm("/oauth/consent/"+handle+"/allow?answer=cancel", "answer=cancel&state=forged", genuine).
+		ExpectStatus(http.StatusSeeOther)
+
+	if held := countRows(t, service, "oauth_native_authorization_code"); held != 1 {
+		t.Errorf("the genuine approval created %d codes", held)
+	}
+}
+
+// A page handle is no consent and a consent handle is no page, in either
+// direction and at every stage, and another authorization's handle answers for
+// nothing. Presenting one consumes nothing.
+func TestPageAndConsentHandlesAreNotInterchangeable(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	_, client := installedClient(t, service)
+
+	waitingPage := service.PageHandle(client.Authorize(client.Pending(ipv4Template, 49152, "openid")))
+
+	expectUnavailable(t, service.GET("/oauth/consent/"+waitingPage))
+	expectUnavailable(t, service.AllowConsent(waitingPage))
+	expectUnavailable(t, service.CancelConsent(waitingPage))
+
+	spentPage := service.PageHandle(client.Authorize(client.Pending(ipv4Template, 49153, "openid")))
+	consent := service.ConsentHandle(service.FinishLogin(service.ChooseProvider(spentPage, oauth.Discord),
+		service.Providers.Someone(oauth.Discord, "the person")))
+
+	expectUnavailable(t, service.GET("/oauth/authorization/"+consent))
+	expectUnavailable(t, service.POSTForm("/oauth/authorization/"+consent+"/discord", "", service.FromSite))
+	expectUnavailable(t, service.GET("/oauth/consent/"+spentPage))
+	expectUnavailable(t, service.AllowConsent(spentPage))
+
+	service.GET("/oauth/authorization/" + waitingPage).ExpectStatus(http.StatusOK)
+	service.GET("/oauth/consent/" + consent).ExpectStatus(http.StatusOK)
+
+	if held := countRows(t, service, "oauth_native_authorization_code"); held != 0 {
+		t.Errorf("a misplaced handle created %d codes", held)
+	}
+}
+
+// Of an approval and a cancellation, and of several approvals, racing for one
+// consent exactly one wins. Every loser is the one fixed refusal, which cannot
+// say which action won, and at most one code ever exists.
+func TestExactlyOneConsentAnswerWins(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	_, client := installedClient(t, service)
+
+	for attempt := range 5 {
+		pending := client.Pending(ipv4Template, 49152+attempt, "openid")
+		handle := client.ReachConsent(pending, oauth.Discord, service.Providers.Someone(oauth.Discord, "the person"))
+
+		submissions := []func(string, ...func(*http.Request)) *servertest.Response{
+			service.AllowConsent, service.CancelConsent, service.AllowConsent,
+		}
+
+		answers := make([]*servertest.Response, len(submissions))
+
+		var racing sync.WaitGroup
+
+		for index, submit := range submissions {
+			racing.Add(1)
+
+			go func() {
+				defer racing.Done()
+
+				answers[index] = submit(handle)
+			}()
+		}
+
+		racing.Wait()
+
+		won := 0
+		code := ""
+
+		for _, answer := range answers {
+			switch answer.Status {
+			case http.StatusSeeOther:
+				won++
+
+				returned, err := pending.Read(answer.Header.Get("Location"), servertest.OpenIDIssuer)
+				if err != nil {
+					t.Errorf("the winner's answer cannot be read: %v", err)
+				}
+
+				code = returned.Code
+			default:
+				expectUnavailable(t, answer)
+			}
+		}
+
+		if won != 1 {
+			t.Errorf("%d of the racing answers won, want exactly one", won)
+		}
+
+		if code != "" {
+			client.Exchange(pending, code).ExpectStatus(http.StatusOK)
+		}
+
+		testdatabase.Execute(t, service.Pool, `DELETE FROM oauth_native_authorization`)
+	}
+}
+
+// Consent never extends the deadline it was reached under: once it passes,
+// reading and answering are the same refusal and no code is created.
+func TestExpiredConsentGrantsNothing(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	_, client := installedClient(t, service)
+
+	handle := client.ReachConsent(client.Pending(ipv4Template, 49152, "openid"), oauth.Discord,
+		service.Providers.Someone(oauth.Discord, "the person"))
+
+	testdatabase.Execute(t, service.Pool, `UPDATE oauth_native_authorization
+		SET created_at = created_at - interval '5 minutes', expires_at = expires_at - interval '5 minutes'`)
+
+	expectUnavailable(t, service.GET("/oauth/consent/"+handle))
+	expectUnavailable(t, service.AllowConsent(handle))
+	expectUnavailable(t, service.CancelConsent(handle))
+
+	if held := countRows(t, service, "oauth_native_authorization_code"); held != 0 {
+		t.Errorf("an expired consent created %d codes", held)
+	}
+}
+
+// A code issued close to the deadline is cut short by it: it is always positive,
+// at most 120 seconds, and never outlives its authorization.
+func TestCodeIssuedNearDeadlineNeverOutlivesIt(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	_, client := installedClient(t, service)
+
+	pending := client.Pending(ipv4Template, 49152, "openid")
+	handle := client.ReachConsent(pending, oauth.Discord, service.Providers.Someone(oauth.Discord, "the person"))
+
+	testdatabase.Execute(t, service.Pool, `UPDATE oauth_native_authorization
+		SET created_at = created_at - interval '4 minutes 30 seconds',
+			expires_at = expires_at - interval '4 minutes 30 seconds'`)
+
+	service.AllowConsent(handle).ExpectStatus(http.StatusSeeOther)
+
+	var (
+		matches  bool
+		lifetime time.Duration
+	)
+
+	if err := service.Pool.QueryRow(t.Context(), `SELECT c.expires_at = r.expires_at, c.expires_at - c.created_at
+		FROM oauth_native_authorization_code c
+		JOIN oauth_native_authorization r ON r.id = c.authorization_id`).Scan(&matches, &lifetime); err != nil {
+		t.Fatalf("reading the code: %v", err)
+	}
+
+	if !matches || lifetime <= 0 || lifetime > 30*time.Second {
+		t.Errorf("the code ends at the authorization's deadline = %v, and lives %v", matches, lifetime)
+	}
+}
+
+// A person or an application deleted while the consent waits leaves nothing to
+// read or answer, and nothing for a client.
+func TestConsentEndsWithItsPersonOrApplication(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	application, client := installedClient(t, service)
+
+	person := service.Providers.Someone(oauth.Discord, "the person")
+	ofPerson := client.ReachConsent(client.Pending(ipv4Template, 49152, "openid"), oauth.Discord, person)
+
+	testdatabase.Execute(t, service.Pool, `DELETE FROM "User" WHERE "username" = 'the person'`)
+
+	expectUnavailable(t, service.GET("/oauth/consent/"+ofPerson))
+	expectUnavailable(t, service.AllowConsent(ofPerson))
+	expectUnavailable(t, service.CancelConsent(ofPerson))
+
+	ofApplication := client.ReachConsent(client.Pending(ipv4Template, 49153, "openid"), oauth.Discord,
+		service.Providers.Someone(oauth.Discord, "another person"))
+
+	service.DELETE("/developer_application/"+application.ID.String(), service.Protected).ExpectStatus(http.StatusOK)
+
+	expectUnavailable(t, service.GET("/oauth/consent/"+ofApplication))
+	expectUnavailable(t, service.AllowConsent(ofApplication))
+	expectUnavailable(t, service.CancelConsent(ofApplication))
+
+	if held := countRows(t, service, "oauth_native_authorization_code"); held != 0 {
+		t.Errorf("a consent without its person or application created %d codes", held)
+	}
+}
+
+// A failure answering a consent says nothing about why and logs only the fixed
+// event, the request and the matched route: never the handle, the binding, the
+// application, the person, what the request carried or what the database said.
+// Once the database recovers, the consent is still there to answer.
+func TestConsentFailureLogsNothingItHandled(t *testing.T) {
+	t.Parallel()
+
+	const applicationSentinel = "application-name-sentinel"
+
+	service := servertest.New(t)
+	service.SignInSomeone("the developer")
+
+	client := service.InstalledClient(service.RegisterPublicClient(applicationSentinel, ipv4Template))
+
+	pending := client.Pending(ipv4Template, 49152, "openid")
+	handle := client.ReachConsent(pending, oauth.Discord, service.Providers.Someone(oauth.Discord, "person-name-sentinel"))
+	binding := service.CookieValue(service.NativeLoginCookieName())
+	person := userIDOf(t, service, "person-name-sentinel")
+
+	testdatabase.Execute(t, service.Pool,
+		`ALTER TABLE oauth_native_authorization RENAME TO database_error_sentinel`)
+
+	for what, answer := range map[string]*servertest.Response{
+		"viewing":    service.GET("/oauth/consent/" + handle + "?query=query-value-sentinel"),
+		"allowing":   service.POSTForm("/oauth/consent/"+handle+"/allow?query=query-value-sentinel", "form=form-value-sentinel", service.FromSite),
+		"cancelling": service.POSTForm("/oauth/consent/"+handle+"/cancel?query=query-value-sentinel", "form=form-value-sentinel", service.FromSite),
+	} {
+		t.Run(what, func(t *testing.T) {
+			answer.ExpectStatus(http.StatusInternalServerError).ExpectDetail("Internal Server Error")
+			expectPageHeaders(t, answer)
+
+			if strings.Contains(string(answer.Body), "sentinel") {
+				t.Errorf("the answer repeats what it handled: %s", answer.Body)
+			}
+		})
+	}
+
+	written := service.Logs.String()
+
+	for _, secret := range []string{
+		handle, binding, person, applicationSentinel, "person-name-sentinel", "query-value-sentinel",
+		"form-value-sentinel", "database_error_sentinel", pending.State, pending.RedirectURI,
+	} {
+		if strings.Contains(written, secret) {
+			t.Errorf("the log carries a value the request handled: %q", secret)
+		}
+	}
+
+	for _, expected := range []string{
+		"a public-client request could not be answered", "request_id", "/api/oauth/consent/{consent}/allow",
+	} {
+		if !strings.Contains(written, expected) {
+			t.Errorf("the log does not carry %q", expected)
+		}
+	}
+
+	testdatabase.Execute(t, service.Pool,
+		`ALTER TABLE database_error_sentinel RENAME TO oauth_native_authorization`)
+
+	service.GET("/oauth/consent/" + handle).ExpectStatus(http.StatusOK)
+	service.AllowConsent(handle).ExpectStatus(http.StatusSeeOther)
+}
+
+// An application name is returned at consent as the text it was registered with.
+func TestHostileApplicationNameIsReturnedAtConsentAsText(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	service.SignInSomeone("the developer")
+
+	hostile := `<script>alert("x")</script><img src=x onerror=alert(1)>`
+	client := service.InstalledClient(service.RegisterPublicClient(hostile, ipv4Template))
+
+	handle := client.ReachConsent(client.Pending(ipv4Template, 49152, "openid"), oauth.Discord,
+		service.Providers.Someone(oauth.Discord, "the person"))
+
+	view := service.GET("/oauth/consent/" + handle).ExpectStatus(http.StatusOK)
+
+	if strings.Contains(string(view.Body), "<script>") {
+		t.Error("the consent model carries markup unescaped")
+	}
+
+	var model consentModel
+
+	if view.DecodeInto(&model); model.ApplicationName != hostile {
+		t.Errorf("application name = %q, want the registered text", model.ApplicationName)
+	}
+
+	if view.Header.Get("Content-Type") != "application/json" {
+		t.Errorf("the consent model is served as %q", view.Header.Get("Content-Type"))
 	}
 }
 
@@ -539,7 +1113,9 @@ func TestAuthorizationCapacityIsExactAndRecovers(t *testing.T) {
 		t.Errorf("%d authorizations are held, want exactly the capacity", held)
 	}
 
-	service.POSTForm("/oauth/authorization/"+handle+"/cancel", "", service.FromSite).ExpectStatus(http.StatusSeeOther)
+	consent := service.ConsentHandle(service.FinishLogin(service.ChooseProvider(handle, oauth.Discord),
+		service.Providers.Someone(oauth.Discord, "the person")))
+	service.CancelConsent(consent).ExpectStatus(http.StatusSeeOther)
 	service.PageHandle(client.Authorize(client.Pending(ipv4Template, 49154, "openid")))
 
 	if _, err := database.RotateAuthority(t.Context(), service.Pool); err != nil {

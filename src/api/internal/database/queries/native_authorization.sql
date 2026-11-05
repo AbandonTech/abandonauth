@@ -52,12 +52,11 @@ VALUES (
 )
 RETURNING expires_at;
 
--- What the authorization page may show, and only while the request is still
+-- What provider selection may show, and only while the request is still
 -- waiting for a choice in the browser that began it.
--- name: GetPendingNativeAuthorization :one
+-- name: GetNativeAuthorizationProviderSelection :one
 SELECT
     a."name" AS application_name,
-    r.scopes,
     r.expires_at
 FROM oauth_native_authorization r
 JOIN "DeveloperApplication" a ON a."id" = r.application_id
@@ -69,8 +68,8 @@ WHERE r.page_handle_hash = $1
   AND a."client_type" = 'public';
 
 -- Spends the page handle on a provider choice. The stage condition is
--- rechecked after any row lock wait, so of a choice and a cancellation racing
--- for one request only one finds it.
+-- rechecked after any row lock wait, so of two choices racing for one request
+-- only one finds it.
 -- name: AdvanceNativeAuthorizationToProvider :one
 UPDATE oauth_native_authorization
 SET stage = 'provider',
@@ -82,19 +81,10 @@ WHERE page_handle_hash = $1
   AND auth_epoch = sqlc.arg(auth_epoch)
 RETURNING id, application_id;
 
--- name: CancelNativeAuthorization :one
-DELETE FROM oauth_native_authorization
-WHERE page_handle_hash = $1
-  AND browser_binding_hash = $2
-  AND stage = 'page'
-  AND expires_at > CURRENT_TIMESTAMP
-  AND auth_epoch = sqlc.arg(auth_epoch)
-RETURNING redirect_uri, client_state;
-
--- The authorization a verified provider sign-in continues, locked so its code
--- is created at most once, and only while its client is still public.
+-- The authorization a verified provider sign-in continues, locked so it moves
+-- to consent at most once, and only while its client is still public.
 -- name: LockNativeAuthorizationAwaitingProvider :one
-SELECT r.redirect_uri, r.client_state
+SELECT r.id
 FROM oauth_native_authorization r
 JOIN "DeveloperApplication" a ON a."id" = r.application_id AND a."client_type" = 'public'
 WHERE r.id = $1
@@ -103,7 +93,50 @@ WHERE r.id = $1
   AND r.auth_epoch = sqlc.arg(auth_epoch)
 FOR UPDATE OF r;
 
--- A code never outlives its authorization.
+-- Records who the provider authenticated and when, by the database's clock, and
+-- the digest of the handle that alone can read or answer the consent.
+-- name: AdvanceNativeAuthorizationToConsent :execrows
+UPDATE oauth_native_authorization
+SET stage = 'consent',
+    consent_handle_hash = sqlc.arg(consent_handle_hash),
+    consent_user_id = sqlc.arg(consent_user_id),
+    consent_authenticated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+  AND stage = 'provider';
+
+-- What the consent screen may show, and only while the person can still answer
+-- it in the browser that began the authorization.
+-- name: GetNativeAuthorizationConsent :one
+SELECT
+    a."name" AS application_name,
+    r.scopes,
+    r.expires_at
+FROM oauth_native_authorization r
+JOIN "DeveloperApplication" a ON a."id" = r.application_id
+JOIN "User" u ON u."id" = r.consent_user_id
+JOIN auth_epoch e ON e.singleton AND e.epoch = r.auth_epoch
+WHERE r.consent_handle_hash = $1
+  AND r.browser_binding_hash = $2
+  AND r.stage = 'consent'
+  AND r.expires_at > CURRENT_TIMESTAMP
+  AND a."client_type" = 'public';
+
+-- Locked so that of an approval and a cancellation racing for one consent only
+-- one finds it: the conditions are rechecked after any row lock wait.
+-- name: LockNativeAuthorizationAwaitingConsent :one
+SELECT r.id, r.redirect_uri, r.client_state
+FROM oauth_native_authorization r
+JOIN "DeveloperApplication" a ON a."id" = r.application_id AND a."client_type" = 'public'
+JOIN "User" u ON u."id" = r.consent_user_id
+WHERE r.consent_handle_hash = $1
+  AND r.browser_binding_hash = $2
+  AND r.stage = 'consent'
+  AND r.expires_at > CURRENT_TIMESTAMP
+  AND r.auth_epoch = sqlc.arg(auth_epoch)
+FOR UPDATE OF r;
+
+-- The code takes the person and authentication time the consent recorded, and
+-- never outlives its authorization.
 -- name: CreateNativeAuthorizationCode :execrows
 INSERT INTO oauth_native_authorization_code (
     code_hash,
@@ -115,17 +148,21 @@ INSERT INTO oauth_native_authorization_code (
 SELECT
     $1,
     r.id,
-    sqlc.arg(user_id),
-    CURRENT_TIMESTAMP,
+    r.consent_user_id,
+    r.consent_authenticated_at,
     LEAST(CURRENT_TIMESTAMP + interval '120 seconds', r.expires_at)
 FROM oauth_native_authorization r
-WHERE r.id = sqlc.arg(authorization_id);
+WHERE r.id = sqlc.arg(authorization_id)
+  AND r.stage = 'consent';
 
 -- name: MarkNativeAuthorizationCodeIssued :execrows
 UPDATE oauth_native_authorization
-SET stage = 'code'
+SET stage = 'code',
+    consent_handle_hash = NULL,
+    consent_user_id = NULL,
+    consent_authenticated_at = NULL
 WHERE id = $1
-  AND stage = 'provider';
+  AND stage = 'consent';
 
 -- name: DeleteNativeAuthorization :execrows
 DELETE FROM oauth_native_authorization
@@ -163,33 +200,20 @@ FROM redeemed
 JOIN oauth_native_authorization r ON r.id = redeemed.authorization_id
 JOIN "User" u ON u."id" = redeemed.user_id;
 
--- name: GetPairwiseSubject :one
-SELECT subject
-FROM oauth_pairwise_subject
-WHERE application_id = $1
-  AND user_id = $2;
-
--- Yields to a concurrent creation for the same person and application, and to
--- a subject another person already holds, so neither can be overwritten.
--- name: CreatePairwiseSubject :execrows
-INSERT INTO oauth_pairwise_subject (application_id, user_id, subject)
-VALUES ($1, $2, $3)
-ON CONFLICT DO NOTHING;
+-- Yields to a concurrent creation for the same person and application, which
+-- it waits for, so both end holding the one row.
+-- name: EnsurePublicClientUser :exec
+INSERT INTO oauth_public_client_user (application_id, user_id)
+VALUES ($1, $2)
+ON CONFLICT (application_id, user_id) DO NOTHING;
 
 -- Serialises everything bounded per person and application: offline grants
 -- and access token revocations.
--- name: LockPairwiseSubject :one
-SELECT subject
-FROM oauth_pairwise_subject
+-- name: LockPublicClientUser :one
+SELECT user_id
+FROM oauth_public_client_user
 WHERE application_id = $1
   AND user_id = $2
-FOR UPDATE;
-
--- name: LockPairwiseSubjectBySubject :one
-SELECT user_id
-FROM oauth_pairwise_subject
-WHERE application_id = $1
-  AND subject = $2
 FOR UPDATE;
 
 -- name: DeleteEndedRefreshFamiliesForPair :execrows
@@ -257,13 +281,12 @@ SELECT
     f.auth_epoch,
     f.member_count,
     a."client_type",
-    u."username",
-    s.subject
+    u."username"
 FROM oauth_refresh_token t
 JOIN oauth_refresh_family f ON f.id = t.family_id
 JOIN "DeveloperApplication" a ON a."id" = f.application_id
 JOIN "User" u ON u."id" = f.user_id
-JOIN oauth_pairwise_subject s ON s.application_id = f.application_id AND s.user_id = f.user_id
+JOIN oauth_public_client_user c ON c.application_id = f.application_id AND c.user_id = f.user_id
 WHERE t.token_hash = $1
   AND f.application_id = $2
 FOR UPDATE OF f, t;
@@ -329,12 +352,12 @@ SELECT
         WHERE v.jti = sqlc.arg(jti)
           AND v.expires_at > CURRENT_TIMESTAMP
     ) AS revoked
-FROM oauth_pairwise_subject s
-JOIN "DeveloperApplication" a ON a."id" = s.application_id AND a."client_type" = 'public'
-JOIN "User" u ON u."id" = s.user_id
+FROM oauth_public_client_user c
+JOIN "DeveloperApplication" a ON a."id" = c.application_id AND a."client_type" = 'public'
+JOIN "User" u ON u."id" = c.user_id
 CROSS JOIN (SELECT epoch FROM auth_epoch WHERE singleton FOR SHARE) e
-WHERE s.application_id = $1
-  AND s.subject = $2;
+WHERE c.application_id = $1
+  AND c.user_id = $2;
 
 -- name: DeleteEndedRefreshFamilies :execrows
 DELETE FROM oauth_refresh_family

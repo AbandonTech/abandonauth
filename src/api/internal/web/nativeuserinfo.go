@@ -35,8 +35,9 @@ func readOIDCAccessToken(request *http.Request) (string, bool) {
 // the client it was issued to.
 //
 // The signature, the claims and the lifetime are checked first; then, under
-// the shared authority lock, the client, the person, the subject, the epoch
-// and revocation, so a token withdrawn here stops working here at once.
+// the shared authority lock, the client, the person, the client's relationship
+// with them, the epoch and revocation, so a token withdrawn here stops working
+// here at once. The subject released is the user's canonical identifier.
 func (s *Server) nativeUserInfo() http.Handler {
 	return withPublicProtocolAdmission(s.admission, refuseOAuthOverload, http.HandlerFunc(
 		func(writer http.ResponseWriter, request *http.Request) {
@@ -64,8 +65,10 @@ func (s *Server) nativeUserInfo() http.Handler {
 				return
 			}
 
-			holder, err := s.subjects.Holder(request.Context(),
-				uuid.MustParse(claims.ClientID), claims.Subject, claims.Identifier(), uuid.MustParse(claims.AuthEpoch))
+			userID := claims.SubjectIdentifier()
+
+			holder, err := s.clientUsers.Holder(request.Context(),
+				uuid.MustParse(claims.ClientID), userID, claims.Identifier(), uuid.MustParse(claims.AuthEpoch))
 			if errors.Is(err, oauth.ErrAccessNotGranted) {
 				refuseAccessToken(writer)
 
@@ -78,7 +81,7 @@ func (s *Server) nativeUserInfo() http.Handler {
 				return
 			}
 
-			released := models.UserInfoDto{Subject: claims.Subject}
+			released := models.UserInfoDto{Subject: userID.String()}
 			if scopes.Has(oidc.ScopeProfile) {
 				released.PreferredUsername = &holder.Username
 			}

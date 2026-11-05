@@ -54,9 +54,14 @@ migration_lifecycle() {
             VALUES ('76561197960287930', '00000000-0000-4000-8000-000000000001');
         INSERT INTO \"DeveloperApplication\" (id, owner_id, refresh_token, client_type)
             VALUES ('00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000001', NULL, 'public');
-        INSERT INTO oauth_pairwise_subject (application_id, user_id, subject)
-            VALUES ('00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000001', repeat('s', 43));" \
+        INSERT INTO oauth_public_client_user (application_id, user_id)
+            VALUES ('00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000001');" \
         >/dev/null || die "migration lifecycle: seeding failed"
+
+    expect_sql "SELECT string_agg(conrelid::regclass::text, ',' ORDER BY conrelid::regclass::text)
+        FROM pg_constraint WHERE contype = 'f' AND confrelid = 'oauth_public_client_user'::regclass" \
+        "oauth_access_token_revocation,oauth_refresh_family" \
+        "offline grants and revocations are not anchored to the public-client/user relationship"
 
     expect_sql "SELECT count(*) FROM pg_extension WHERE extname <> 'plpgsql'" 0 \
         "the schema relies on an extension the declared PostgreSQL image does not carry"
@@ -64,7 +69,7 @@ migration_lifecycle() {
     goose_run down
     expect_sql "SELECT concat_ws(',', to_regclass('oauth_native_authorization'),
         to_regclass('oauth_native_authorization_code'), to_regclass('oauth_native_authorization_capacity'),
-        to_regclass('oauth_pairwise_subject'), to_regclass('oauth_refresh_family'), to_regclass('oauth_refresh_token'),
+        to_regclass('oauth_public_client_user'), to_regclass('oauth_refresh_family'), to_regclass('oauth_refresh_token'),
         to_regclass('oauth_access_token_revocation'))" "" "down left native authorization tables behind"
     expect_sql "SELECT count(*) FROM information_schema.columns
         WHERE (table_name = 'DeveloperApplication' AND column_name = 'client_type')

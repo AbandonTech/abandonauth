@@ -25,7 +25,7 @@
 
       <h2 class="mt-10 text-lg">Create New Application</h2>
       <fieldset class="pt-2 flex flex-col gap-2" data-test="client-type">
-        <legend class="text-sm">Client type (cannot be changed later)</legend>
+        <legend class="text-sm">Client type, which cannot be changed later</legend>
         <label v-for="(label, clientType) in clientTypeLabels" :key="clientType" class="flex items-center gap-2">
           <input type="radio" name="client_type" class="radio radio-primary" :value="clientType" v-model="newClientType"/>
           <span>{{ label }}</span>

@@ -183,9 +183,8 @@ func TestPublicClientIsReturnedToItsExactRedirect(t *testing.T) {
 		t.Fatalf("the test's redirect is %q", pending.RedirectURI)
 	}
 
-	started := client.BeginPublicSignIn(pending, oauth.Discord)
-	returned := service.FinishLogin(started, service.Providers.Someone(oauth.Discord, "someone")).
-		ExpectStatus(http.StatusSeeOther)
+	handle := client.ReachConsent(pending, oauth.Discord, service.Providers.Someone(oauth.Discord, "someone"))
+	returned := service.AllowConsent(handle).ExpectStatus(http.StatusSeeOther)
 
 	location := returned.Header.Get("Location")
 	prefix := pending.RedirectURI + "&code="

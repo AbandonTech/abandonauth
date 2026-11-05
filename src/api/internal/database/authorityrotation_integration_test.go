@@ -356,9 +356,10 @@ func awaitRotation(t *testing.T, finished <-chan rotationResult) rotationResult 
 }
 
 // Rotation withdraws every public client's authorization at each of its
-// stages, every code, offline session and revocation, and keeps the pairwise
-// subjects, which name a person to an application rather than an authority.
-func TestRotatingAuthorityWithdrawsNativeAuthorityAndKeepsSubjects(t *testing.T) {
+// stages, every code, offline session and revocation, and keeps the
+// public-client/user relationships, which are lock anchors rather than
+// credentials. The subject is the user identifier, so it cannot change.
+func TestRotatingAuthorityWithdrawsNativeAuthorityAndKeepsRelationships(t *testing.T) {
 	t.Parallel()
 
 	pool := testdatabase.NewMigrated(t)
@@ -368,8 +369,12 @@ func TestRotatingAuthorityWithdrawsNativeAuthorityAndKeepsSubjects(t *testing.T)
 	offline := services.signIn(t, oidc.ScopeOpenID|oidc.ScopeOfflineAccess, services.person)
 	subject := services.subjectOf(t, offline)
 
-	if err := services.subjects.RevokeAccessToken(ctx, oauth.AccessRevocation{
-		ClientID: services.client.ID, Subject: subject, TokenID: uuid.New(), ExpiresAt: time.Now().Add(time.Hour),
+	if subject != services.person {
+		t.Fatalf("the subject is %s, want the user identifier %s", subject, services.person)
+	}
+
+	if err := services.clientUsers.RevokeAccessToken(ctx, oauth.AccessRevocation{
+		ClientID: services.client.ID, UserID: subject, TokenID: uuid.New(), ExpiresAt: time.Now().Add(time.Hour),
 	}); err != nil {
 		t.Fatalf("revoking an access token: %v", err)
 	}
@@ -383,6 +388,9 @@ func TestRotatingAuthorityWithdrawsNativeAuthorityAndKeepsSubjects(t *testing.T)
 		t.Fatalf("choosing a provider: %v", err)
 	}
 
+	atConsent := services.begin(t, oidc.ScopeOpenID, "")
+	consent := services.reachConsent(t, atConsent, services.person)
+
 	atCode := services.begin(t, oidc.ScopeOpenID, "")
 	code := services.authorize(t, atCode, services.person)
 
@@ -393,7 +401,7 @@ func TestRotatingAuthorityWithdrawsNativeAuthorityAndKeepsSubjects(t *testing.T)
 
 	want := database.AuthorityRotation{
 		AbandonedLogins:               1,
-		AbandonedNativeAuthorizations: 3,
+		AbandonedNativeAuthorizations: 4,
 		RevokedRefreshFamilies:        1,
 		ClearedAccessTokenRevocations: 1,
 	}
@@ -414,6 +422,18 @@ func TestRotatingAuthorityWithdrawsNativeAuthorityAndKeepsSubjects(t *testing.T)
 		t.Errorf("a provider sign-in outlived the rotation: %v", err)
 	}
 
+	if _, err := services.requests.ViewConsent(ctx, consent, atConsent.BrowserBinding); !errors.Is(
+		err, oauth.ErrNoSuchAuthorization,
+	) {
+		t.Errorf("a consent outlived the rotation: %v", err)
+	}
+
+	if _, _, err := services.requests.AllowConsent(ctx, consent, atConsent.BrowserBinding); !errors.Is(
+		err, oauth.ErrNoSuchAuthorization,
+	) {
+		t.Errorf("a consent was allowed after the rotation: %v", err)
+	}
+
 	if _, err := services.codes.Redeem(ctx, oauth.Redemption{
 		ClientID: services.client.ID, Code: code, RedirectURI: nativeRedirect, Verifier: atCode.verifier,
 	}, services.sign); !errors.Is(err, oauth.ErrInvalidGrant) {
@@ -431,13 +451,17 @@ func TestRotatingAuthorityWithdrawsNativeAuthorityAndKeepsSubjects(t *testing.T)
 		t.Fatalf("the access token's signature is refused: %v", err)
 	}
 
-	if _, err := services.subjects.Holder(
+	if _, err := services.clientUsers.Holder(
 		ctx, services.client.ID, subject, claims.Identifier(), uuid.MustParse(claims.AuthEpoch),
 	); !errors.Is(err, oauth.ErrAccessNotGranted) {
 		t.Errorf("an access token of the replaced authority was honoured: %v", err)
 	}
 
-	if services.subjectOf(t, services.signIn(t, oidc.ScopeOpenID, services.person)) != subject {
-		t.Error("the rotation changed a pairwise subject")
+	if countClientUsers(t, pool, services.client.ID, services.person) != 1 {
+		t.Error("the rotation removed the public-client/user relationship")
+	}
+
+	if services.subjectOf(t, services.signIn(t, oidc.ScopeOpenID, services.person)) != services.person {
+		t.Error("a sign-in after the rotation named the person by another subject")
 	}
 }

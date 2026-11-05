@@ -42,6 +42,7 @@ const (
 	nativeUserInfoPath   = "/oauth/userinfo"
 	nativeRevocationPath = "/oauth/revoke"
 	nativePagePath       = "/oauth/authorization/{request}"
+	nativeConsentPath    = "/oauth/consent/{consent}"
 )
 
 // RouteName identifies a route independently of its URL, so a handler can be
@@ -77,16 +78,18 @@ const (
 	RouteOpenAPIYAML         RouteName = "openapi-yaml"
 	RouteOpenAPIJSON         RouteName = "openapi-json"
 
-	RouteOIDCDiscovery             RouteName = "oidc-discovery"
-	RouteIDTokenJWKS               RouteName = "oidc-id-token-jwks"
-	RouteAccessTokenJWKS           RouteName = "oauth-access-token-jwks"
-	RouteNativeAuthorize           RouteName = "oauth-authorize"
-	RouteNativeAuthorizationView   RouteName = "oauth-authorization-view"
-	RouteNativeProviderSelection   RouteName = "oauth-authorization-provider"
-	RouteNativeAuthorizationCancel RouteName = "oauth-authorization-cancel"
-	RouteNativeToken               RouteName = "oauth-token"
-	RouteNativeUserInfo            RouteName = "oauth-userinfo"
-	RouteNativeRevocation          RouteName = "oauth-revoke"
+	RouteOIDCDiscovery           RouteName = "oidc-discovery"
+	RouteIDTokenJWKS             RouteName = "oidc-id-token-jwks"
+	RouteAccessTokenJWKS         RouteName = "oauth-access-token-jwks"
+	RouteNativeAuthorize         RouteName = "oauth-authorize"
+	RouteNativeAuthorizationView RouteName = "oauth-authorization-view"
+	RouteNativeProviderSelection RouteName = "oauth-authorization-provider"
+	RouteNativeConsentView       RouteName = "oauth-consent-view"
+	RouteNativeConsentAllow      RouteName = "oauth-consent-allow"
+	RouteNativeConsentCancel     RouteName = "oauth-consent-cancel"
+	RouteNativeToken             RouteName = "oauth-token"
+	RouteNativeUserInfo          RouteName = "oauth-userinfo"
+	RouteNativeRevocation        RouteName = "oauth-revoke"
 )
 
 // Route is one endpoint of the service.
@@ -196,7 +199,15 @@ var baseRoutes = []Route{
 		Documented: true, SameOriginOnly: true,
 	},
 	{
-		Name: RouteNativeAuthorizationCancel, Method: "POST", Pattern: APIRoot + nativePagePath + "/cancel",
+		Name: RouteNativeConsentView, Method: "GET", Pattern: APIRoot + nativeConsentPath,
+		Documented: true, SameOriginOnly: true,
+	},
+	{
+		Name: RouteNativeConsentAllow, Method: "POST", Pattern: APIRoot + nativeConsentPath + "/allow",
+		Documented: true, SameOriginOnly: true,
+	},
+	{
+		Name: RouteNativeConsentCancel, Method: "POST", Pattern: APIRoot + nativeConsentPath + "/cancel",
 		Documented: true, SameOriginOnly: true,
 	},
 	{

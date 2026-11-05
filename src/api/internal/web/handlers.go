@@ -36,16 +36,18 @@ func (s *Server) handlers() map[RouteName]http.Handler {
 		RouteSiteEntryBare:     s.siteEntry(),
 		RouteLogout:            s.logout(),
 
-		RouteOIDCDiscovery:             s.oidcDiscovery(),
-		RouteIDTokenJWKS:               s.idTokenJWKS(),
-		RouteAccessTokenJWKS:           s.accessTokenJWKS(),
-		RouteNativeAuthorize:           s.nativeAuthorize(),
-		RouteNativeAuthorizationView:   s.nativeAuthorizationView(),
-		RouteNativeProviderSelection:   s.nativeProviderSelection(),
-		RouteNativeAuthorizationCancel: s.cancelNativeAuthorization(),
-		RouteNativeToken:               s.nativeToken(),
-		RouteNativeUserInfo:            s.nativeUserInfo(),
-		RouteNativeRevocation:          s.nativeRevocation(),
+		RouteOIDCDiscovery:           s.oidcDiscovery(),
+		RouteIDTokenJWKS:             s.idTokenJWKS(),
+		RouteAccessTokenJWKS:         s.accessTokenJWKS(),
+		RouteNativeAuthorize:         s.nativeAuthorize(),
+		RouteNativeAuthorizationView: s.nativeAuthorizationView(),
+		RouteNativeProviderSelection: s.nativeProviderSelection(),
+		RouteNativeConsentView:       s.nativeConsentView(),
+		RouteNativeConsentAllow:      s.nativeConsentAllow(),
+		RouteNativeConsentCancel:     s.nativeConsentCancel(),
+		RouteNativeToken:             s.nativeToken(),
+		RouteNativeUserInfo:          s.nativeUserInfo(),
+		RouteNativeRevocation:        s.nativeRevocation(),
 	}
 
 	maps.Copy(handlers, s.documentationHandlers())

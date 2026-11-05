@@ -191,6 +191,11 @@ func TestOneValueDigestsDifferentlyForEachPurpose(t *testing.T) {
 		credentials.DomainBrowserSession,
 		credentials.DomainCSRFToken,
 		credentials.DomainIdentityNonce,
+		credentials.DomainAuthorizationPage,
+		credentials.DomainAuthorizationConsent,
+		credentials.DomainNativeBrowserBinding,
+		credentials.DomainNativeAuthorizationCode,
+		credentials.DomainRefreshToken,
 	}
 
 	seen := make(map[string]credentials.Domain, len(domains))
@@ -299,8 +304,9 @@ func TestDigestDomainsAreDistinct(t *testing.T) {
 	domains := []credentials.Domain{
 		credentials.DomainAuthorizationState, credentials.DomainBrowserBinding, credentials.DomainExchangeCode,
 		credentials.DomainBrowserSession, credentials.DomainCSRFToken, credentials.DomainIdentityNonce,
-		credentials.DomainAuthorizationPage, credentials.DomainNativeBrowserBinding,
-		credentials.DomainNativeAuthorizationCode, credentials.DomainRefreshToken,
+		credentials.DomainAuthorizationPage, credentials.DomainAuthorizationConsent,
+		credentials.DomainNativeBrowserBinding, credentials.DomainNativeAuthorizationCode,
+		credentials.DomainRefreshToken,
 	}
 
 	seen := make(map[string]credentials.Domain, len(domains))

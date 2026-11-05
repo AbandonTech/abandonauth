@@ -52,15 +52,16 @@ are relative to `src/api/`.
 - `migrations/` — the Goose SQL migrations, applied only by the standalone
   Goose CLI: the baseline schema, then auth state, sessions, revocation, rate
   limits, then Steam accounts and the Steam provider in login state and codes,
-  then client types and the public-client authorization roots, codes, pairwise
-  subjects, refresh families and access-token revocations. The application
-  never reads them; sqlc does
+  then client types and the public-client authorization roots, codes,
+  public-client/user relationships, refresh families and access-token
+  revocations. The application never reads them; sqlc does
 - `internal/database/queries/` — the SQL source; edit this, never generated
   code; `rate_limits.sql` derives the budget window and the wait from the
   database clock, `developer_applications.sql` carries the application row lock
   and the site application's conflict-safe insert under a given identifier,
   `credentials.sql` the auth epoch's row lock, `native_authorization.sql`
-  every public-client authorization, code, subject, refresh and revocation
+  every public-client authorization stage (`page`, `provider`, `consent`,
+  `code`), code, public-client/user relationship, refresh and revocation
   statement under the shared auth-epoch lock
 - `internal/database/query/` — sqlc output: gitignored, regenerated every run
 - `internal/database/pool.go` — connection pool lifecycle
@@ -99,13 +100,16 @@ endpoints that stop accepting credentials in
   absent, nothing changed where it is held
 - `internal/services/oauth/` — authorization state, with PKCE for the OAuth
   providers and none for Steam, one-time exchange codes; for public clients
-  `authorizationrequest.go` (the capacity-held root from authorization to code),
+  `authorizationrequest.go` (the capacity-held root from authorization through
+  provider selection and consent to code: `View`, `BeginProvider`, `BeginConsent`,
+  `EndProvider`, `ViewConsent`, `AllowConsent`, `CancelConsent`),
   `authorizationcode.go` (redemption with PKCE), `refreshtoken.go` (rotation,
-  reuse and revocation) and `subject.go` (pairwise subjects and access-token
+  reuse and revocation) and `clientuser.go` (the public-client/user row each
+  issuance ensures and each per-pair ceiling locks, access-token holders and
   revocations)
 - `internal/services/oidc/` — the two RS256 key files and their published key
-  sets, the ID and RFC 9068 access token profiles, issuing both and verifying
-  the access token UserInfo accepts
+  sets, the ID and RFC 9068 access token profiles, issuing both with the user's
+  canonical UUID as `sub` and verifying the access token UserInfo accepts
 - `internal/services/sessions/` — browser sessions and their CSRF tokens
 - `internal/services/authority/` — the auth epoch every check is measured
   against
@@ -138,16 +142,18 @@ endpoints that stop accepting credentials in
 - `internal/web/developerapplication.go` — the seven
   `/api/developer_application` routes
 - `internal/web/providerlogin.go` — `GET /api/ui/{provider}/authorize`, which
-  refuses a public client; completing a login, confidential or continuing a
-  public client's authorization
+  refuses a public client; completing a login, confidential or handing a public
+  client's authorization to consent
 - `internal/web/providercallback.go` — the Discord, GitHub, Google callbacks,
   and the Steam callback at `/api/ui/steam-callback`, which reads the assertion
   before spending the login and spends it before Steam is asked
 - `internal/web/browsersession.go` — `/api/ui/`, `POST /api/ui/logout`, session
   and CSRF checks
-- `internal/web/nativeauthorization.go` — `GET /api/oauth/authorize`, and the
-  authorization page's `GET /api/oauth/authorization/{request}`,
-  `POST .../{request}/{provider}` and `POST .../{request}/cancel`
+- `internal/web/nativeauthorization.go` — `GET /api/oauth/authorize`; provider
+  selection's `GET /api/oauth/authorization/{request}` and
+  `POST .../{request}/{provider}`; consent's `GET /api/oauth/consent/{consent}`,
+  `POST .../{consent}/allow`, the only creator of a public client's code, and
+  `POST .../{consent}/cancel`
 - `internal/web/nativetoken.go` — `POST /api/oauth/token`
 - `internal/web/nativeuserinfo.go` — `GET /api/oauth/userinfo`
 - `internal/web/nativerevocation.go` — `POST /api/oauth/revoke`
@@ -181,8 +187,11 @@ endpoints that stop accepting credentials in
   give the path below the route root, and `AtExactTarget` writes a target in
   full; `credentialhasher.go` is the `testHasher` the harness injects;
   `oidcsettings.go` writes the run's signing key files; `oidcclient.go` drives
-  a public client through the browser journey and validates its tokens from
-  discovery and the key sets alone, test support and never a client library
+  a public client through the browser journey, consent's handoff and answers
+  included, and validates its tokens from
+  discovery and the key sets alone, refusing a repeated member, trailing JSON
+  and any `sub` but a canonical non-nil UUID, test support and never a client
+  library
 - `internal/web/passwordsignintest/` — the password sign-in journeys, under
   `integration && devtools`
 
@@ -217,21 +226,34 @@ Paths are relative to `src/website/`. Everything the browser runs is under
 - `app/utils/providerLogin.ts` — the address that asks the API to start a
   sign-in
 - `app/utils/browserSession.ts` — CSRF header, session paths, signed-in check
-- `app/middleware/auth.global.ts` — route gate; asks `/api/me`; `/login` and
-  `/authorize` are public
-- `app/pages/login.vue` — the Discord, GitHub, Google and Steam sign-in
-  buttons, each mark drawn inline
-- `app/pages/authorize.vue` — a public client's authorization page: the handle
-  taken from the fragment, the application, permissions and session disclosed,
-  the provider and cancel forms
+- `app/utils/providerMarks.ts` — every provider's artwork, colour and label, in
+  the order they are offered
+- `app/utils/authorizationHandoff.ts` — the handle taken from a page's fragment,
+  a deadline's remaining time, the fixed unavailable message
+- `app/middleware/auth.global.ts` — route gate; asks `/api/me`; `/login`,
+  `/authorize` and `/consent` are public
+- `app/components/SignInLayout.vue` — the sign-in pages' responsive structure,
+  heading, status and error placement, and image
+- `app/components/ProviderSignIn.vue` — the application sentence and the provider
+  stack in that layout, drawn with `LoginButton` from `providerMarks`
+- `app/components/LoginButton.vue` — one provider control, as a link or an empty
+  form
+- `app/pages/login.vue` — a confidential sign-in: `ProviderSignIn` with links
+- `app/pages/authorize.vue` — a public client's provider selection: the handle
+  taken from the fragment and `ProviderSignIn` with empty forms, until the
+  deadline
+- `app/pages/consent.vue` — a public client's approval: the handle taken from the
+  fragment, what the scopes release, empty `Allow` and `Cancel` forms, until the
+  deadline
 - `server/middleware/authorizationHeaders.ts` — applies
-  `server/utils/authorizationHeaders.ts`: no-store, no-referrer and framing
-  denial for `/authorize` and no other page
+  `server/utils/authorizationHeaders.ts`: no-store, framing denial and a
+  `same-origin` referrer policy for `/authorize` and `/consent` and no other
+  page, so their form POSTs carry the exact site `Origin` the API requires
 - `app/pages/developer-applications/` — developer application and callback URI
   administration
 - `app/layouts/dashboard.vue` — authenticated layout, including logout
 - `app/components/` — shared Vue components
-- `app/types/` — user, developer application and pending authorization DTOs
+- `app/types/` — user, developer application, provider selection and consent DTOs
 - `app/assets/css/main.css` — stylesheet entrypoint, theme tokens, daisyUI
   themes
 
@@ -247,7 +269,14 @@ epoch, OAuth state, exchange codes, browser sessions, JWT revocations and rate
 limit buckets, then `SteamAccount`, a Steam ID as decimal text, then the
 `client_type` of each application and the public-client tables.
 Provider accounts are one-to-one with users; users own developer
-applications; callback URIs belong to applications. Passwords and developer
+applications; callback URIs belong to applications. `User.id` is the `sub` of
+every user token and OIDC token, the same at every application; an
+`oauth_public_client_user` row records a public client having served a user and
+anchors that pair's refresh families and access-token revocations. An
+`oauth_native_authorization` root moves from `page` to `provider` to `consent` to
+`code`, holding its person and authentication time only at `consent`, and a
+provider callback only reaches `consent`: the person's `Allow` creates the code,
+and redemption creates the relationship. Passwords and developer
 credentials are stored only as hashes, every one-time credential only as a
 domain-separated hash.
 

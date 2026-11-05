@@ -94,8 +94,8 @@ func withdrawOutstandingCredentials(ctx context.Context, queries *query.Queries)
 		return AuthorityRotation{}, fmt.Errorf("revoking offline grants: %w", err)
 	}
 
-	// Pairwise subjects are kept: they name a person to an application, not an
-	// authority, and must not change.
+	// Public-client/user relationships are kept: they are lock anchors, not
+	// credentials.
 	if rotation.ClearedAccessTokenRevocations, err = queries.DeleteAllAccessTokenRevocations(ctx); err != nil {
 		return AuthorityRotation{}, fmt.Errorf("clearing revoked access tokens: %w", err)
 	}

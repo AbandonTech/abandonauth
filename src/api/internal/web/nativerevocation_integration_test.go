@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/abandontech/abandonauth/src/api/internal/database/testdatabase"
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
 	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
@@ -136,9 +138,8 @@ func TestAccessTokenRevocationsAreBoundedPerPersonAndApplication(t *testing.T) {
 	// A thousand revocations are written directly: each would otherwise need
 	// its own sign-in.
 	testdatabase.Execute(t, service.Pool, `INSERT INTO oauth_access_token_revocation (jti, application_id, user_id, expires_at)
-		SELECT gen_random_uuid(), s.application_id, s.user_id, CURRENT_TIMESTAMP + interval '10 minutes'
-		FROM oauth_pairwise_subject s, generate_series(1, $3::int)
-		WHERE s.application_id = $1 AND s.subject = $2`, application.ID, subject, oauth.MaxAccessTokenRevocations)
+		SELECT gen_random_uuid(), $1, $2::uuid, CURRENT_TIMESTAMP + interval '10 minutes'
+		FROM generate_series(1, $3::int)`, application.ID, subject, oauth.MaxAccessTokenRevocations)
 
 	expectOAuthError(t, client.Revoke(full.AccessToken), http.StatusServiceUnavailable, "temporarily_unavailable")
 	service.GET("/oauth/userinfo", servertest.Bearer(full.AccessToken)).ExpectStatus(http.StatusOK)
@@ -150,11 +151,66 @@ func TestAccessTokenRevocationsAreBoundedPerPersonAndApplication(t *testing.T) {
 	testdatabase.Execute(t, service.Pool, `UPDATE oauth_access_token_revocation
 		SET expires_at = CURRENT_TIMESTAMP - interval '1 second'
 		WHERE jti IN (
-			SELECT v.jti FROM oauth_access_token_revocation v
-			JOIN oauth_pairwise_subject s ON s.application_id = v.application_id AND s.user_id = v.user_id
-			WHERE s.application_id = $1 AND s.subject = $2
+			SELECT jti FROM oauth_access_token_revocation
+			WHERE application_id = $1 AND user_id = $2::uuid
 			LIMIT 1)`, application.ID, subject)
 
 	expectEmptyRevocation(t, client.Revoke(full.AccessToken))
 	expectInvalidToken(t, service.GET("/oauth/userinfo", servertest.Bearer(full.AccessToken)))
+}
+
+// A genuine access token whose application or person has been deleted, and a
+// genuinely signed one naming a person the client never served or no person
+// at all, are answered with the same empty 200 as an unknown token and record
+// nothing, so they spend nobody's allowance. A current token is the positive
+// control.
+func TestRevokingWithoutRelationshipRecordsNothing(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	_, client := installedClient(t, service)
+	keys := servertest.SigningKeyFiles(t)
+
+	deleted := service.RegisterPublicClient("a deleted installed application", ipv4Template)
+	_, ofDeleted := service.InstalledClient(deleted).Tokens(ipv4Template, "openid", service.Providers.Someone(oauth.Discord, "q"))
+	service.DELETE("/developer_application/"+deleted.ID.String(), service.Protected).ExpectStatus(http.StatusOK)
+
+	_, ofGone := client.Tokens(ipv4Template, "openid", service.Providers.Someone(oauth.Discord, "gone"))
+	testdatabase.Execute(t, service.Pool, `DELETE FROM "User" WHERE "id" = $1`, userIDOf(t, service, "gone"))
+
+	_, current := client.Tokens(ipv4Template, "openid", service.Providers.Someone(oauth.Discord, "p"))
+
+	naming := func(subject string) string {
+		claims := servertest.DecodeClaims(current.AccessToken)
+		claims["sub"], claims["jti"] = subject, uuid.NewString()
+
+		token, err := servertest.SignAs(keys.AccessTokenPrivate,
+			map[string]any{"alg": "RS256", "kid": keys.AccessTokenKeyID(), "typ": "at+jwt"}, claims)
+		if err != nil {
+			t.Fatalf("signing a test token: %v", err)
+		}
+
+		return token
+	}
+
+	for name, answer := range map[string]*servertest.Response{
+		"a deleted application's token": service.InstalledClient(deleted).Revoke(ofDeleted.AccessToken),
+		"a deleted person's token":      client.Revoke(ofGone.AccessToken),
+		"a person never served":         client.Revoke(naming(userIDOf(t, service, "the developer"))),
+		"an unknown user":               client.Revoke(naming(uuid.NewString())),
+		"an unknown token":              client.Revoke(strings.Repeat("U", 42) + "A"),
+	} {
+		t.Run(name, func(t *testing.T) { expectEmptyRevocation(t, answer) })
+	}
+
+	if revoked := countRows(t, service, "oauth_access_token_revocation"); revoked != 0 {
+		t.Errorf("revocations without a relationship recorded %d rows", revoked)
+	}
+
+	expectEmptyRevocation(t, client.Revoke(current.AccessToken))
+	expectInvalidToken(t, service.GET("/oauth/userinfo", servertest.Bearer(current.AccessToken)))
+
+	if revoked := countRows(t, service, "oauth_access_token_revocation"); revoked != 1 {
+		t.Errorf("the genuine revocation recorded %d rows, want 1", revoked)
+	}
 }

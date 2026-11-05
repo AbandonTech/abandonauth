@@ -38,7 +38,7 @@ type nativeServices struct {
 	requests     *oauth.AuthorizationRequests
 	codes        *oauth.AuthorizationCodes
 	refresh      *oauth.RefreshTokens
-	subjects     *oauth.PairwiseSubjects
+	clientUsers  *oauth.PublicClientUsers
 	issuer       *oidc.Issuer
 	verifier     *oidc.AccessTokenVerifier
 
@@ -48,14 +48,6 @@ type nativeServices struct {
 
 func newNativeServices(t *testing.T, pool *pgxpool.Pool) nativeServices {
 	t.Helper()
-
-	return newNativeServicesDrawing(t, pool, nil)
-}
-
-func newNativeServicesDrawing(t *testing.T, pool *pgxpool.Pool, drawSubject func() (string, error)) nativeServices {
-	t.Helper()
-
-	ctx := t.Context()
 
 	derived, err := keyring.New(rotationRootSecret)
 	if err != nil {
@@ -79,33 +71,73 @@ func newNativeServicesDrawing(t *testing.T, pool *pgxpool.Pool, drawSubject func
 		t.Fatalf("building the issuer: %v", err)
 	}
 
-	subjects := oauth.NewPairwiseSubjects(pool, drawSubject)
+	clientUsers := oauth.NewPublicClientUsers(pool)
 
 	services := nativeServices{
 		pool:         pool,
 		applications: applications.New(pool, nil),
 		accounts:     accounts.New(pool),
 		requests:     oauth.NewAuthorizationRequests(pool, logins),
-		codes:        oauth.NewAuthorizationCodes(pool, subjects),
+		codes:        oauth.NewAuthorizationCodes(pool, clientUsers),
 		refresh:      oauth.NewRefreshTokens(pool),
-		subjects:     subjects,
+		clientUsers:  clientUsers,
 		issuer:       issuer,
 		verifier:     oidc.NewAccessTokenVerifier(servertest.OpenIDIssuer, keys, nil),
 	}
 
 	services.person = services.newPerson(t, "1")
+	services.client = services.newPublicClient(t, "an installed application")
 
-	if services.client, _, err = services.applications.Create(
-		ctx, services.person, "an installed application", applications.Public,
-	); err != nil {
+	return services
+}
+
+func (s nativeServices) newPublicClient(t *testing.T, name string) applications.Application {
+	t.Helper()
+
+	client, _, err := s.applications.Create(t.Context(), s.person, name, applications.Public)
+	if err != nil {
 		t.Fatalf("registering a public client: %v", err)
 	}
 
-	if err := services.applications.ReplaceCallbackURIs(ctx, services.client, []string{nativeTemplate}); err != nil {
+	if err := s.applications.ReplaceCallbackURIs(t.Context(), client, []string{nativeTemplate}); err != nil {
 		t.Fatalf("registering the loopback template: %v", err)
 	}
 
-	return services
+	return client
+}
+
+// at is the same services driving another public client.
+func (s nativeServices) at(client applications.Application) nativeServices {
+	s.client = client
+
+	return s
+}
+
+// countClientUsers counts the relationships recorded between one public client
+// and one person.
+func countClientUsers(t *testing.T, pool *pgxpool.Pool, client, person uuid.UUID) int {
+	t.Helper()
+
+	var held int
+	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM oauth_public_client_user
+		WHERE application_id = $1 AND user_id = $2`, client, person).Scan(&held); err != nil {
+		t.Fatalf("counting public-client users: %v", err)
+	}
+
+	return held
+}
+
+// countRevocations counts the access token revocations recorded for one person.
+func countRevocations(t *testing.T, pool *pgxpool.Pool, person uuid.UUID) int {
+	t.Helper()
+
+	var held int
+	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM oauth_access_token_revocation
+		WHERE user_id = $1`, person).Scan(&held); err != nil {
+		t.Fatalf("counting revocations: %v", err)
+	}
+
+	return held
 }
 
 func (s nativeServices) newPerson(t *testing.T, providerID string) uuid.UUID {
@@ -124,13 +156,13 @@ func (s nativeServices) newPerson(t *testing.T, providerID string) uuid.UUID {
 // sign is the token signer a token endpoint would pass.
 func (s nativeServices) sign(grant oauth.Grant) (oauth.SignedTokens, error) {
 	access, _, err := s.issuer.IssueAccessToken(oidc.Access{
-		Subject: grant.Subject, ClientID: grant.ClientID, Scopes: grant.Scopes, AuthEpoch: grant.AuthEpoch,
+		Subject: grant.UserID, ClientID: grant.ClientID, Scopes: grant.Scopes, AuthEpoch: grant.AuthEpoch,
 	})
 	if err != nil {
 		return oauth.SignedTokens{}, err
 	}
 
-	identity := oidc.Identity{Subject: grant.Subject, ClientID: grant.ClientID, AuthTime: grant.AuthTime, Nonce: grant.Nonce}
+	identity := oidc.Identity{Subject: grant.UserID, ClientID: grant.ClientID, AuthTime: grant.AuthTime, Nonce: grant.Nonce}
 	if grant.Scopes.Has(oidc.ScopeProfile) {
 		identity.Username = &grant.Username
 	}
@@ -174,9 +206,9 @@ func (s nativeServices) begin(t *testing.T, scopes oidc.Scopes, heldBinding stri
 	return pending{Begun: begun, verifier: verifier, state: state}
 }
 
-// authorize takes a begun authorization through Discord to its code, as the
+// reachConsent takes a begun authorization through Discord to its consent, as the
 // provider callback would for a person this service resolved.
-func (s nativeServices) authorize(t *testing.T, begun pending, person uuid.UUID) string {
+func (s nativeServices) reachConsent(t *testing.T, begun pending, person uuid.UUID) string {
 	t.Helper()
 
 	ctx := t.Context()
@@ -196,9 +228,26 @@ func (s nativeServices) authorize(t *testing.T, begun pending, person uuid.UUID)
 		t.Fatalf("the provider sign-in does not continue the authorization: %+v", login.Native)
 	}
 
-	code, err := s.requests.CompleteProvider(ctx, *login.Native, person)
+	handle, err := s.requests.BeginConsent(ctx, *login.Native, person)
 	if err != nil {
-		t.Fatalf("completing the authorization: %v", err)
+		t.Fatalf("beginning the consent: %v", err)
+	}
+
+	return handle
+}
+
+// authorize takes a begun authorization through the person's approval to its
+// code.
+func (s nativeServices) authorize(t *testing.T, begun pending, person uuid.UUID) string {
+	t.Helper()
+
+	returned, code, err := s.requests.AllowConsent(t.Context(), s.reachConsent(t, begun, person), begun.BrowserBinding)
+	if err != nil {
+		t.Fatalf("allowing the consent: %v", err)
+	}
+
+	if returned.RedirectURI != nativeRedirect || returned.ClientState != begun.state {
+		t.Fatalf("the approval returns to %+v", returned)
 	}
 
 	return code
@@ -225,7 +274,7 @@ func (s nativeServices) signIn(t *testing.T, scopes oidc.Scopes, person uuid.UUI
 	return s.redeem(t, s.authorize(t, begun, person), begun.verifier)
 }
 
-func (s nativeServices) subjectOf(t *testing.T, issued oauth.IssuedTokens) string {
+func (s nativeServices) subjectOf(t *testing.T, issued oauth.IssuedTokens) uuid.UUID {
 	t.Helper()
 
 	claims, err := s.verifier.Verify(issued.AccessToken)
@@ -233,7 +282,7 @@ func (s nativeServices) subjectOf(t *testing.T, issued oauth.IssuedTokens) strin
 		t.Fatalf("the issued access token is refused: %v", err)
 	}
 
-	return claims.Subject
+	return claims.SubjectIdentifier()
 }
 
 // A public client holds no credential, and the table itself refuses one, so a
@@ -325,7 +374,7 @@ func TestNativeAuthorizationIssuesBoundTokensOnce(t *testing.T) {
 	begun := services.begin(t, scopes, "")
 
 	viewed, err := services.requests.View(ctx, begun.PageHandle, begun.BrowserBinding)
-	if err != nil || viewed.ApplicationName != "an installed application" || viewed.Scopes != scopes {
+	if err != nil || viewed.ApplicationName != "an installed application" {
 		t.Fatalf("viewing the authorization: %+v, %v", viewed, err)
 	}
 
@@ -371,8 +420,8 @@ func TestNativeAuthorizationIssuesBoundTokensOnce(t *testing.T) {
 	}
 
 	subject := services.subjectOf(t, issued)
-	if subject == services.person.String() || len(subject) != 43 {
-		t.Errorf("the subject is not a pairwise subject")
+	if subject != services.person {
+		t.Errorf("the subject is %s, want the user identifier %s", subject, services.person)
 	}
 
 	if again := services.subjectOf(t, services.signIn(t, oidc.ScopeOpenID, services.person)); again != subject {
@@ -380,21 +429,40 @@ func TestNativeAuthorizationIssuesBoundTokensOnce(t *testing.T) {
 	}
 
 	other := services.newPerson(t, "2")
-	if services.subjectOf(t, services.signIn(t, oidc.ScopeOpenID, other)) == subject {
-		t.Error("two people share a subject at one application")
+	if services.subjectOf(t, services.signIn(t, oidc.ScopeOpenID, other)) != other {
+		t.Error("another person was not named by their own user identifier")
 	}
 
 	claims, _ := services.verifier.Verify(issued.AccessToken)
 
-	holder, err := services.subjects.Holder(ctx, services.client.ID, subject, claims.Identifier(), uuid.MustParse(claims.AuthEpoch))
+	epoch := uuid.MustParse(claims.AuthEpoch)
+
+	holder, err := services.clientUsers.Holder(ctx, services.client.ID, subject, claims.Identifier(), epoch)
 	if err != nil || holder.Username != "person 1" {
 		t.Errorf("the access token's holder was not resolved: %v", err)
 	}
 
-	if _, err := services.subjects.Holder(ctx, services.client.ID, subject, claims.Identifier(), uuid.New()); !errors.Is(
+	if _, err := services.clientUsers.Holder(ctx, services.client.ID, subject, claims.Identifier(), uuid.New()); !errors.Is(
 		err, oauth.ErrAccessNotGranted,
 	) {
 		t.Errorf("a token of another authority resolved: %v", err)
+	}
+
+	unserved := services.newPublicClient(t, "an application the person never used")
+	stranger := services.newPerson(t, "7")
+
+	for name, pair := range map[string][2]uuid.UUID{
+		"another public client": {unserved.ID, subject},
+		"a person never served": {services.client.ID, stranger},
+		"an unknown user":       {services.client.ID, uuid.New()},
+		"the nil user":          {services.client.ID, uuid.Nil},
+		"an unknown client":     {uuid.New(), subject},
+	} {
+		if _, err := services.clientUsers.Holder(ctx, pair[0], pair[1], claims.Identifier(), epoch); !errors.Is(
+			err, oauth.ErrAccessNotGranted,
+		) {
+			t.Errorf("%s resolved a holder: %v", name, err)
+		}
 	}
 }
 
@@ -428,6 +496,10 @@ func TestRefreshTokensRotateOnceAndReuseEndsFamily(t *testing.T) {
 		t.Fatalf("rotating the refresh token: %v", err)
 	}
 
+	if services.subjectOf(t, rotated) != services.person {
+		t.Error("a rotation changed the subject")
+	}
+
 	if _, err := services.refresh.Rotate(ctx, oauth.Refresh{ClientID: services.client.ID, Token: first}, services.sign); !errors.Is(
 		err, oauth.ErrInvalidGrant,
 	) {
@@ -448,6 +520,10 @@ func TestRefreshTokensRotateOnceAndReuseEndsFamily(t *testing.T) {
 	}, services.sign)
 	if err != nil || narrowed.RefreshToken != "" || narrowed.Scopes != oidc.ScopeOpenID {
 		t.Fatalf("narrowing away offline access: %v", err)
+	}
+
+	if services.subjectOf(t, narrowed) != services.person {
+		t.Error("narrowing changed the subject")
 	}
 
 	if _, err := services.refresh.Rotate(ctx, oauth.Refresh{ClientID: services.client.ID, Token: narrowing.RefreshToken}, services.sign); !errors.Is(
@@ -505,8 +581,9 @@ func TestUnsignedRedemptionLeavesCodeUsable(t *testing.T) {
 	services.redeem(t, code, begun.verifier)
 }
 
-// A code whose subject could not be resolved is left for a retry, and the
-// failure is reported as a failure, never as a refused grant.
+// A code whose relationship could not be recorded is left for a retry, nothing
+// of its grant is kept, and the failure is reported as a failure, never as a
+// refused grant.
 func TestRedemptionFailingPartwayLeavesCodeUsable(t *testing.T) {
 	t.Parallel()
 
@@ -515,15 +592,21 @@ func TestRedemptionFailingPartwayLeavesCodeUsable(t *testing.T) {
 	begun := services.begin(t, oidc.ScopeOpenID|oidc.ScopeOfflineAccess, "")
 	code := services.authorize(t, begun, services.person)
 
-	testdatabase.Execute(t, pool, `ALTER TABLE oauth_pairwise_subject RENAME TO unreachable`)
+	testdatabase.Execute(t, pool, `ALTER TABLE oauth_public_client_user RENAME TO unreachable`)
 
 	if _, err := services.codes.Redeem(t.Context(), oauth.Redemption{
 		ClientID: services.client.ID, Code: code, RedirectURI: nativeRedirect, Verifier: begun.verifier,
 	}, services.sign); err == nil || errors.Is(err, oauth.ErrInvalidGrant) {
-		t.Fatalf("a redemption without its subject store reported %v, want a failure", err)
+		t.Fatalf("a redemption without its relationship store reported %v, want a failure", err)
 	}
 
-	testdatabase.Execute(t, pool, `ALTER TABLE unreachable RENAME TO oauth_pairwise_subject`)
+	testdatabase.Execute(t, pool, `ALTER TABLE unreachable RENAME TO oauth_public_client_user`)
+
+	var families int
+	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM oauth_refresh_family`).Scan(&families); err != nil ||
+		families != 0 || countClientUsers(t, pool, services.client.ID, services.person) != 0 {
+		t.Fatalf("a failed redemption kept %d offline grants or a relationship: %v", families, err)
+	}
 
 	if issued := services.redeem(t, code, begun.verifier); issued.RefreshToken == "" {
 		t.Error("the retried redemption issued no refresh token for an offline grant")
@@ -577,18 +660,31 @@ func TestNativeOperationsReportUnreachableDatabase(t *testing.T) {
 
 			return err
 		},
-		"cancel an authorization": func() error {
-			_, err := services.requests.Cancel(ctx, opaque, opaque)
-
-			return err
-		},
 		"consume a provider sign-in": func() error {
 			_, err := services.requests.ConsumeProvider(ctx, oauth.GitHub, opaque, opaque)
 
 			return err
 		},
-		"complete an authorization": func() error {
-			_, err := services.requests.CompleteProvider(ctx, oauth.NativeContinuation{AuthorizationID: uuid.New()}, services.person)
+		"begin a consent": func() error {
+			_, err := services.requests.BeginConsent(ctx, oauth.NativeContinuation{AuthorizationID: uuid.New()}, services.person)
+
+			return err
+		},
+		"end at the provider": func() error {
+			return services.requests.EndProvider(ctx, oauth.NativeContinuation{AuthorizationID: uuid.New()})
+		},
+		"view a consent": func() error {
+			_, err := services.requests.ViewConsent(ctx, opaque, opaque)
+
+			return err
+		},
+		"allow a consent": func() error {
+			_, _, err := services.requests.AllowConsent(ctx, opaque, opaque)
+
+			return err
+		},
+		"cancel a consent": func() error {
+			_, err := services.requests.CancelConsent(ctx, opaque, opaque)
 
 			return err
 		},
@@ -618,17 +714,17 @@ func TestNativeOperationsReportUnreachableDatabase(t *testing.T) {
 			return err
 		},
 		"resolve an access token's holder": func() error {
-			_, err := services.subjects.Holder(ctx, services.client.ID, opaque, uuid.New(), uuid.New())
+			_, err := services.clientUsers.Holder(ctx, services.client.ID, services.person, uuid.New(), uuid.New())
 
 			return err
 		},
 		"revoke an access token": func() error {
-			return services.subjects.RevokeAccessToken(ctx, oauth.AccessRevocation{
-				ClientID: services.client.ID, Subject: opaque, TokenID: uuid.New(), ExpiresAt: time.Now().Add(time.Minute),
+			return services.clientUsers.RevokeAccessToken(ctx, oauth.AccessRevocation{
+				ClientID: services.client.ID, UserID: services.person, TokenID: uuid.New(), ExpiresAt: time.Now().Add(time.Minute),
 			})
 		},
 		"sweep revocations": func() error {
-			_, err := services.subjects.ForgetRevocations(ctx)
+			_, err := services.clientUsers.ForgetRevocations(ctx)
 
 			return err
 		},
@@ -678,12 +774,15 @@ func TestNativeOperationsReportUnreachableDatabase(t *testing.T) {
 	}
 }
 
-// Of a provider choice and a cancellation racing for one authorization, and of
-// two redemptions racing for one code, exactly one wins.
+// Of two provider choices racing for one authorization, of an approval and a
+// cancellation racing for one consent, of two approvals, and of two redemptions
+// racing for one code, exactly one wins. A losing answer is the one refusal and
+// leaves no second code.
 func TestRacingTransitionsHaveExactlyOneWinner(t *testing.T) {
 	t.Parallel()
 
-	services := newNativeServices(t, testdatabase.NewMigrated(t))
+	pool := testdatabase.NewMigrated(t)
+	services := newNativeServices(t, pool)
 	ctx := t.Context()
 
 	for range 5 {
@@ -691,8 +790,8 @@ func TestRacingTransitionsHaveExactlyOneWinner(t *testing.T) {
 
 		var (
 			waiting sync.WaitGroup
-			chose   error
-			denied  error
+			first   error
+			second  error
 		)
 
 		waiting.Add(2)
@@ -700,19 +799,77 @@ func TestRacingTransitionsHaveExactlyOneWinner(t *testing.T) {
 		go func() {
 			defer waiting.Done()
 
-			_, chose = services.requests.BeginProvider(ctx, begun.PageHandle, begun.BrowserBinding, oauth.GitHub)
+			_, first = services.requests.BeginProvider(ctx, begun.PageHandle, begun.BrowserBinding, oauth.GitHub)
 		}()
 
 		go func() {
 			defer waiting.Done()
 
-			_, denied = services.requests.Cancel(ctx, begun.PageHandle, begun.BrowserBinding)
+			_, second = services.requests.BeginProvider(ctx, begun.PageHandle, begun.BrowserBinding, oauth.Google)
 		}()
 
 		waiting.Wait()
 
-		if (chose == nil) == (denied == nil) {
-			t.Fatalf("choice and cancellation both reported %v and %v", chose, denied)
+		if (first == nil) == (second == nil) {
+			t.Fatalf("two choices both reported %v and %v", first, second)
+		}
+	}
+
+	answers := map[string]func(handle, binding string) error{
+		"an approval": func(handle, binding string) error {
+			_, _, err := services.requests.AllowConsent(ctx, handle, binding)
+
+			return err
+		},
+		"a cancellation": func(handle, binding string) error {
+			_, err := services.requests.CancelConsent(ctx, handle, binding)
+
+			return err
+		},
+	}
+
+	for _, pair := range [][2]string{{"an approval", "a cancellation"}, {"an approval", "an approval"}} {
+		for range 5 {
+			begun := services.begin(t, oidc.ScopeOpenID, "")
+			handle := services.reachConsent(t, begun, services.person)
+
+			var (
+				waiting sync.WaitGroup
+				results [2]error
+			)
+
+			for index, answer := range pair {
+				waiting.Add(1)
+
+				go func() {
+					defer waiting.Done()
+
+					results[index] = answers[answer](handle, begun.BrowserBinding)
+				}()
+			}
+
+			waiting.Wait()
+
+			if (results[0] == nil) == (results[1] == nil) {
+				t.Fatalf("%v both reported %v", pair, results)
+			}
+
+			for _, result := range results {
+				if result != nil && !errors.Is(result, oauth.ErrNoSuchAuthorization) {
+					t.Errorf("a losing answer failed for another reason: %v", result)
+				}
+			}
+
+			var codes int
+			if err := pool.QueryRow(ctx, `SELECT count(*) FROM oauth_native_authorization_code`).Scan(&codes); err != nil {
+				t.Fatalf("counting codes: %v", err)
+			}
+
+			if codes > 1 {
+				t.Fatalf("%v left %d codes", pair, codes)
+			}
+
+			testdatabase.Execute(t, pool, `DELETE FROM oauth_native_authorization`)
 		}
 	}
 
@@ -827,7 +984,7 @@ func TestAuthorizationCapacityIsExactAndRecovers(t *testing.T) {
 	}
 
 	begun := services.begin(t, oidc.ScopeOpenID, "")
-	if _, err := services.requests.Cancel(ctx, begun.PageHandle, begun.BrowserBinding); err != nil {
+	if _, err := services.requests.CancelConsent(ctx, services.reachConsent(t, begun, services.person), begun.BrowserBinding); err != nil {
 		t.Fatalf("cancelling: %v", err)
 	}
 
@@ -873,7 +1030,8 @@ func TestOfflineSessionsAreBoundedPerPersonAndApplication(t *testing.T) {
 func TestAccessTokenRevocationsAreBoundedPerPersonAndApplication(t *testing.T) {
 	t.Parallel()
 
-	services := newNativeServices(t, testdatabase.NewMigrated(t))
+	pool := testdatabase.NewMigrated(t)
+	services := newNativeServices(t, pool)
 	ctx := t.Context()
 
 	signedIn := services.signIn(t, oidc.ScopeOpenID, services.person)
@@ -887,15 +1045,15 @@ func TestAccessTokenRevocationsAreBoundedPerPersonAndApplication(t *testing.T) {
 
 	epoch := uuid.MustParse(claims.AuthEpoch)
 
-	if _, err := services.subjects.Holder(ctx, services.client.ID, subject, uuid.New(), epoch); err != nil {
+	if _, err := services.clientUsers.Holder(ctx, services.client.ID, subject, uuid.New(), epoch); err != nil {
 		t.Fatalf("an unrevoked token's holder was not resolved, so the refusal below proves nothing: %v", err)
 	}
 
-	revoke := func(subject string, expiresAt time.Time) (uuid.UUID, error) {
+	revoke := func(subject uuid.UUID, expiresAt time.Time) (uuid.UUID, error) {
 		identifier := uuid.New()
 
-		return identifier, services.subjects.RevokeAccessToken(ctx, oauth.AccessRevocation{
-			ClientID: services.client.ID, Subject: subject, TokenID: identifier, ExpiresAt: expiresAt,
+		return identifier, services.clientUsers.RevokeAccessToken(ctx, oauth.AccessRevocation{
+			ClientID: services.client.ID, UserID: subject, TokenID: identifier, ExpiresAt: expiresAt,
 		})
 	}
 
@@ -922,8 +1080,8 @@ func TestAccessTokenRevocationsAreBoundedPerPersonAndApplication(t *testing.T) {
 		t.Errorf("a revocation beyond the ceiling = %v", err)
 	}
 
-	if err := services.subjects.RevokeAccessToken(ctx, oauth.AccessRevocation{
-		ClientID: services.client.ID, Subject: subject, TokenID: last, ExpiresAt: later,
+	if err := services.clientUsers.RevokeAccessToken(ctx, oauth.AccessRevocation{
+		ClientID: services.client.ID, UserID: subject, TokenID: last, ExpiresAt: later,
 	}); err != nil {
 		t.Errorf("repeating a recorded revocation = %v", err)
 	}
@@ -932,77 +1090,151 @@ func TestAccessTokenRevocationsAreBoundedPerPersonAndApplication(t *testing.T) {
 		t.Errorf("another person's revocation was refused: %v", err)
 	}
 
-	if err := services.subjects.RevokeAccessToken(ctx, oauth.AccessRevocation{
-		ClientID: services.client.ID, Subject: strings.Repeat("z", 43), TokenID: uuid.New(), ExpiresAt: later,
-	}); err != nil {
-		t.Errorf("revoking for an unknown subject = %v, want nothing to record", err)
+	unserved := services.newPublicClient(t, "an application the person never used")
+	stranger := services.newPerson(t, "6")
+	recorded := countRevocations(t, pool, subject)
+
+	for name, revocation := range map[string]oauth.AccessRevocation{
+		"an unknown user":          {ClientID: services.client.ID, UserID: uuid.New()},
+		"a person never served":    {ClientID: services.client.ID, UserID: stranger},
+		"another public client":    {ClientID: unserved.ID, UserID: subject},
+		"an unknown public client": {ClientID: uuid.New(), UserID: subject},
+	} {
+		revocation.TokenID, revocation.ExpiresAt = uuid.New(), later
+
+		if err := services.clientUsers.RevokeAccessToken(ctx, revocation); err != nil {
+			t.Errorf("revoking for %s = %v, want nothing to record", name, err)
+		}
 	}
 
-	if _, err := services.subjects.Holder(ctx, services.client.ID, subject, last, epoch); !errors.Is(
+	if countRevocations(t, pool, subject) != recorded || countRevocations(t, pool, stranger) != 0 ||
+		countClientUsers(t, pool, unserved.ID, subject) != 0 || countClientUsers(t, pool, services.client.ID, stranger) != 0 {
+		t.Error("a revocation without the exact relationship recorded something")
+	}
+
+	if _, err := services.clientUsers.Holder(ctx, services.client.ID, subject, last, epoch); !errors.Is(
 		err, oauth.ErrAccessNotGranted,
 	) {
 		t.Errorf("a revoked token's holder resolved: %v", err)
 	}
 }
 
-// A subject drawn twice is never assigned to a second person, a fresh draw is
-// tried at most three times, and issuance fails rather than continuing.
-func TestSubjectCollisionsRetryThenFailClosed(t *testing.T) {
+// Concurrent issuances for one public client and one person converge on one
+// relationship, and every other client and person keeps a relationship of its
+// own.
+func TestConcurrentIssuanceRecordsOneRelationshipPerPair(t *testing.T) {
 	t.Parallel()
 
 	pool := testdatabase.NewMigrated(t)
+	services := newNativeServices(t, pool)
+	ctx := t.Context()
+	offline := oidc.ScopeOpenID | oidc.ScopeOfflineAccess
 
-	// Each ends in a character whose two unused bits are zero, as every value
-	// this service draws does.
-	taken := strings.Repeat("T", 42) + "A"
-	fresh := strings.Repeat("F", 42) + "A"
+	const racing = 6
 
-	always := newNativeServicesDrawing(t, pool, func() (string, error) { return taken, nil })
-	first := always.subjectOf(t, always.signIn(t, oidc.ScopeOpenID, always.person))
+	begun := make([]pending, racing)
+	codes := make([]string, racing)
 
-	if first != taken {
-		t.Fatalf("the first person was not given the drawn subject")
+	for index := range racing {
+		begun[index] = services.begin(t, offline, "")
+		codes[index] = services.authorize(t, begun[index], services.person)
 	}
 
-	var draws int
+	results := make(chan error, racing)
 
-	other := always.newPerson(t, "5")
-	begun := always.begin(t, oidc.ScopeOpenID, "")
-	code := always.authorize(t, begun, other)
+	for index := range racing {
+		go func() {
+			issued, err := services.codes.Redeem(ctx, oauth.Redemption{
+				ClientID: services.client.ID, Code: codes[index], RedirectURI: nativeRedirect,
+				Verifier: begun[index].verifier,
+			}, services.sign)
+			if err == nil {
+				claims, verifyErr := services.verifier.Verify(issued.AccessToken)
+				if verifyErr != nil || claims.SubjectIdentifier() != services.person {
+					err = errors.New("a racing issuance named another subject")
+				}
+			}
 
-	counting := oauth.NewAuthorizationCodes(pool, oauth.NewPairwiseSubjects(pool, func() (string, error) {
-		draws++
-
-		return taken, nil
-	}))
-
-	if _, err := counting.Redeem(t.Context(), oauth.Redemption{
-		ClientID: always.client.ID, Code: code, RedirectURI: nativeRedirect, Verifier: begun.verifier,
-	}, always.sign); !errors.Is(err, oauth.ErrSubjectUnavailable) {
-		t.Fatalf("a colliding subject was issued: %v", err)
+			results <- err
+		}()
 	}
 
-	if draws != 3 {
-		t.Errorf("drew %d subjects, want exactly 3", draws)
+	for range racing {
+		if err := <-results; err != nil {
+			t.Errorf("a racing issuance failed: %v", err)
+		}
 	}
 
-	sequence := []string{taken, taken, fresh}
-	recovering := oauth.NewAuthorizationCodes(pool, oauth.NewPairwiseSubjects(pool, func() (string, error) {
-		next := sequence[0]
-		sequence = sequence[1:]
+	if held := countClientUsers(t, pool, services.client.ID, services.person); held != 1 {
+		t.Errorf("racing issuances left %d relationships, want 1", held)
+	}
 
-		return next, nil
-	}))
+	second := services.at(services.newPublicClient(t, "another installed application"))
+	other := services.newPerson(t, "5")
 
-	issued, err := recovering.Redeem(t.Context(), oauth.Redemption{
-		ClientID: always.client.ID, Code: code, RedirectURI: nativeRedirect, Verifier: begun.verifier,
-	}, always.sign)
+	if second.subjectOf(t, second.signIn(t, oidc.ScopeOpenID, services.person)) != services.person {
+		t.Error("another public client named the person by another subject")
+	}
+
+	if services.subjectOf(t, services.signIn(t, oidc.ScopeOpenID, other)) != other {
+		t.Error("another person was not named by their own user identifier")
+	}
+
+	for name, count := range map[string]struct{ held, want int }{
+		"the person at the first client":      {countClientUsers(t, pool, services.client.ID, services.person), 1},
+		"the person at the second client":     {countClientUsers(t, pool, second.client.ID, services.person), 1},
+		"another person at the first client":  {countClientUsers(t, pool, services.client.ID, other), 1},
+		"another person at the second client": {countClientUsers(t, pool, second.client.ID, other), 0},
+	} {
+		if count.held != count.want {
+			t.Errorf("%s: %d relationships, want %d", name, count.held, count.want)
+		}
+	}
+}
+
+// Once a public client's relationship with a person is gone, their offline
+// grants rotate nothing, their access tokens name no holder, and revoking one
+// records nothing.
+func TestRemovedRelationshipGrantsNothing(t *testing.T) {
+	t.Parallel()
+
+	pool := testdatabase.NewMigrated(t)
+	services := newNativeServices(t, pool)
+	ctx := t.Context()
+
+	issued := services.signIn(t, oidc.ScopeOpenID|oidc.ScopeOfflineAccess, services.person)
+
+	claims, err := services.verifier.Verify(issued.AccessToken)
 	if err != nil {
-		t.Fatalf("a fresh third draw was not issued: %v", err)
+		t.Fatalf("the issued access token is refused: %v", err)
 	}
 
-	if always.subjectOf(t, issued) != fresh {
-		t.Error("the second person was not given the fresh subject")
+	epoch := uuid.MustParse(claims.AuthEpoch)
+
+	if _, err := services.clientUsers.Holder(ctx, services.client.ID, services.person, claims.Identifier(), epoch); err != nil {
+		t.Fatalf("the positive control was refused: %v", err)
+	}
+
+	testdatabase.Execute(t, pool, `DELETE FROM oauth_public_client_user WHERE application_id = $1 AND user_id = $2`,
+		services.client.ID, services.person)
+
+	if _, err := services.refresh.Rotate(ctx, oauth.Refresh{ClientID: services.client.ID, Token: issued.RefreshToken}, services.sign); !errors.Is(
+		err, oauth.ErrInvalidGrant,
+	) {
+		t.Errorf("an offline grant outlived its relationship: %v", err)
+	}
+
+	if _, err := services.clientUsers.Holder(ctx, services.client.ID, services.person, claims.Identifier(), epoch); !errors.Is(
+		err, oauth.ErrAccessNotGranted,
+	) {
+		t.Errorf("an access token outlived its relationship: %v", err)
+	}
+
+	if err := services.clientUsers.RevokeAccessToken(ctx, oauth.AccessRevocation{
+		ClientID: services.client.ID, UserID: services.person, TokenID: claims.Identifier(), ExpiresAt: time.Now().Add(time.Minute),
+	}); err != nil || countRevocations(t, pool, services.person) != 0 ||
+		countClientUsers(t, pool, services.client.ID, services.person) != 0 {
+		t.Errorf("revoking without a relationship recorded something: %v", err)
 	}
 }
 
@@ -1090,8 +1322,332 @@ func TestNativeChangesAndRotationAreOrderedByAuthorityLock(t *testing.T) {
 	}
 }
 
-// Rotation between a provider sign-in's consumption and its code leaves no code.
-func TestRotationDuringProviderSignInIssuesNoCode(t *testing.T) {
+// Provider completion creates a consent holding the person and the database's
+// authentication time and grants the client nothing. Only the exact browser with
+// the consent's own handle can read or answer it, reading twice is harmless, and
+// Allow moves the person and that same time onto the code and clears the consent.
+func TestConsentBindsPersonAndCreatesCodeOnlyOnAllow(t *testing.T) {
+	t.Parallel()
+
+	pool := testdatabase.NewMigrated(t)
+	services := newNativeServices(t, pool)
+	ctx := t.Context()
+	scopes := oidc.ScopeOpenID | oidc.ScopeProfile
+
+	begun := services.begin(t, scopes, "")
+	other := services.begin(t, oidc.ScopeOpenID, "")
+
+	selection, err := services.requests.View(ctx, begun.PageHandle, begun.BrowserBinding)
+	if err != nil {
+		t.Fatalf("viewing the authorization: %v", err)
+	}
+
+	handle := services.reachConsent(t, begun, services.person)
+
+	var authenticated time.Time
+	if err := pool.QueryRow(ctx, `SELECT consent_authenticated_at FROM oauth_native_authorization
+		WHERE consent_user_id = $1`, services.person).Scan(&authenticated); err != nil {
+		t.Fatalf("reading the consent: %v", err)
+	}
+
+	for table, want := range map[string]int{
+		"oauth_native_authorization_code": 0, "oauth_public_client_user": 0, "oauth_refresh_family": 0,
+	} {
+		var held int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM `+table).Scan(&held); err != nil || held != want {
+			t.Errorf("%s holds %d rows before approval: %v", table, held, err)
+		}
+	}
+
+	for range 2 {
+		viewed, err := services.requests.ViewConsent(ctx, handle, begun.BrowserBinding)
+		if err != nil || viewed.ApplicationName != "an installed application" || viewed.Scopes != scopes ||
+			!viewed.ExpiresAt.Equal(selection.ExpiresAt) {
+			t.Fatalf("viewing the consent: %+v, %v", viewed, err)
+		}
+	}
+
+	for name, attempt := range map[string][2]string{
+		"another browser":         {handle, other.BrowserBinding},
+		"the page handle":         {begun.PageHandle, begun.BrowserBinding},
+		"another page's handle":   {other.PageHandle, other.BrowserBinding},
+		"the binding as a handle": {begun.BrowserBinding, begun.BrowserBinding},
+	} {
+		if _, err := services.requests.ViewConsent(ctx, attempt[0], attempt[1]); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+			t.Errorf("%s viewed the consent: %v", name, err)
+		}
+
+		if _, _, err := services.requests.AllowConsent(ctx, attempt[0], attempt[1]); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+			t.Errorf("%s allowed the consent: %v", name, err)
+		}
+
+		if _, err := services.requests.CancelConsent(ctx, attempt[0], attempt[1]); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+			t.Errorf("%s cancelled the consent: %v", name, err)
+		}
+	}
+
+	if _, err := services.requests.View(ctx, handle, begun.BrowserBinding); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+		t.Errorf("a consent handle read the provider selection: %v", err)
+	}
+
+	if _, err := services.requests.BeginProvider(ctx, handle, begun.BrowserBinding, oauth.Discord); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+		t.Errorf("a consent handle chose a provider: %v", err)
+	}
+
+	returned, code, err := services.requests.AllowConsent(ctx, handle, begun.BrowserBinding)
+	if err != nil || returned.RedirectURI != nativeRedirect || returned.ClientState != begun.state || code == "" {
+		t.Fatalf("allowing the consent: %+v, %v", returned, err)
+	}
+
+	var (
+		owner uuid.UUID
+		when  time.Time
+		stage string
+		left  int
+	)
+
+	if err := pool.QueryRow(ctx, `SELECT c.user_id, c.authenticated_at, r.stage,
+			(r.consent_handle_hash IS NOT NULL)::int + (r.consent_user_id IS NOT NULL)::int +
+				(r.consent_authenticated_at IS NOT NULL)::int
+		FROM oauth_native_authorization_code c
+		JOIN oauth_native_authorization r ON r.id = c.authorization_id`).Scan(&owner, &when, &stage, &left); err != nil {
+		t.Fatalf("reading the code: %v", err)
+	}
+
+	if owner != services.person || !when.Equal(authenticated) || stage != "code" || left != 0 {
+		t.Errorf("the code is for %s at %v, its authorization at %q holding %d consent values", owner, when, stage, left)
+	}
+
+	if _, _, err := services.requests.AllowConsent(ctx, handle, begun.BrowserBinding); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+		t.Errorf("a consent was allowed twice: %v", err)
+	}
+
+	if issued := services.redeem(t, code, begun.verifier); services.subjectOf(t, issued) != services.person {
+		t.Error("the code was not for the person who approved it")
+	}
+}
+
+// Cancelling removes the authorization and grants nothing, while the person's
+// account stays; deleting the person ends a consent that names them.
+func TestCancelledOrOrphanedConsentGrantsNothing(t *testing.T) {
+	t.Parallel()
+
+	pool := testdatabase.NewMigrated(t)
+	services := newNativeServices(t, pool)
+	ctx := t.Context()
+
+	person := services.newPerson(t, "9")
+
+	begun := services.begin(t, oidc.ScopeOpenID|oidc.ScopeOfflineAccess, "")
+	handle := services.reachConsent(t, begun, person)
+
+	returned, err := services.requests.CancelConsent(ctx, handle, begun.BrowserBinding)
+	if err != nil || returned.RedirectURI != nativeRedirect || returned.ClientState != begun.state {
+		t.Fatalf("cancelling the consent: %+v, %v", returned, err)
+	}
+
+	if _, _, err := services.requests.AllowConsent(ctx, handle, begun.BrowserBinding); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+		t.Errorf("a cancelled consent was allowed: %v", err)
+	}
+
+	if countAuthorizations(t, pool) != 0 || countClientUsers(t, pool, services.client.ID, person) != 0 {
+		t.Error("a cancelled consent left an authorization or a relationship")
+	}
+
+	var kept int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM "User" WHERE "id" = $1`, person).Scan(&kept); err != nil || kept != 1 {
+		t.Errorf("the account did not stay: %d, %v", kept, err)
+	}
+
+	orphaned := services.begin(t, oidc.ScopeOpenID, "")
+	orphanedHandle := services.reachConsent(t, orphaned, person)
+
+	testdatabase.Execute(t, pool, `DELETE FROM "User" WHERE "id" = $1`, person)
+
+	if _, _, err := services.requests.AllowConsent(ctx, orphanedHandle, orphaned.BrowserBinding); !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+		t.Errorf("a consent outlived its person: %v", err)
+	}
+
+	if countAuthorizations(t, pool) != 0 {
+		t.Error("a consent's slot outlived its person")
+	}
+}
+
+// An approval failing partway leaves no code and leaves the consent to answer
+// again, and a failure is reported as a failure rather than a refusal.
+func TestApprovalFailingPartwayLeavesConsentUsable(t *testing.T) {
+	t.Parallel()
+
+	pool := testdatabase.NewMigrated(t)
+	services := newNativeServices(t, pool)
+	ctx := t.Context()
+
+	begun := services.begin(t, oidc.ScopeOpenID, "")
+	handle := services.reachConsent(t, begun, services.person)
+
+	testdatabase.Execute(t, pool, `ALTER TABLE oauth_native_authorization_code RENAME TO unreachable`)
+
+	if _, _, err := services.requests.AllowConsent(ctx, handle, begun.BrowserBinding); err == nil ||
+		errors.Is(err, oauth.ErrNoSuchAuthorization) {
+		t.Fatalf("an approval without its code store reported %v, want a failure", err)
+	}
+
+	testdatabase.Execute(t, pool, `ALTER TABLE unreachable RENAME TO oauth_native_authorization_code`)
+
+	if _, err := services.requests.ViewConsent(ctx, handle, begun.BrowserBinding); err != nil {
+		t.Fatalf("the failed approval consumed the consent: %v", err)
+	}
+
+	if _, _, err := services.requests.AllowConsent(ctx, handle, begun.BrowserBinding); err != nil {
+		t.Errorf("the retried approval failed: %v", err)
+	}
+}
+
+// A consent's handle, person and authentication time exist exactly while the
+// authorization is at consent, whichever stage a statement tries to record them
+// at, and the handle is one authorization's alone.
+func TestConsentValuesExistOnlyAtConsentStage(t *testing.T) {
+	t.Parallel()
+
+	pool := testdatabase.NewMigrated(t)
+	services := newNativeServices(t, pool)
+	ctx := t.Context()
+
+	services.begin(t, oidc.ScopeOpenID, "")
+
+	const at = `UPDATE oauth_native_authorization SET stage = $1, page_handle_hash = NULL,
+		consent_handle_hash = CASE WHEN $2 THEN sha256('h'::bytea) END,
+		consent_user_id = CASE WHEN $3 THEN $5::uuid END,
+		consent_authenticated_at = CASE WHEN $4 THEN CURRENT_TIMESTAMP END`
+
+	for name, attempt := range map[string]struct {
+		stage                 string
+		handle, user, instant bool
+	}{
+		"consent without a handle":            {"consent", false, true, true},
+		"consent without a person":            {"consent", true, false, true},
+		"consent without an authentication":   {"consent", true, true, false},
+		"consent with nothing":                {"consent", false, false, false},
+		"the provider stage holding a handle": {"provider", true, false, false},
+		"the provider stage holding a person": {"provider", false, true, false},
+		"the provider stage holding a time":   {"provider", false, false, true},
+		"the code stage holding every value":  {"code", true, true, true},
+		"the code stage holding a handle":     {"code", true, false, false},
+		"a stage the service does not have":   {"approved", true, true, true},
+	} {
+		if _, err := pool.Exec(ctx, at, attempt.stage, attempt.handle, attempt.user, attempt.instant, services.person); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+
+	for name, attempt := range map[string]struct {
+		stage                 string
+		handle, user, instant bool
+	}{
+		"the provider stage holding nothing": {"provider", false, false, false},
+		"consent holding every value":        {"consent", true, true, true},
+		"the code stage holding nothing":     {"code", false, false, false},
+	} {
+		if _, err := pool.Exec(ctx, at, attempt.stage, attempt.handle, attempt.user, attempt.instant, services.person); err != nil {
+			t.Errorf("%s was refused: %v", name, err)
+		}
+	}
+
+	testdatabase.Execute(t, pool, `DELETE FROM oauth_native_authorization`)
+
+	first := services.begin(t, oidc.ScopeOpenID, "")
+	second := services.begin(t, oidc.ScopeOpenID, "")
+	services.reachConsent(t, first, services.person)
+	services.reachConsent(t, second, services.person)
+
+	if _, err := pool.Exec(ctx, `UPDATE oauth_native_authorization SET consent_handle_hash = sha256('same'::bytea)`); err == nil {
+		t.Error("two authorizations held one consent handle")
+	}
+}
+
+// A consent answer and a provider callback each wait for a rotation holding the
+// authority lock, and then find that it withdrew what they came for: no code and
+// no consent exist afterwards.
+func TestConsentTransitionsWaitingOnRotationGrantNothing(t *testing.T) {
+	t.Parallel()
+
+	pool := testdatabase.NewMigrated(t)
+	services := newNativeServices(t, pool)
+	ctx := t.Context()
+
+	begun := services.begin(t, oidc.ScopeOpenID, "")
+	handle := services.reachConsent(t, begun, services.person)
+
+	atProvider := services.begin(t, oidc.ScopeOpenID, "")
+
+	started, err := services.requests.BeginProvider(ctx, atProvider.PageHandle, atProvider.BrowserBinding, oauth.Discord)
+	if err != nil {
+		t.Fatalf("choosing a provider: %v", err)
+	}
+
+	login, err := services.requests.ConsumeProvider(ctx, oauth.Discord, started.State, atProvider.BrowserBinding)
+	if err != nil {
+		t.Fatalf("returning from the provider: %v", err)
+	}
+
+	rotator, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("starting a rotating transaction: %v", err)
+	}
+
+	defer func() { _ = rotator.Rollback(context.WithoutCancel(ctx)) }()
+
+	if _, err := rotator.Exec(ctx, `SELECT epoch FROM auth_epoch WHERE singleton FOR UPDATE`); err != nil {
+		t.Fatalf("holding the authority: %v", err)
+	}
+
+	answering := make(chan error, 1)
+
+	go func() {
+		_, _, err := services.requests.AllowConsent(ctx, handle, begun.BrowserBinding)
+		answering <- err
+	}()
+
+	continuing := make(chan error, 1)
+
+	go func() {
+		_, err := services.requests.BeginConsent(ctx, *login.Native, services.person)
+		continuing <- err
+	}()
+
+	if err := testdatabase.AwaitLockWaiters(ctx, pool, 2); err != nil {
+		t.Fatalf("an approval and a callback never waited for a held rotation: %v", err)
+	}
+
+	if _, err := rotator.Exec(ctx, `UPDATE auth_epoch SET epoch = gen_random_uuid() WHERE singleton`); err != nil {
+		t.Fatalf("replacing the authority: %v", err)
+	}
+
+	if err := rotator.Commit(ctx); err != nil {
+		t.Fatalf("committing the rotation: %v", err)
+	}
+
+	if err := <-answering; !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+		t.Errorf("an approval waiting on a rotation reported %v", err)
+	}
+
+	if err := <-continuing; !errors.Is(err, oauth.ErrNoSuchAuthorization) {
+		t.Errorf("a callback waiting on a rotation reported %v", err)
+	}
+
+	var codes, consents int
+	if err := pool.QueryRow(ctx, `SELECT
+			(SELECT count(*) FROM oauth_native_authorization_code),
+			(SELECT count(*) FROM oauth_native_authorization
+				WHERE stage = 'consent' AND id = $1)`, login.Native.AuthorizationID).Scan(&codes, &consents); err != nil ||
+		codes != 0 || consents != 0 {
+		t.Errorf("transitions behind a rotation left %d codes and %d consents: %v", codes, consents, err)
+	}
+}
+
+// Rotation between a provider sign-in's consumption and its consent leaves no
+// consent, and a provider's refusal ends the authorization.
+func TestRotationDuringProviderSignInBeginsNoConsent(t *testing.T) {
 	t.Parallel()
 
 	pool := testdatabase.NewMigrated(t)
@@ -1118,10 +1674,10 @@ func TestRotationDuringProviderSignInIssuesNoCode(t *testing.T) {
 		t.Fatalf("rotating the authority: %v", err)
 	}
 
-	if _, err := services.requests.CompleteProvider(ctx, *login.Native, services.person); !errors.Is(
+	if _, err := services.requests.BeginConsent(ctx, *login.Native, services.person); !errors.Is(
 		err, oauth.ErrNoSuchAuthorization,
 	) {
-		t.Errorf("a code was issued after the rotation: %v", err)
+		t.Errorf("a consent began after the rotation: %v", err)
 	}
 
 	again := services.begin(t, oidc.ScopeOpenID, "")
@@ -1142,7 +1698,7 @@ func TestRotationDuringProviderSignInIssuesNoCode(t *testing.T) {
 		t.Errorf("a provider sign-in was consumed twice: %v", err)
 	}
 
-	if code, err := services.requests.CompleteProvider(ctx, *login.Native, uuid.Nil); err != nil || code != "" {
+	if err := services.requests.EndProvider(ctx, *login.Native); err != nil {
 		t.Fatalf("ending an authorization the provider refused: %v", err)
 	}
 
@@ -1164,8 +1720,8 @@ func TestNativeRecordsAreSweptOnceTheyEnd(t *testing.T) {
 	issued := services.signIn(t, oidc.ScopeOpenID|oidc.ScopeOfflineAccess, services.person)
 	subject := services.subjectOf(t, issued)
 
-	if err := services.subjects.RevokeAccessToken(ctx, oauth.AccessRevocation{
-		ClientID: services.client.ID, Subject: subject, TokenID: uuid.New(), ExpiresAt: time.Now().Add(-time.Second),
+	if err := services.clientUsers.RevokeAccessToken(ctx, oauth.AccessRevocation{
+		ClientID: services.client.ID, UserID: subject, TokenID: uuid.New(), ExpiresAt: time.Now().Add(-time.Second),
 	}); err != nil {
 		t.Fatalf("recording a revocation: %v", err)
 	}
@@ -1186,7 +1742,7 @@ func TestNativeRecordsAreSweptOnceTheyEnd(t *testing.T) {
 	for name, forget := range map[string]func(context.Context) (int64, error){
 		"authorizations": services.requests.Forget,
 		"families":       services.refresh.Forget,
-		"revocations":    services.subjects.ForgetRevocations,
+		"revocations":    services.clientUsers.ForgetRevocations,
 	} {
 		if removed, err := forget(ctx); err != nil || removed != 1 {
 			t.Errorf("%s: a sweep removed %d ended records, want 1: %v", name, removed, err)

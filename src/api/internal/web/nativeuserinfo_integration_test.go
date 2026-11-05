@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/abandontech/abandonauth/src/api/internal/database"
+	"github.com/abandontech/abandonauth/src/api/internal/database/testdatabase"
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
 	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
 )
@@ -28,7 +29,8 @@ func expectInvalidToken(t *testing.T, answer *servertest.Response) {
 	}
 }
 
-// UserInfo releases the pairwise subject, and the username only under profile.
+// UserInfo releases the user's canonical UUID as the subject, the same one the
+// token carries, and the username only under profile.
 func TestUserInfoReleasesOnlyWhatScopeGrants(t *testing.T) {
 	t.Parallel()
 
@@ -39,11 +41,12 @@ func TestUserInfoReleasesOnlyWhatScopeGrants(t *testing.T) {
 	_, without := client.Tokens(ipv4Template, "openid", service.Providers.Someone(oauth.Discord, "another person"))
 
 	for name, test := range map[string]struct {
-		token   string
-		members []string
+		token    string
+		username string
+		members  []string
 	}{
-		"with profile":    {withProfile.AccessToken, []string{"preferred_username", "sub"}},
-		"without profile": {without.AccessToken, []string{"sub"}},
+		"with profile":    {withProfile.AccessToken, "the person", []string{"preferred_username", "sub"}},
+		"without profile": {without.AccessToken, "another person", []string{"sub"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			answer := service.GET("/oauth/userinfo", servertest.Bearer(test.token)).ExpectStatus(http.StatusOK)
@@ -68,6 +71,10 @@ func TestUserInfoReleasesOnlyWhatScopeGrants(t *testing.T) {
 
 			if subject := servertest.DecodeClaims(test.token)["sub"]; string(claims["sub"]) != `"`+subject.(string)+`"` {
 				t.Error("UserInfo named another subject than the token")
+			}
+
+			if want := `"` + userIDOf(t, service, test.username) + `"`; string(claims["sub"]) != want {
+				t.Errorf("UserInfo named the person %s, want %s", claims["sub"], want)
 			}
 		})
 	}
@@ -121,36 +128,52 @@ func TestUserInfoAcceptsOnlyGenuineCurrentAccessTokens(t *testing.T) {
 	}
 
 	now := time.Now().Unix()
+	subject, _ := claims["sub"].(string)
+	resigned := func(change func(map[string]any)) string {
+		return "Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(change))
+	}
+	withSubject := func(value any) string {
+		return resigned(func(c map[string]any) { c["sub"] = value })
+	}
 
 	for name, headers := range map[string][]string{
-		"no header":                  nil,
-		"an ID token":                {"Bearer " + issued.IDToken},
-		"a refresh token":            {"Bearer " + issued.RefreshToken},
-		"a user access token":        {"Bearer " + userToken},
-		"an application token":       {"Bearer " + applicationToken},
-		"another scheme":             {"Basic " + issued.AccessToken},
-		"two headers":                {"Bearer " + issued.AccessToken, "Bearer " + issued.AccessToken},
-		"a truncated signature":      {"Bearer " + issued.AccessToken[:len(issued.AccessToken)-4]},
-		"an oversized token":         {"Bearer " + strings.Repeat("a", 8193)},
-		"signed with the ID key":     {"Bearer " + sign("id", header(accessKeyID, "at+jwt"), claims)},
-		"the ID key's identifier":    {"Bearer " + sign("id", header(idKeyID, "at+jwt"), claims)},
-		"the ID token type":          {"Bearer " + sign("access", header(accessKeyID, "JWT"), claims)},
-		"no type":                    {"Bearer " + sign("access", map[string]any{"alg": "RS256", "kid": accessKeyID}, claims)},
-		"another algorithm":          {"Bearer " + sign("access", map[string]any{"alg": "RS384", "kid": accessKeyID, "typ": "at+jwt"}, claims)},
-		"no algorithm":               {"Bearer " + unsignedToken(claims)},
-		"an embedded key":            {"Bearer " + sign("access", map[string]any{"alg": "RS256", "kid": accessKeyID, "typ": "at+jwt", "jwk": map[string]any{}}, claims)},
-		"another issuer":             {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["iss"] = servertest.APIOrigin }))},
-		"an audience list":           {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["aud"] = []any{c["aud"]} }))},
-		"another audience":           {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["aud"] = uuid.NewString() }))},
-		"a longer lifetime":          {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["exp"] = now + 3600 }))},
-		"an expired token":           {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["iat"], c["nbf"], c["exp"] = now-1000, now-1000, now-100 }))},
-		"a fractional time":          {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["iat"] = 1.5 }))},
-		"a string time":              {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["exp"] = "9999999999" }))},
-		"an unknown subject":         {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["sub"] = strings.Repeat("S", 42) + "A" }))},
-		"a stale epoch":              {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["auth_epoch"] = uuid.NewString() }))},
-		"an added claim":             {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["preferred_username"] = "p" }))},
-		"a non-canonical scope":      {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["scope"] = "offline_access openid" }))},
-		"another client, same claim": {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["client_id"], c["aud"] = uuid.NewString(), uuid.NewString() }))},
+		"no header":                      nil,
+		"an ID token":                    {"Bearer " + issued.IDToken},
+		"a refresh token":                {"Bearer " + issued.RefreshToken},
+		"a user access token":            {"Bearer " + userToken},
+		"an application token":           {"Bearer " + applicationToken},
+		"another scheme":                 {"Basic " + issued.AccessToken},
+		"two headers":                    {"Bearer " + issued.AccessToken, "Bearer " + issued.AccessToken},
+		"a truncated signature":          {"Bearer " + issued.AccessToken[:len(issued.AccessToken)-4]},
+		"an oversized token":             {"Bearer " + strings.Repeat("a", 8193)},
+		"signed with the ID key":         {"Bearer " + sign("id", header(accessKeyID, "at+jwt"), claims)},
+		"the ID key's identifier":        {"Bearer " + sign("id", header(idKeyID, "at+jwt"), claims)},
+		"the ID token type":              {"Bearer " + sign("access", header(accessKeyID, "JWT"), claims)},
+		"no type":                        {"Bearer " + sign("access", map[string]any{"alg": "RS256", "kid": accessKeyID}, claims)},
+		"another algorithm":              {"Bearer " + sign("access", map[string]any{"alg": "RS384", "kid": accessKeyID, "typ": "at+jwt"}, claims)},
+		"no algorithm":                   {"Bearer " + unsignedToken(claims)},
+		"an embedded key":                {"Bearer " + sign("access", map[string]any{"alg": "RS256", "kid": accessKeyID, "typ": "at+jwt", "jwk": map[string]any{}}, claims)},
+		"another issuer":                 {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["iss"] = servertest.APIOrigin }))},
+		"an audience list":               {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["aud"] = []any{c["aud"]} }))},
+		"another audience":               {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["aud"] = uuid.NewString() }))},
+		"a longer lifetime":              {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["exp"] = now + 3600 }))},
+		"an expired token":               {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["iat"], c["nbf"], c["exp"] = now-1000, now-1000, now-100 }))},
+		"a fractional time":              {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["iat"] = 1.5 }))},
+		"a string time":                  {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["exp"] = "9999999999" }))},
+		"an unknown user":                {withSubject(uuid.NewString())},
+		"a user the client never served": {withSubject(userIDOf(t, service, "a site user"))},
+		"the nil subject":                {withSubject(uuid.Nil.String())},
+		"an upper-case subject":          {withSubject(strings.ToUpper(subject))},
+		"a braced subject":               {withSubject("{" + subject + "}")},
+		"a compact subject":              {withSubject(strings.ReplaceAll(subject, "-", ""))},
+		"a malformed subject":            {withSubject(subject[:35] + "g")},
+		"an opaque subject":              {withSubject(strings.Repeat("S", 42) + "A")},
+		"a numeric subject":              {withSubject(7)},
+		"no subject":                     {resigned(func(c map[string]any) { delete(c, "sub") })},
+		"a stale epoch":                  {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["auth_epoch"] = uuid.NewString() }))},
+		"an added claim":                 {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["preferred_username"] = "p" }))},
+		"a non-canonical scope":          {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["scope"] = "offline_access openid" }))},
+		"another client, same claim":     {"Bearer " + sign("access", header(accessKeyID, "at+jwt"), altered(func(c map[string]any) { c["client_id"], c["aud"] = uuid.NewString(), uuid.NewString() }))},
 	} {
 		t.Run(name, func(t *testing.T) {
 			expectInvalidToken(t, service.GET("/oauth/userinfo", func(request *http.Request) {
@@ -205,6 +228,18 @@ func TestUserInfoStopsAtOnceWhileLocalValidationContinues(t *testing.T) {
 
 	if _, err := accessTokens.ValidateAccessToken(ofDeleted.AccessToken, deleted.ID.String()); err != nil {
 		t.Errorf("a local validator stopped accepting a deleted application's token before it expired: %v", err)
+	}
+
+	// No endpoint deletes a person, so the row is removed as an operator would.
+	_, ofGone := client.Tokens(ipv4Template, "openid offline_access", service.Providers.Someone(oauth.Discord, "gone"))
+
+	service.GET("/oauth/userinfo", servertest.Bearer(ofGone.AccessToken)).ExpectStatus(http.StatusOK)
+	testdatabase.Execute(t, service.Pool, `DELETE FROM "User" WHERE "id" = $1`, userIDOf(t, service, "gone"))
+	expectInvalidToken(t, service.GET("/oauth/userinfo", servertest.Bearer(ofGone.AccessToken)))
+	expectOAuthError(t, client.Refresh(ofGone.RefreshToken, ""), http.StatusBadRequest, "invalid_grant")
+
+	if _, err := accessTokens.ValidateAccessToken(ofGone.AccessToken, application.ID.String()); err != nil {
+		t.Errorf("a local validator stopped accepting a deleted person's token before it expired: %v", err)
 	}
 
 	_, issued := client.Tokens(ipv4Template, "openid offline_access", service.Providers.Someone(oauth.Discord, "p"))

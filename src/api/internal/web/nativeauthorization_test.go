@@ -298,6 +298,49 @@ func TestPageHandleIsReadOnlyInItsExactForm(t *testing.T) {
 	}
 }
 
+// A consent handle is read from the consent address's own path value, so the
+// page's path value never answers for it, and only an opaque value of the exact
+// length a handle has is looked up.
+func TestConsentHandleIsReadOnlyWhenOpaque(t *testing.T) {
+	t.Parallel()
+
+	for name, handle := range map[string]string{
+		"nothing":           "",
+		"short":             pageHandle[1:],
+		"long":              pageHandle + "A",
+		"padded":            pageHandle[:42] + "=",
+		"not base64url":     pageHandle[:42] + "+",
+		"an escape":         "%41" + pageHandle[3:],
+		"non-zero tail bit": strings.Repeat("A", 42) + "B",
+		"a large body":      strings.Repeat("A", 8193),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			request := httptest.NewRequest(http.MethodGet, APIRoot+"/oauth/consent/x", nil)
+			request.SetPathValue("consent", handle)
+
+			if _, readable := readConsentHandle(request); readable {
+				t.Error("a malformed handle would be looked up")
+			}
+		})
+	}
+
+	onThePage := httptest.NewRequest(http.MethodGet, APIRoot+"/oauth/authorization/"+pageHandle, nil)
+	onThePage.SetPathValue("request", pageHandle)
+
+	if _, readable := readConsentHandle(onThePage); readable {
+		t.Error("the page's path value was read as a consent handle")
+	}
+
+	request := httptest.NewRequest(http.MethodGet, APIRoot+"/oauth/consent/"+pageHandle, nil)
+	request.SetPathValue("consent", pageHandle)
+
+	if handle, readable := readConsentHandle(request); !readable || handle != pageHandle {
+		t.Error("a well-formed handle was refused")
+	}
+}
+
 // Only the four providers can be chosen, each by its exact name.
 func TestProviderSelectionNamesOnlyOfferedProviders(t *testing.T) {
 	t.Parallel()

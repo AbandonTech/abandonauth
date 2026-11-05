@@ -85,7 +85,7 @@ type Server struct {
 	authorizations *oauth.AuthorizationRequests
 	nativeCodes    *oauth.AuthorizationCodes
 	refreshTokens  *oauth.RefreshTokens
-	subjects       *oauth.PairwiseSubjects
+	clientUsers    *oauth.PublicClientUsers
 	admission      *publicProtocolAdmission
 	discovery      []byte
 
@@ -153,7 +153,7 @@ func NewServer(configuration config.Config, dependencies Dependencies) (*Server,
 		return nil, err
 	}
 
-	subjects := oauth.NewPairwiseSubjects(dependencies.Pool, nil)
+	clientUsers := oauth.NewPublicClientUsers(dependencies.Pool)
 
 	return &Server{
 		config:       configuration,
@@ -172,9 +172,9 @@ func NewServer(configuration config.Config, dependencies Dependencies) (*Server,
 		issuer:         issuer,
 		accessTokens:   oidc.NewAccessTokenVerifier(configuration.OpenIDIssuer, configuration.SigningKeys, now),
 		authorizations: oauth.NewAuthorizationRequests(dependencies.Pool, logins),
-		nativeCodes:    oauth.NewAuthorizationCodes(dependencies.Pool, subjects),
+		nativeCodes:    oauth.NewAuthorizationCodes(dependencies.Pool, clientUsers),
 		refreshTokens:  oauth.NewRefreshTokens(dependencies.Pool),
-		subjects:       subjects,
+		clientUsers:    clientUsers,
 		admission:      newPublicProtocolAdmission(),
 		discovery:      discovery,
 
@@ -253,7 +253,7 @@ func (s *Server) ExpiredRecordSweeps() []housekeeping.Sweep {
 		{Records: "rate limit windows", Forget: s.limiter.Forget},
 		{Records: "public client authorizations", Forget: s.authorizations.Forget},
 		{Records: "ended offline grants", Forget: s.refreshTokens.Forget},
-		{Records: "expired access token revocations", Forget: s.subjects.ForgetRevocations},
+		{Records: "expired access token revocations", Forget: s.clientUsers.ForgetRevocations},
 	}
 }
 

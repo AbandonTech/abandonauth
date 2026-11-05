@@ -81,8 +81,14 @@ type Begun struct {
 	BrowserBinding string
 }
 
-// PendingAuthorization is everything the authorization page may show.
-type PendingAuthorization struct {
+// ProviderSelection is everything the provider selection page may show.
+type ProviderSelection struct {
+	ApplicationName string
+	ExpiresAt       time.Time
+}
+
+// PendingConsent is everything the consent screen may show.
+type PendingConsent struct {
 	ApplicationName string
 	Scopes          oidc.Scopes
 	ExpiresAt       time.Time
@@ -167,38 +173,29 @@ func (a *AuthorizationRequests) Begin(ctx context.Context, request Authorization
 
 // View returns what the page may show for an authorization still waiting for
 // a choice in the browser that began it. Reading it changes nothing.
-func (a *AuthorizationRequests) View(ctx context.Context, handle, binding string) (PendingAuthorization, error) {
+func (a *AuthorizationRequests) View(ctx context.Context, handle, binding string) (ProviderSelection, error) {
 	if !credentials.IsOpaqueValue(handle) || !credentials.IsOpaqueValue(binding) {
-		return PendingAuthorization{}, ErrNoSuchAuthorization
+		return ProviderSelection{}, ErrNoSuchAuthorization
 	}
 
-	pending, err := a.queries.GetPendingNativeAuthorization(ctx, query.GetPendingNativeAuthorizationParams{
+	selection, err := a.queries.GetNativeAuthorizationProviderSelection(ctx, query.GetNativeAuthorizationProviderSelectionParams{
 		PageHandleHash:     credentials.Digest(credentials.DomainAuthorizationPage, handle),
 		BrowserBindingHash: credentials.Digest(credentials.DomainNativeBrowserBinding, binding),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return PendingAuthorization{}, ErrNoSuchAuthorization
+		return ProviderSelection{}, ErrNoSuchAuthorization
 	}
 
 	if err != nil {
-		return PendingAuthorization{}, fmt.Errorf("reading an authorization: %w", err)
+		return ProviderSelection{}, fmt.Errorf("reading an authorization: %w", err)
 	}
 
-	scopes, err := oidc.ParseScopes(pending.Scopes)
-	if err != nil {
-		return PendingAuthorization{}, fmt.Errorf("reading an authorization: %w", err)
-	}
-
-	return PendingAuthorization{
-		ApplicationName: pending.ApplicationName,
-		Scopes:          scopes,
-		ExpiresAt:       pending.ExpiresAt,
-	}, nil
+	return ProviderSelection{ApplicationName: selection.ApplicationName, ExpiresAt: selection.ExpiresAt}, nil
 }
 
 // BeginProvider spends an authorization's page on a provider and records the
-// provider sign-in that continues it, in one transaction. Of a choice and a
-// cancellation for one authorization, exactly one finds it.
+// provider sign-in that continues it, in one transaction. Of two choices for
+// one authorization, exactly one finds it.
 func (a *AuthorizationRequests) BeginProvider(
 	ctx context.Context, handle, binding string, provider Provider,
 ) (Start, error) {
@@ -249,47 +246,6 @@ func (a *AuthorizationRequests) BeginProvider(
 	return started, nil
 }
 
-// Cancel ends an authorization still waiting for a choice and returns where its
-// client is told so.
-func (a *AuthorizationRequests) Cancel(ctx context.Context, handle, binding string) (ClientReturn, error) {
-	if !credentials.IsOpaqueValue(handle) || !credentials.IsOpaqueValue(binding) {
-		return ClientReturn{}, ErrNoSuchAuthorization
-	}
-
-	transaction, err := a.pool.Begin(ctx)
-	if err != nil {
-		return ClientReturn{}, fmt.Errorf("cancelling an authorization: %w", err)
-	}
-
-	defer func() { _ = database.Rollback(ctx, transaction) }()
-
-	queries := a.queries.WithTx(transaction)
-
-	epoch, err := queries.LockAuthEpochShared(ctx)
-	if err != nil {
-		return ClientReturn{}, fmt.Errorf("cancelling an authorization: %w", err)
-	}
-
-	cancelled, err := queries.CancelNativeAuthorization(ctx, query.CancelNativeAuthorizationParams{
-		PageHandleHash:     credentials.Digest(credentials.DomainAuthorizationPage, handle),
-		BrowserBindingHash: credentials.Digest(credentials.DomainNativeBrowserBinding, binding),
-		AuthEpoch:          epoch,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ClientReturn{}, ErrNoSuchAuthorization
-	}
-
-	if err != nil {
-		return ClientReturn{}, fmt.Errorf("cancelling an authorization: %w", err)
-	}
-
-	if err := transaction.Commit(ctx); err != nil {
-		return ClientReturn{}, fmt.Errorf("cancelling an authorization: %w", err)
-	}
-
-	return ClientReturn{RedirectURI: cancelled.RedirectUri, ClientState: cancelled.ClientState}, nil
-}
-
 // ConsumeProvider spends the provider sign-in a callback presents when it
 // continues a public client's authorization in the browser that began it.
 // ErrNoSuchLogin means the callback is not one, and the caller may then try it
@@ -300,80 +256,247 @@ func (a *AuthorizationRequests) ConsumeProvider(
 	return a.logins.consumeNative(ctx, provider, state, binding)
 }
 
-// CompleteProvider ends an authorization whose provider sign-in finished.
+// BeginConsent moves an authorization whose provider authenticated a person to
+// the stage where that person decides, and returns the fresh handle that alone
+// can read or answer it.
 //
-// With a user, the authorization's code is issued in the same transaction that
-// advances it, under the shared authority lock, and only while the
+// The move happens under the shared authority lock and only while the
 // authorization still waits and its client is still public: a rotation that
 // committed first leaves nothing to advance, and one that waits deletes the
-// code with the authorization. Without a user, the provider refused, and the
-// authorization is ended.
-func (a *AuthorizationRequests) CompleteProvider(
+// consent with the authorization. It creates no code and no grant.
+func (a *AuthorizationRequests) BeginConsent(
 	ctx context.Context, continuation NativeContinuation, userID uuid.UUID,
 ) (string, error) {
+	handle, err := credentials.NewOpaqueValue()
+	if err != nil {
+		return "", err
+	}
+
 	transaction, err := a.pool.Begin(ctx)
 	if err != nil {
-		return "", fmt.Errorf("completing an authorization: %w", err)
+		return "", fmt.Errorf("beginning a consent: %w", err)
 	}
 
 	defer func() { _ = database.Rollback(ctx, transaction) }()
 
 	queries := a.queries.WithTx(transaction)
 
+	if err := lockAwaitingProvider(ctx, queries, continuation); err != nil {
+		return "", err
+	}
+
+	advanced, err := queries.AdvanceNativeAuthorizationToConsent(ctx, query.AdvanceNativeAuthorizationToConsentParams{
+		ID:                continuation.AuthorizationID,
+		ConsentHandleHash: credentials.Digest(credentials.DomainAuthorizationConsent, handle),
+		ConsentUserID:     &userID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("beginning a consent: %w", err)
+	}
+
+	// The authorization is locked above, so its row is there to change.
+	if advanced != 1 {
+		return "", ErrNoSuchAuthorization
+	}
+
+	if err := transaction.Commit(ctx); err != nil {
+		return "", fmt.Errorf("beginning a consent: %w", err)
+	}
+
+	return handle, nil
+}
+
+// EndProvider ends an authorization whose provider did not authenticate a
+// person, or whose sign-in could not be completed, before any consent exists.
+func (a *AuthorizationRequests) EndProvider(ctx context.Context, continuation NativeContinuation) error {
+	transaction, err := a.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("ending an authorization: %w", err)
+	}
+
+	defer func() { _ = database.Rollback(ctx, transaction) }()
+
+	queries := a.queries.WithTx(transaction)
+
+	if err := lockAwaitingProvider(ctx, queries, continuation); err != nil {
+		return err
+	}
+
+	if _, err := queries.DeleteNativeAuthorization(ctx, continuation.AuthorizationID); err != nil {
+		return fmt.Errorf("ending an authorization: %w", err)
+	}
+
+	if err := transaction.Commit(ctx); err != nil {
+		return fmt.Errorf("ending an authorization: %w", err)
+	}
+
+	return nil
+}
+
+// lockAwaitingProvider takes the shared authority lock and then the row of an
+// authorization still waiting for its provider under the current authority.
+func lockAwaitingProvider(ctx context.Context, queries *query.Queries, continuation NativeContinuation) error {
 	epoch, err := queries.LockAuthEpochShared(ctx)
 	if err != nil {
-		return "", fmt.Errorf("completing an authorization: %w", err)
+		return fmt.Errorf("continuing an authorization: %w", err)
 	}
 
 	if _, err := queries.LockNativeAuthorizationAwaitingProvider(ctx, query.LockNativeAuthorizationAwaitingProviderParams{
 		ID: continuation.AuthorizationID, AuthEpoch: epoch,
 	}); errors.Is(err, pgx.ErrNoRows) {
-		return "", ErrNoSuchAuthorization
+		return ErrNoSuchAuthorization
 	} else if err != nil {
-		return "", fmt.Errorf("completing an authorization: %w", err)
+		return fmt.Errorf("continuing an authorization: %w", err)
 	}
 
-	if userID == uuid.Nil {
-		if _, err := queries.DeleteNativeAuthorization(ctx, continuation.AuthorizationID); err != nil {
-			return "", fmt.Errorf("ending an authorization: %w", err)
-		}
+	return nil
+}
 
-		if err := transaction.Commit(ctx); err != nil {
-			return "", fmt.Errorf("ending an authorization: %w", err)
-		}
+// ViewConsent returns what the consent screen may show for an authorization
+// waiting for the person's answer in the browser that began it. Reading it
+// changes nothing.
+func (a *AuthorizationRequests) ViewConsent(ctx context.Context, handle, binding string) (PendingConsent, error) {
+	if !credentials.IsOpaqueValue(handle) || !credentials.IsOpaqueValue(binding) {
+		return PendingConsent{}, ErrNoSuchAuthorization
+	}
 
-		return "", nil
+	pending, err := a.queries.GetNativeAuthorizationConsent(ctx, query.GetNativeAuthorizationConsentParams{
+		ConsentHandleHash:  credentials.Digest(credentials.DomainAuthorizationConsent, handle),
+		BrowserBindingHash: credentials.Digest(credentials.DomainNativeBrowserBinding, binding),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return PendingConsent{}, ErrNoSuchAuthorization
+	}
+
+	if err != nil {
+		return PendingConsent{}, fmt.Errorf("reading a consent: %w", err)
+	}
+
+	scopes, err := oidc.ParseScopes(pending.Scopes)
+	if err != nil {
+		return PendingConsent{}, fmt.Errorf("reading a consent: %w", err)
+	}
+
+	return PendingConsent{
+		ApplicationName: pending.ApplicationName,
+		Scopes:          scopes,
+		ExpiresAt:       pending.ExpiresAt,
+	}, nil
+}
+
+// AllowConsent issues the authorization's code on the person's approval, moving
+// the person and authentication time the consent recorded onto the code in one
+// transaction. It returns where the client receives the code, and the code.
+func (a *AuthorizationRequests) AllowConsent(
+	ctx context.Context, handle, binding string,
+) (ClientReturn, string, error) {
+	if !credentials.IsOpaqueValue(handle) || !credentials.IsOpaqueValue(binding) {
+		return ClientReturn{}, "", ErrNoSuchAuthorization
 	}
 
 	code, err := credentials.NewOpaqueValue()
 	if err != nil {
-		return "", err
+		return ClientReturn{}, "", err
+	}
+
+	transaction, err := a.pool.Begin(ctx)
+	if err != nil {
+		return ClientReturn{}, "", fmt.Errorf("allowing a consent: %w", err)
+	}
+
+	defer func() { _ = database.Rollback(ctx, transaction) }()
+
+	queries := a.queries.WithTx(transaction)
+
+	awaiting, err := lockAwaitingConsent(ctx, queries, handle, binding)
+	if err != nil {
+		return ClientReturn{}, "", err
 	}
 
 	created, err := queries.CreateNativeAuthorizationCode(ctx, query.CreateNativeAuthorizationCodeParams{
 		CodeHash:        credentials.Digest(credentials.DomainNativeAuthorizationCode, code),
-		UserID:          userID,
-		AuthorizationID: continuation.AuthorizationID,
+		AuthorizationID: awaiting.ID,
 	})
 	if err != nil {
-		return "", fmt.Errorf("issuing an authorization code: %w", err)
+		return ClientReturn{}, "", fmt.Errorf("issuing an authorization code: %w", err)
 	}
 
-	advanced, err := queries.MarkNativeAuthorizationCodeIssued(ctx, continuation.AuthorizationID)
+	advanced, err := queries.MarkNativeAuthorizationCodeIssued(ctx, awaiting.ID)
 	if err != nil {
-		return "", fmt.Errorf("issuing an authorization code: %w", err)
+		return ClientReturn{}, "", fmt.Errorf("issuing an authorization code: %w", err)
 	}
 
 	// The authorization is locked above, so both rows are there to change.
 	if created != 1 || advanced != 1 {
-		return "", ErrNoSuchAuthorization
+		return ClientReturn{}, "", ErrNoSuchAuthorization
 	}
 
 	if err := transaction.Commit(ctx); err != nil {
-		return "", fmt.Errorf("issuing an authorization code: %w", err)
+		return ClientReturn{}, "", fmt.Errorf("issuing an authorization code: %w", err)
 	}
 
-	return code, nil
+	return ClientReturn{RedirectURI: awaiting.RedirectUri, ClientState: awaiting.ClientState}, code, nil
+}
+
+// CancelConsent ends an authorization on the person's refusal and returns where
+// its client is told so. The client is left with nothing; the account the
+// person's provider sign-in resolved to stays.
+func (a *AuthorizationRequests) CancelConsent(ctx context.Context, handle, binding string) (ClientReturn, error) {
+	if !credentials.IsOpaqueValue(handle) || !credentials.IsOpaqueValue(binding) {
+		return ClientReturn{}, ErrNoSuchAuthorization
+	}
+
+	transaction, err := a.pool.Begin(ctx)
+	if err != nil {
+		return ClientReturn{}, fmt.Errorf("cancelling a consent: %w", err)
+	}
+
+	defer func() { _ = database.Rollback(ctx, transaction) }()
+
+	queries := a.queries.WithTx(transaction)
+
+	awaiting, err := lockAwaitingConsent(ctx, queries, handle, binding)
+	if err != nil {
+		return ClientReturn{}, err
+	}
+
+	if _, err := queries.DeleteNativeAuthorization(ctx, awaiting.ID); err != nil {
+		return ClientReturn{}, fmt.Errorf("cancelling a consent: %w", err)
+	}
+
+	if err := transaction.Commit(ctx); err != nil {
+		return ClientReturn{}, fmt.Errorf("cancelling a consent: %w", err)
+	}
+
+	return ClientReturn{RedirectURI: awaiting.RedirectUri, ClientState: awaiting.ClientState}, nil
+}
+
+// lockAwaitingConsent takes the shared authority lock and then the row of the
+// consent a handle and binding name, so an approval, a cancellation and a
+// rotation racing for one consent are ordered and only one of the first two
+// finds it.
+func lockAwaitingConsent(
+	ctx context.Context, queries *query.Queries, handle, binding string,
+) (query.LockNativeAuthorizationAwaitingConsentRow, error) {
+	epoch, err := queries.LockAuthEpochShared(ctx)
+	if err != nil {
+		return query.LockNativeAuthorizationAwaitingConsentRow{}, fmt.Errorf("answering a consent: %w", err)
+	}
+
+	awaiting, err := queries.LockNativeAuthorizationAwaitingConsent(ctx, query.LockNativeAuthorizationAwaitingConsentParams{
+		ConsentHandleHash:  credentials.Digest(credentials.DomainAuthorizationConsent, handle),
+		BrowserBindingHash: credentials.Digest(credentials.DomainNativeBrowserBinding, binding),
+		AuthEpoch:          epoch,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return query.LockNativeAuthorizationAwaitingConsentRow{}, ErrNoSuchAuthorization
+	}
+
+	if err != nil {
+		return query.LockNativeAuthorizationAwaitingConsentRow{}, fmt.Errorf("answering a consent: %w", err)
+	}
+
+	return awaiting, nil
 }
 
 // Forget removes authorizations that expired, with everything that continued

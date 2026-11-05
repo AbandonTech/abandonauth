@@ -27,10 +27,18 @@ const MaxTokenBytes = 8192
 // reason, so a caller learns nothing about which check failed.
 var ErrInvalidToken = errors.New("the access token is not accepted")
 
-var (
-	canonicalUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-	opaqueSubject = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
-)
+var canonicalUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// canonicalNonNilUUID reads a UUID only in its canonical lower-case hyphenated
+// spelling, and returns the nil UUID for anything else or for the nil UUID
+// itself.
+func canonicalNonNilUUID(text string) uuid.UUID {
+	if !canonicalUUID.MatchString(text) {
+		return uuid.Nil
+	}
+
+	return uuid.MustParse(text)
+}
 
 // AccessTokenVerifier accepts exactly the access tokens Issuer signs: the
 // access token header, a key from the access token ring, this issuer, and
@@ -196,7 +204,7 @@ func readAccessTokenClaims(raw []byte) (AccessTokenClaims, error) {
 	}
 
 	if !canonicalUUID.MatchString(claims.ClientID) || !canonicalUUID.MatchString(claims.TokenID) ||
-		!canonicalUUID.MatchString(claims.AuthEpoch) || !opaqueSubject.MatchString(claims.Subject) {
+		!canonicalUUID.MatchString(claims.AuthEpoch) || canonicalNonNilUUID(claims.Subject) == uuid.Nil {
 		return AccessTokenClaims{}, ErrInvalidToken
 	}
 

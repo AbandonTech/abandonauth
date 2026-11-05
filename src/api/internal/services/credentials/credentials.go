@@ -57,6 +57,7 @@ const (
 	DomainIdentityNonce      Domain = "abandonauth/identity-token-nonce/v1"
 
 	DomainAuthorizationPage       Domain = "abandonauth/oidc-authorization-page/v1"
+	DomainAuthorizationConsent    Domain = "abandonauth/oidc-authorization-consent/v1"
 	DomainNativeBrowserBinding    Domain = "abandonauth/oidc-browser-binding/v1"
 	DomainNativeAuthorizationCode Domain = "abandonauth/oidc-authorization-code/v1"
 	DomainRefreshToken            Domain = "abandonauth/oidc-refresh-token/v1"

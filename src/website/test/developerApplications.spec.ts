@@ -69,10 +69,10 @@ describe("registering an application", () => {
     const page = await mountSuspended(ApplicationsPage, { route: "/developer-applications" });
 
     expect(clientTypeLabels.confidential).toBe(
-      "Confidential client — server-side application that can protect a credential",
+      "Confidential client: a server-side application that can protect a credential",
     );
     expect(clientTypeLabels.public).toBe(
-      "Public client — installed application that cannot protect a shared credential",
+      "Public client: an installed application that cannot protect a shared credential",
     );
     expect(page.find('[data-test="client-type"]').text()).toContain(clientTypeLabels.confidential);
     expect(page.find('[data-test="client-type"]').text()).toContain(clientTypeLabels.public);
@@ -115,6 +115,7 @@ describe("an application's page", () => {
     expect(page.findAll("button").some((button) => button.text() === "Reset Token")).toBe(false);
     expect(page.find('[data-test="loopback-help"]').text()).toContain("http://127.0.0.1/oauth/callback");
     expect(page.find('[data-test="loopback-help"]').text()).toContain("http://[::1]/oauth/callback");
+    expect(page.find('[data-test="loopback-help"]').text()).toContain("and a path");
     expect(page.text()).toContain("Delete Application");
   });
 

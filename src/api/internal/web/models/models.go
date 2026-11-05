@@ -57,13 +57,19 @@ type LoginDeveloperApplicationDto struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-// PendingAuthorizationDto is what the authorization page displays, and
+// ProviderSelectionDto is what the provider selection page displays, and
 // nothing else.
-type PendingAuthorizationDto struct {
+type ProviderSelectionDto struct {
+	ApplicationName string   `json:"application_name"`
+	ExpiresAt       string   `json:"expires_at"`
+	Providers       []string `json:"providers"`
+}
+
+// PendingConsentDto is what the consent screen displays, and nothing else.
+type PendingConsentDto struct {
 	ApplicationName string   `json:"application_name"`
 	Scopes          []string `json:"scopes"`
 	ExpiresAt       string   `json:"expires_at"`
-	Providers       []string `json:"providers"`
 }
 
 // TokenSetDto is a token endpoint's successful answer. The refresh members are
@@ -78,7 +84,8 @@ type TokenSetDto struct {
 	RefreshTokenExpiresIn int64  `json:"refresh_token_expires_in,omitempty"`
 }
 
-// UserInfoDto is the claims an access token's grant releases.
+// UserInfoDto is the claims an access token's grant releases: the user's
+// canonical AbandonAuth identifier, and the username only under profile.
 type UserInfoDto struct {
 	Subject           string  `json:"sub"`
 	PreferredUsername *string `json:"preferred_username,omitempty"`

@@ -54,9 +54,10 @@ func (i *Issuer) Identifier() string {
 	return i.issuer
 }
 
-// Identity is what an ID token says about the person to one client.
+// Identity is what an ID token says about the person to one client. Subject is
+// the AbandonAuth user identifier.
 type Identity struct {
-	Subject  string
+	Subject  uuid.UUID
 	ClientID uuid.UUID
 	AuthTime time.Time
 
@@ -69,7 +70,7 @@ type Identity struct {
 
 // IssueIDToken signs an ID token valid for exactly IDTokenLifetime.
 func (i *Issuer) IssueIDToken(identity Identity) (string, error) {
-	if identity.Subject == "" || identity.ClientID == uuid.Nil || identity.AuthTime.IsZero() {
+	if identity.Subject == uuid.Nil || identity.ClientID == uuid.Nil || identity.AuthTime.IsZero() {
 		return "", errors.New("an ID token needs a subject, a client and an authentication time")
 	}
 
@@ -77,7 +78,7 @@ func (i *Issuer) IssueIDToken(identity Identity) (string, error) {
 
 	return sign(i.keys.idToken.active, idTokenType, IDTokenClaims{
 		Issuer:            i.issuer,
-		Subject:           identity.Subject,
+		Subject:           identity.Subject.String(),
 		Audience:          identity.ClientID.String(),
 		ExpiresAt:         issuedAt + int64(IDTokenLifetime/time.Second),
 		IssuedAt:          issuedAt,
@@ -87,9 +88,10 @@ func (i *Issuer) IssueIDToken(identity Identity) (string, error) {
 	})
 }
 
-// Access is what an access token grants one client.
+// Access is what an access token grants one client. Subject is the AbandonAuth
+// user identifier.
 type Access struct {
-	Subject   string
+	Subject   uuid.UUID
 	ClientID  uuid.UUID
 	Scopes    Scopes
 	AuthEpoch uuid.UUID
@@ -98,7 +100,7 @@ type Access struct {
 // IssueAccessToken signs an RFC 9068 access token valid for exactly
 // AccessTokenLifetime from the moment of issue, and returns its claims.
 func (i *Issuer) IssueAccessToken(access Access) (string, AccessTokenClaims, error) {
-	if access.Subject == "" || access.ClientID == uuid.Nil || access.AuthEpoch == uuid.Nil ||
+	if access.Subject == uuid.Nil || access.ClientID == uuid.Nil || access.AuthEpoch == uuid.Nil ||
 		!access.Scopes.Has(ScopeOpenID) {
 		return "", AccessTokenClaims{}, errors.New("an access token needs a subject, a client, openid and an epoch")
 	}
@@ -112,7 +114,7 @@ func (i *Issuer) IssueAccessToken(access Access) (string, AccessTokenClaims, err
 
 	claims := AccessTokenClaims{
 		Issuer:    i.issuer,
-		Subject:   access.Subject,
+		Subject:   access.Subject.String(),
 		Audience:  access.ClientID.String(),
 		ClientID:  access.ClientID.String(),
 		Scope:     access.Scopes.String(),

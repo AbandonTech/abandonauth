@@ -11,9 +11,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/abandontech/abandonauth/src/api/internal/database"
+	"github.com/abandontech/abandonauth/src/api/internal/database/testdatabase"
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
-	"github.com/abandontech/abandonauth/src/api/internal/services/providers/providertest"
 	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
 )
 
@@ -35,8 +34,8 @@ func validators(t *testing.T, service *servertest.Service) (*servertest.TokenVal
 
 // A code is exchanged for exactly the profiled token set: the members and
 // headers the contract names, an ID token and an access token that external
-// validators accept from the published key sets alone, the same pairwise
-// subject in both, and nothing that names the AbandonAuth user.
+// validators accept from the published key sets alone, and the AbandonAuth
+// user's canonical UUID as the subject of both, with no user_id claim.
 func TestCodeExchangeIssuesExactlyTheProfiledTokens(t *testing.T) {
 	t.Parallel()
 
@@ -94,21 +93,15 @@ func TestCodeExchangeIssuesExactlyTheProfiledTokens(t *testing.T) {
 		t.Errorf("the granted claims are %v and %v", identity, access)
 	}
 
-	if identity["sub"] != access["sub"] {
-		t.Error("the two tokens name the person differently")
+	userID := userIDOf(t, service, "the person")
+
+	if identity["sub"] != userID || access["sub"] != userID {
+		t.Errorf("the tokens name the person %v and %v, want the user identifier %s", identity["sub"], access["sub"], userID)
 	}
 
-	var userID string
-	if err := service.Pool.QueryRow(t.Context(),
-		`SELECT "id"::text FROM "User" WHERE "username" = 'the person'`).Scan(&userID); err != nil {
-		t.Fatalf("finding the person: %v", err)
-	}
-
-	for _, token := range []string{issued.IDToken, issued.AccessToken} {
-		for name, value := range servertest.DecodeClaims(token) {
-			if text, isText := value.(string); isText && strings.Contains(text, userID) {
-				t.Errorf("claim %s carries the AbandonAuth user identifier", name)
-			}
+	for name, claims := range map[string]map[string]any{"ID token": identity, "access token": access} {
+		if _, present := claims["user_id"]; present {
+			t.Errorf("the %s carries user_id", name)
 		}
 	}
 
@@ -141,10 +134,9 @@ func TestEveryProviderEndsInNativeCode(t *testing.T) {
 			sessions := countRows(t, service, "browser_session")
 
 			pending := client.Pending(ipv4Template, 49152, "openid")
-			started := client.BeginPublicSignIn(pending, provider)
+			handle := client.ReachConsent(pending, provider, service.Providers.Someone(provider, "someone"))
 
-			returned := service.FinishLogin(started, service.Providers.Someone(provider, "someone")).
-				ExpectStatus(http.StatusSeeOther)
+			returned := service.AllowConsent(handle).ExpectStatus(http.StatusSeeOther)
 			expectPageHeaders(t, returned)
 
 			if returned.Cookie(service.SessionCookieName()) != nil || countRows(t, service, "browser_session") != sessions {
@@ -363,50 +355,147 @@ func TestCodeWithoutOfflineAccessIssuesNoRefreshToken(t *testing.T) {
 	}
 }
 
-// One person is the same subject at one application every time, a different
-// one at every other application, and different from every other person.
-func TestPairwiseSubjectsAreStableAndUnlinkable(t *testing.T) {
+// userIDOf is the AbandonAuth user identifier of the person signed in under a
+// username.
+func userIDOf(t *testing.T, service *servertest.Service, username string) string {
+	t.Helper()
+
+	var userID string
+	if err := service.Pool.QueryRow(t.Context(),
+		`SELECT "id"::text FROM "User" WHERE "username" = $1`, username).Scan(&userID); err != nil {
+		t.Fatalf("finding %s: %v", username, err)
+	}
+
+	return userID
+}
+
+// One provider identity is one AbandonAuth user, named by the same canonical
+// UUID in a confidential application's user token, in every token two public
+// clients are issued, after a refresh and at UserInfo; another provider
+// account is another user with another UUID. The subject needs no profile.
+func TestEveryFlowNamesUserBySameSubject(t *testing.T) {
 	t.Parallel()
 
 	service := servertest.New(t)
-	_, first := installedClient(t, service)
-	second := service.InstalledClient(service.RegisterPublicClient("another installed application", ipv4Template))
+	firstApplication, first := installedClient(t, service)
+	secondApplication := service.RegisterPublicClient("another installed application", ipv4Template)
+	second := service.InstalledClient(secondApplication)
+	confidential := service.RegisterApplication("a server-side application", externalCallbackURI)
+	idTokens, accessTokens := validators(t, service)
 
 	person := service.Providers.Someone(oauth.Discord, "the person")
 	stranger := service.Providers.Someone(oauth.Discord, "a stranger")
 
-	subject := func(client *servertest.InstalledClient, identity providertest.Identity) string {
-		_, issued := client.Tokens(ipv4Template, "openid profile", identity)
+	returned := service.FinishLogin(service.StartLogin(oauth.Discord, confidential.ID, externalCallbackURI), person).
+		ExpectStatus(http.StatusTemporaryRedirect)
 
-		subject, _ := servertest.DecodeClaims(issued.AccessToken)["sub"].(string)
-
-		return subject
+	returnedTo, err := url.Parse(returned.Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("the browser was returned to something that is not a URL: %v", err)
 	}
 
-	atFirst := subject(first, person)
-	again := subject(first, person)
-	atSecond := subject(second, person)
-	strangerAtFirst := subject(first, stranger)
-
-	if atFirst != again {
-		t.Error("one person was two subjects at one application")
+	var granted struct {
+		Token string `json:"token"`
 	}
 
-	if atFirst == atSecond {
-		t.Error("one person was the same subject at two applications")
+	service.POSTJSON("/login",
+		map[string]string{"id": confidential.ID.String(), "refresh_token": confidential.RefreshToken},
+		servertest.Header("exchange-token", returnedTo.Query().Get("code")),
+	).ExpectStatus(http.StatusOK).DecodeInto(&granted)
+
+	userID := userIDOf(t, service, "the person")
+	confidentialClaims := servertest.DecodeClaims(granted.Token)
+
+	if confidentialClaims["sub"] != userID || confidentialClaims["user_id"] != userID {
+		t.Fatalf("the confidential user token names %v, want %s", confidentialClaims["sub"], userID)
 	}
 
-	if atFirst == strangerAtFirst {
-		t.Error("two people were one subject at one application")
+	subjects := map[string]any{}
+
+	for name, test := range map[string]struct {
+		application servertest.Application
+		client      *servertest.InstalledClient
+	}{
+		"the first public client":  {firstApplication, first},
+		"the second public client": {secondApplication, second},
+	} {
+		pending, issued := test.client.Tokens(ipv4Template, "openid offline_access", person)
+		clientID := test.application.ID.String()
+
+		identity, err := idTokens.ValidateIDToken(issued.IDToken, clientID, pending.Nonce)
+		if err != nil {
+			t.Fatalf("%s: the ID token was refused: %v", name, err)
+		}
+
+		if _, released := identity["preferred_username"]; released {
+			t.Errorf("%s: a username was released without profile", name)
+		}
+
+		access, err := accessTokens.ValidateAccessToken(issued.AccessToken, clientID)
+		if err != nil {
+			t.Fatalf("%s: the access token was refused: %v", name, err)
+		}
+
+		var refreshed servertest.TokenSet
+
+		test.client.Refresh(issued.RefreshToken, "").ExpectStatus(http.StatusOK).DecodeInto(&refreshed)
+
+		var released map[string]any
+
+		service.GET("/oauth/userinfo", servertest.Bearer(issued.AccessToken)).ExpectStatus(http.StatusOK).DecodeInto(&released)
+
+		subjects[name+" ID token"] = identity["sub"]
+		subjects[name+" access token"] = access["sub"]
+		subjects[name+" refreshed ID token"] = servertest.DecodeClaims(refreshed.IDToken)["sub"]
+		subjects[name+" refreshed access token"] = servertest.DecodeClaims(refreshed.AccessToken)["sub"]
+		subjects[name+" UserInfo"] = released["sub"]
 	}
 
-	if _, err := database.RotateAuthority(t.Context(), service.Pool); err != nil {
-		t.Fatalf("rotating the authority: %v", err)
+	for where, subject := range subjects {
+		if subject != userID {
+			t.Errorf("%s names the person %v, want %s", where, subject, userID)
+		}
 	}
 
-	if after := subject(first, person); after != atFirst {
-		t.Error("rotating the authority changed a subject")
+	_, strangers := first.Tokens(ipv4Template, "openid", stranger)
+
+	if subject := servertest.DecodeClaims(strangers.AccessToken)["sub"]; subject == userID ||
+		subject != userIDOf(t, service, "a stranger") {
+		t.Errorf("another provider account was named %v", subject)
 	}
+}
+
+// Without the public-client/user relationships, no code or refresh token is
+// redeemed, UserInfo releases nothing and no access token is recorded as
+// revoked: each answers its fixed server failure and leaves the credential for
+// a retry. The confidential flow, which never reads them, keeps working.
+func TestPublicClientEndpointsFailClosedWithoutRelationships(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	_, client := installedClient(t, service)
+	confidential := service.RegisterApplication("a server-side application", externalCallbackURI)
+
+	_, issued := client.Tokens(ipv4Template, "openid offline_access", service.Providers.Someone(oauth.Discord, "p"))
+
+	pending := client.Pending(ipv4Template, 49153, "openid")
+	code := client.SignIn(pending, oauth.Discord, "p")
+
+	testdatabase.Execute(t, service.Pool, `ALTER TABLE oauth_public_client_user RENAME TO unreachable`)
+
+	expectOAuthError(t, client.Exchange(pending, code), http.StatusInternalServerError, "server_error")
+	expectOAuthError(t, client.Refresh(issued.RefreshToken, ""), http.StatusInternalServerError, "server_error")
+	expectOAuthError(t, service.GET("/oauth/userinfo", servertest.Bearer(issued.AccessToken)),
+		http.StatusInternalServerError, "server_error")
+	expectOAuthError(t, client.Revoke(issued.AccessToken), http.StatusInternalServerError, "server_error")
+
+	service.GET("/me", servertest.Bearer(userAccessToken(t, service, confidential))).ExpectStatus(http.StatusOK)
+
+	testdatabase.Execute(t, service.Pool, `ALTER TABLE unreachable RENAME TO oauth_public_client_user`)
+
+	service.GET("/oauth/userinfo", servertest.Bearer(issued.AccessToken)).ExpectStatus(http.StatusOK)
+	client.Exchange(pending, code).ExpectStatus(http.StatusOK)
+	client.Refresh(issued.RefreshToken, "").ExpectStatus(http.StatusOK)
 }
 
 // Fixed refusals at the endpoint itself, each the one-member OAuth body, never

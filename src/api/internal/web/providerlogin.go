@@ -193,8 +193,8 @@ func (s *Server) consumeLogin(
 // application started ends in a one-time code that only that application can
 // spend.
 //
-// A login continuing a public client's authorization ends only in that
-// authorization's code, returned to its client.
+// A login continuing a public client's authorization ends in that
+// authorization's consent, which the person answers on the site.
 func (s *Server) completeLogin(
 	writer http.ResponseWriter,
 	request *http.Request,
@@ -263,8 +263,10 @@ func (s *Server) signInBrowser(
 	response.Redirect(writer, http.StatusTemporaryRedirect, destination)
 }
 
-// completeNativeLogin ends a public client's authorization in its code, issued
-// in the transaction that advances it, and returns the browser to the client.
+// completeNativeLogin hands a person the provider authenticated to the consent
+// screen, with the handle only in the fragment. Authentication grants the client
+// nothing: no code, session or relationship exists until the person allows it.
+// An account the sign-in created stays whatever they answer.
 func (s *Server) completeNativeLogin(
 	writer http.ResponseWriter, request *http.Request, native oauth.NativeContinuation, identity accounts.Identity,
 ) {
@@ -282,7 +284,7 @@ func (s *Server) completeNativeLogin(
 		return
 	}
 
-	code, err := s.authorizations.CompleteProvider(request.Context(), native, person.ID)
+	handle, err := s.authorizations.BeginConsent(request.Context(), native, person.ID)
 	if errors.Is(err, oauth.ErrNoSuchAuthorization) {
 		response.Error(writer, http.StatusForbidden, detailSignInValidationFailed)
 
@@ -296,7 +298,8 @@ func (s *Server) completeNativeLogin(
 		return
 	}
 
-	s.returnCodeToClient(writer, native.RedirectURI, native.ClientState, code)
+	response.AuthorizationPage(writer)
+	response.OAuthRedirect(writer, s.config.Site.String()+consentPagePath+handle)
 }
 
 // endNativeLogin ends a public client's authorization without a code and tells
@@ -306,7 +309,7 @@ func (s *Server) completeNativeLogin(
 func (s *Server) endNativeLogin(
 	writer http.ResponseWriter, request *http.Request, native oauth.NativeContinuation, code string,
 ) {
-	_, err := s.authorizations.CompleteProvider(request.Context(), native, uuid.Nil)
+	err := s.authorizations.EndProvider(request.Context(), native)
 	if errors.Is(err, oauth.ErrNoSuchAuthorization) {
 		response.Error(writer, http.StatusForbidden, detailSignInValidationFailed)
 

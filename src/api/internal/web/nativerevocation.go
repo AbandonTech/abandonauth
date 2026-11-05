@@ -105,9 +105,9 @@ func (s *Server) revokeAccessToken(request *http.Request, read nativeRevocationR
 		return nil
 	}
 
-	return s.subjects.RevokeAccessToken(request.Context(), oauth.AccessRevocation{
+	return s.clientUsers.RevokeAccessToken(request.Context(), oauth.AccessRevocation{
 		ClientID:  read.clientID,
-		Subject:   claims.Subject,
+		UserID:    claims.SubjectIdentifier(),
 		TokenID:   claims.Identifier(),
 		ExpiresAt: time.Unix(claims.ExpiresAt, 0).UTC(),
 	})

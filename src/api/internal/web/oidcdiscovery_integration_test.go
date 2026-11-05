@@ -3,12 +3,17 @@
 package web_test
 
 import (
+	"bytes"
+	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 
 	"github.com/abandontech/abandonauth/src/api/internal/services/oauth"
 	"github.com/abandontech/abandonauth/src/api/internal/web/servertest"
@@ -47,7 +52,7 @@ func TestDiscoveryAdvertisesExactlyTheImplementedProfile(t *testing.T) {
 		"response_types_supported":                       []any{"code"},
 		"response_modes_supported":                       []any{"query"},
 		"grant_types_supported":                          []any{"authorization_code", "refresh_token"},
-		"subject_types_supported":                        []any{"pairwise"},
+		"subject_types_supported":                        []any{"public"},
 		"id_token_signing_alg_values_supported":          []any{"RS256"},
 		"scopes_supported":                               []any{"openid", "profile", "offline_access"},
 		"token_endpoint_auth_methods_supported":          []any{"none"},
@@ -226,5 +231,95 @@ func TestForgedCrossPurposeTokensAreRefused(t *testing.T) {
 
 	if _, err := accessTokens.ValidateAccessToken(issued.AccessToken, "00000000-0000-0000-0000-00000000dead"); err == nil {
 		t.Error("an access token was accepted for another client")
+	}
+}
+
+// Validators built from discovery alone accept a subject only as the canonical
+// lower-case spelling of a non-nil UUID, and refuse a payload that names a
+// member twice or carries anything after its object, even under each class's
+// genuine key. A canonical subject re-signed with that key is the positive
+// control.
+func TestValidatorsAcceptOnlyCanonicalUserSubjects(t *testing.T) {
+	t.Parallel()
+
+	service := servertest.New(t)
+	application, client := installedClient(t, service)
+	keys := servertest.SigningKeyFiles(t)
+	idTokens, accessTokens := validators(t, service)
+
+	pending, issued := client.Tokens(ipv4Template, "openid", service.Providers.Someone(oauth.Discord, "p"))
+	clientID := application.ID.String()
+	subject, _ := servertest.DecodeClaims(issued.AccessToken)["sub"].(string)
+	another := uuid.NewString()
+
+	for class, profile := range map[string]struct {
+		key      *rsa.PrivateKey
+		kid, typ string
+		token    string
+		validate func(string) error
+	}{
+		"ID token": {keys.IDTokenPrivate, keys.IDTokenKeyID(), "JWT", issued.IDToken, func(token string) error {
+			_, err := idTokens.ValidateIDToken(token, clientID, pending.Nonce)
+
+			return err
+		}},
+		"access token": {keys.AccessTokenPrivate, keys.AccessTokenKeyID(), "at+jwt", issued.AccessToken, func(token string) error {
+			_, err := accessTokens.ValidateAccessToken(token, clientID)
+
+			return err
+		}},
+	} {
+		header := map[string]any{"alg": "RS256", "kid": profile.kid, "typ": profile.typ}
+
+		payload := func(value any) []byte {
+			claims := servertest.DecodeClaims(profile.token)
+			if value == nil {
+				delete(claims, "sub")
+			} else {
+				claims["sub"] = value
+			}
+
+			encoded, err := json.Marshal(claims)
+			if err != nil {
+				t.Fatalf("encoding claims: %v", err)
+			}
+
+			return encoded
+		}
+
+		sign := func(payload []byte) string {
+			token, err := servertest.SignPayload(profile.key, header, payload)
+			if err != nil {
+				t.Fatalf("signing a test token: %v", err)
+			}
+
+			return token
+		}
+
+		if err := profile.validate(sign(payload(another))); err != nil {
+			t.Fatalf("%s: a canonical subject re-signed with the genuine key was refused, so the cases below prove nothing: %v", class, err)
+		}
+
+		canonical := payload(subject)
+
+		for name, refused := range map[string][]byte{
+			"the nil UUID":              payload(uuid.Nil.String()),
+			"an upper-case UUID":        payload(strings.ToUpper(subject)),
+			"a braced UUID":             payload("{" + subject + "}"),
+			"a compact UUID":            payload(strings.ReplaceAll(subject, "-", "")),
+			"a URN":                     payload("urn:uuid:" + subject),
+			"a malformed UUID":          payload(subject[:35] + "g"),
+			"an opaque value":           payload(strings.Repeat("s", 43)),
+			"a number":                  payload(7),
+			"an array":                  payload([]string{subject}),
+			"no subject":                payload(nil),
+			"a conflicting duplicate":   bytes.Replace(canonical, []byte(`"sub":`), []byte(`"sub":"`+another+`","sub":`), 1),
+			"a duplicate of any member": bytes.Replace(canonical, []byte(`"iss":`), []byte(`"iss":"`+servertest.OpenIDIssuer+`","iss":`), 1),
+			"trailing JSON":             append(bytes.Clone(canonical), `{}`...),
+		} {
+			if err := profile.validate(sign(refused)); err == nil {
+				t.Errorf("%s with %s was accepted", class, name)
+			}
+		}
 	}
 }

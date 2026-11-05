@@ -167,32 +167,55 @@ and it signs in only through OpenID Connect. The integration contract is
    `abandonauth_native_oauth` cookie, separate from the confidential login's,
    and a 303 to the site's `/authorize#request=<handle>`.
 2. The site's `pages/authorize.vue` takes the handle out of the fragment, reads
-   `GET /api/oauth/authorization/{request}` (name, scopes, deadline,
-   providers), and posts the person's choice to
-   `/api/oauth/authorization/{request}/{provider}` or `/cancel`. Both need the
-   exact site `Origin` and the binding cookie, and spend the page atomically.
-3. A choice advances the root and records ordinary provider state carrying the
-   root as its continuation (`oauth.Store.beginNative`). The provider callback
-   tries that continuation under the native cookie first and the confidential
-   login under its own cookie second, keeps every provider check, and for a
-   continuation issues a native code (at most 120 seconds, never past the root's
-   deadline) in the transaction that advances the root, then 303s to the stored
-   redirect with `code`, `state` and `iss`. Refusals there are `access_denied`
-   or `server_error`; an untrusted state is the usual 403.
-4. `POST /api/oauth/token` (`nativetoken.go`) redeems the code with its PKCE
+   `GET /api/oauth/authorization/{request}` (name, deadline, providers), and
+   renders `ProviderSignIn`, the same presentation `pages/login.vue` renders,
+   with empty forms posting the person's choice to
+   `/api/oauth/authorization/{request}/{provider}`. That needs the exact site
+   `Origin` and the binding cookie, and spends the page atomically. The site
+   serves the page with `Referrer-Policy: same-origin`, so these forms carry the
+   real site `Origin` rather than `null` while no cross-origin request receives a
+   referrer; the two are one contract.
+3. A choice advances the root from `page` to `provider` and records ordinary
+   provider state carrying the root as its continuation
+   (`oauth.Store.beginNative`). The provider callback tries that continuation
+   under the native cookie first and the confidential login under its own cookie
+   second and keeps every provider check. For a continuation it resolves the
+   identity with `accounts.Resolve`, which creates the account at a first
+   sign-in, then in one transaction moves the root to `consent`, recording the
+   person, the database's authentication time and the digest of a fresh consent
+   handle, and 303s to the site's `/consent#request=<handle>`. No code, session or
+   client relationship exists yet. Refusals there are `access_denied` or
+   `server_error` at the stored redirect; an untrusted state is the usual 403.
+4. The site's `pages/consent.vue` takes the handle out of the fragment, reads
+   `GET /api/oauth/consent/{consent}` (name, scopes, deadline), states what those
+   scopes release, and offers empty `Allow` and `Cancel` forms under the same
+   `Origin`, cookie and referrer contract. `POST .../allow` issues the native code
+   (at most 120 seconds, never past the root's deadline) in the transaction that
+   moves the root to `code` and clears the consent values, then 303s to the stored
+   redirect with `code`, `state` and `iss`. `POST .../cancel` deletes the root and
+   303s there with `access_denied`; the account stays. Both lock the one row, so
+   exactly one answer wins and every other is the same 404. Both pages drop their
+   actions when `expires_at` arrives, which is presentation only: the API rechecks
+   every submission.
+5. `POST /api/oauth/token` (`nativetoken.go`) redeems the code with its PKCE
    verifier, or rotates a refresh token, in one transaction holding the shared
-   auth-epoch lock: the code or token is spent, the pairwise subject resolved,
-   an offline grant's family created or advanced, and both RS256 tokens signed
-   (`internal/services/oidc`) before commit.
-5. `GET /api/oauth/userinfo` and `POST /api/oauth/revoke` accept only the OIDC
-   access token class; discovery and the two purpose-specific key sets are
-   published at fixed addresses.
+   auth-epoch lock: the code or token is spent, the client's
+   `oauth_public_client_user` row with the person ensured conflict-safely, an
+   offline grant's family created or advanced under that row's lock, and both
+   RS256 tokens signed (`internal/services/oidc`) before commit. Both tokens'
+   `sub` is the person's `User.id`, the same canonical UUID a confidential
+   application's user token carries; there is no other subject mapping.
+6. `GET /api/oauth/userinfo` and `POST /api/oauth/revoke` accept only the OIDC
+   access token class, and resolve its `sub` UUID with its client to that exact
+   `oauth_public_client_user` row; discovery and the two purpose-specific key
+   sets are published at fixed addresses.
 
 Every native transition takes the auth epoch's row lock in shared mode and
 compares the root's epoch exactly; rotation takes it exclusively and deletes
-every root, code, offline family and access-token revocation, keeping pairwise
-subjects. Provider HTTP calls run outside any transaction, so a rotation during
-one leaves no root for the code to be issued against. Each API process serves at
+every root, code, offline family and access-token revocation, keeping the
+public-client/user rows, which are lock anchors rather than credentials.
+Provider HTTP calls run outside any transaction, so a rotation during
+one leaves no root for the consent to begin against. Each API process serves at
 most 64 of these requests at once (`publicprotocol.go`).
 
 ## Browser authority
@@ -255,7 +278,15 @@ stored with the session.
   that gives up cannot leave a connection or a row lock held.
 - A third and fourth token class, the OIDC ID token and RFC 9068 access token,
   are RS256 with two separate key files and published key sets, and share
-  nothing with the two HS512 classes.
+  nothing with the two HS512 classes but the subject: every one names the user
+  by the canonical non-nil `User.id`, as the user access token does, and
+  carries no `user_id` claim. The subject is public and the same at every
+  application; audience, class, key, issuer, scope, epoch and revocation, never
+  the subject, decide what a token grants.
+- The offline-grant ceiling (ten families) and the access-token revocation
+  ceiling (a thousand) are counted per `oauth_public_client_user` row, locked
+  `FOR UPDATE` while counting; refresh families and revocations reference that
+  row and are deleted with it when the application or user is.
 - `internal/services/housekeeping` sweeps expired logins, codes, sessions,
   withdrawn tokens, budget windows, public client authorizations, ended offline
   grants and expired access-token revocations on a ticker `serve` starts once its

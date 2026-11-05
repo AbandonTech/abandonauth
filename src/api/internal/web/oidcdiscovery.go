@@ -22,7 +22,7 @@ func openIDProviderMetadata(issuer string) ([]byte, error) {
 		ResponseTypesSupported:                 []string{"code"},
 		ResponseModesSupported:                 []string{"query"},
 		GrantTypesSupported:                    []string{grantAuthorizationCode, grantRefreshToken},
-		SubjectTypesSupported:                  []string{"pairwise"},
+		SubjectTypesSupported:                  []string{"public"},
 		IDTokenSigningAlgValuesSupported:       []string{"RS256"},
 		ScopesSupported:                        []string{"openid", "profile", "offline_access"},
 		TokenEndpointAuthMethodsSupported:      []string{"none"},

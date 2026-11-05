@@ -237,18 +237,18 @@ func (s *Server) nativeToken() http.Handler {
 		}))
 }
 
-// signGrant signs the access and ID tokens for a grant. The username is
-// released only under profile.
+// signGrant signs the access and ID tokens for a grant, both naming the user
+// by their AbandonAuth identifier. The username is released only under profile.
 func (s *Server) signGrant(grant oauth.Grant) (oauth.SignedTokens, error) {
 	accessToken, _, err := s.issuer.IssueAccessToken(oidc.Access{
-		Subject: grant.Subject, ClientID: grant.ClientID, Scopes: grant.Scopes, AuthEpoch: grant.AuthEpoch,
+		Subject: grant.UserID, ClientID: grant.ClientID, Scopes: grant.Scopes, AuthEpoch: grant.AuthEpoch,
 	})
 	if err != nil {
 		return oauth.SignedTokens{}, err
 	}
 
 	identity := oidc.Identity{
-		Subject: grant.Subject, ClientID: grant.ClientID, AuthTime: grant.AuthTime, Nonce: grant.Nonce,
+		Subject: grant.UserID, ClientID: grant.ClientID, AuthTime: grant.AuthTime, Nonce: grant.Nonce,
 	}
 
 	if grant.Scopes.Has(oidc.ScopeProfile) {
