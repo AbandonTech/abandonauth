@@ -24,7 +24,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "@vue/test-utils": "^2.5.0",
     "daisyui": "^5.7.22",
-    "happy-dom": "^20.12.0",
+    "happy-dom": "^21.0.4",
     "tailwindcss": "^4.3.3",
     "vitest": "^4.1.11"
   }
